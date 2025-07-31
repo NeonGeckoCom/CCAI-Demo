@@ -35,3 +35,5 @@ python-jose[cryptography]
 
 # Data validation (required for EmailStr in Pydantic)
 email-validator
+python-docx
+python-multipart
