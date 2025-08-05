@@ -64,13 +64,7 @@ docker run --rm -d \
    - Frontend: `http://localhost:3000`
    - Backend API: `http://localhost:8000`
 
-## Local Installation
-### Prerequisites
-- Node.js 16+ and npm
-- Python 3.8+
-- Gemini API key for Google's models
-- (Optional) Ollama installation for local models
-
+## Local Installation Prerequisites
 - **Python 3.8+** (3.9+ recommended)
 - **Node.js 16+** and npm
 - **MongoDB** (Community Edition)
