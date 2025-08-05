@@ -1,0 +1,42 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    ports:
+      - "8000:8000"
+    networks:
+      - application
+    depends_on:
+      - database
+    environment:
+      MONGODB_CONNECTION_STRING: "mongodb://database:27017"
+      MONGODB_DATABASE: phd_advisor
+      JWT_SECRET_KEY: "CHANGEME-by-overriding-in-dot-env-file"
+      GEMINI_MODEL: gemini-2.0-flash
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - application
+    depends_on:
+      - backend
+  database:
+    image: mongo:8.0
+      # ports:
+      #   - "27017:27017"
+    networks:
+      - application
+        #environment:
+        #MONGO_INITDB_ROOT_USERNAME: root
+        #MONGO_INITDB_ROOT_PASSWORD: example
+networks:
+  application:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"

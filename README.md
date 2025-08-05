@@ -30,37 +30,22 @@ An AI-powered academic guidance system that provides personalized advice through
 - **Authentication**: JWT tokens with bcrypt password hashing
 
 ## Quick Start (Docker)
-### Build images
+### Prerequisites
+- **Docker**
+
+### Instructions
 1. **Clone the repository**
 ```bash
 git clone https://github.com/sohank-17/Neon-AI-Project
 cd Neon-AI-Project
 ```
 
-2. ** Build backend and frontend images**
+2. **Build and Run Containers**
 ```bash
-docker build . -t phd-advisor-backend --target backend
-docker build . -t phd-advisor-frontend --target frontend
+docker compose up -d
 ```
 
-3. **Run backend container**
-```bash
-docker run --rm -d \
-  --network=host \
-  -e GEMINI_API_KEY=<Gemini API Key>\
-  --name phd-advisor-backend \
-  phd-advisor-backend:latest
-```
-
-4. **Run frontend container**
-```bash
-docker run --rm -d \
-  --network=host \
-  --name phd-advisor-frontend \
-  phd-advisor-frontend:latest
-```
-
-5. **Access the application**
+3. **Access the application**
    - Frontend: `http://localhost:3000`
    - Backend API: `http://localhost:8000`
 
