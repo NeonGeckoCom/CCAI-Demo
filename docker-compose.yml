@@ -14,9 +14,9 @@ services:
       MONGODB_CONNECTION_STRING: "mongodb://database:27017"
       MONGODB_DATABASE: phd_advisor
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-"CHANGEME-by-overriding-in-dot-env-file"}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-""}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-?}
       CORS_ORIGINS: ${CORS_ORIGINS:-"http://localhost:3000"}
-      GEMINI_MODEL: gemini-2.0-flash
+      GEMINI_MODEL: gemini-2.5-flash
   frontend:
     build:
       context: .
@@ -32,13 +32,12 @@ services:
       REACT_APP_API_URL: ${REACT_APP_API_URL:-"http://localhohst:8000"}
   database:
     image: mongo:8.0
-      # ports:
-      #   - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
     networks:
       - application
-        #environment:
-        #MONGO_INITDB_ROOT_USERNAME: root
-        #MONGO_INITDB_ROOT_PASSWORD: example
+volumes:
+  mongo_data:
 networks:
   application:
     driver: bridge
