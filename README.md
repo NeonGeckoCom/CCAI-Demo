@@ -40,6 +40,16 @@ git clone https://github.com/sohank-17/Neon-AI-Project
 cd Neon-AI-Project
 ```
 
+1. **Configure via `.env` file**
+Create a `.env` file in the root of the project with:
+```
+GEMINI_API_KEY=<valid Gemini API key>
+JWT_SECRET_KEY=<Generated UUID>
+REACT_APP_API_URL=http://localhost:8000
+CORS_ORIGINS=http://localhost:3000
+```
+> `REACT_APP_API_URL` and `CORS_ORIGINS` must match the real addresses used if accessing the demo from a remote host.
+
 2. **Build and Run Containers**
 ```bash
 docker compose up -d
