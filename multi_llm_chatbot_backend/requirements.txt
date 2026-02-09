@@ -31,7 +31,11 @@ motor
 
 # Authentication and security
 passlib[bcrypt]
+# `bcrypt` pinned for compat.
+bcrypt~=4.0
 python-jose[cryptography]
 
 # Data validation (required for EmailStr in Pydantic)
 email-validator
+python-docx
+python-multipart

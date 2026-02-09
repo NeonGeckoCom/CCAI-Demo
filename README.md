@@ -29,10 +29,37 @@ An AI-powered academic guidance system that provides personalized advice through
 - **Document Processing**: PDF, DOCX, and text file extraction with intelligent chunking
 - **Authentication**: JWT tokens with bcrypt password hashing
 
-## Prerequisites
+## Quick Start (Docker)
+### Prerequisites
+- **Docker**
 
-Before you begin, ensure you have the following installed:
+### Instructions
+1. **Clone the repository**
+```bash
+git clone https://github.com/sohank-17/Neon-AI-Project
+cd Neon-AI-Project
+```
 
+1. **Configure via `.env` file**
+Create a `.env` file in the root of the project with:
+```
+GEMINI_API_KEY=<valid Gemini API key>
+JWT_SECRET_KEY=<Generated UUID>
+REACT_APP_API_URL=http://localhost:8000
+CORS_ORIGINS=http://localhost:3000
+```
+> `REACT_APP_API_URL` and `CORS_ORIGINS` must match the real addresses used if accessing the demo from a remote host.
+
+2. **Build and Run Containers**
+```bash
+docker compose up -d
+```
+
+3. **Access the application**
+   - Frontend: `http://localhost:3000`
+   - Backend API: `http://localhost:8000`
+
+## Local Installation Prerequisites
 - **Python 3.8+** (3.9+ recommended)
 - **Node.js 16+** and npm
 - **MongoDB** (Community Edition)

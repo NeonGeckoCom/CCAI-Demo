@@ -1,0 +1,45 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    ports:
+      - "8000:8000"
+    networks:
+      - application
+    depends_on:
+      - database
+    environment:
+      MONGODB_CONNECTION_STRING: "mongodb://database:27017"
+      MONGODB_DATABASE: phd_advisor
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-"CHANGEME-by-overriding-in-dot-env-file"}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-?}
+      CORS_ORIGINS: ${CORS_ORIGINS:-"http://localhost:3000"}
+      GEMINI_MODEL: gemini-2.5-flash
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - application
+    depends_on:
+      - backend
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-"http://localhohst:8000"}
+  database:
+    image: mongo:8.0
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - application
+volumes:
+  mongo_data:
+networks:
+  application:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
