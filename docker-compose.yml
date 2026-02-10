@@ -17,6 +17,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-?}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       GEMINI_MODEL: gemini-2.5-flash
+      CONFIG_PATH: /ccai/phd_config.yaml
   frontend:
     build:
       context: .
