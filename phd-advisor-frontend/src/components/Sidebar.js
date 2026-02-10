@@ -13,6 +13,7 @@ import {
   ChevronRight,
   FileText
 } from 'lucide-react';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 
@@ -27,6 +28,8 @@ const Sidebar = ({
   onMobileToggle,
   onNavigateToCanvas
 }) => {
+  const { config } = useAppConfig();
+  const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
   const [chatSessions, setChatSessions] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -227,10 +230,10 @@ const Sidebar = ({
               <button 
                 className="sidebar-canvas-btn"
                 onClick={onNavigateToCanvas}
-                title="PhD Canvas"
+                title={canvasLabel}
               >
                 <FileText size={20} />
-                {!isCollapsed && <span>PhD Canvas</span>}
+                {!isCollapsed && <span>{canvasLabel}</span>}
               </button>
             </>
           )}
@@ -256,10 +259,10 @@ const Sidebar = ({
               <button 
                 className="sidebar-canvas-btn"
                 onClick={onNavigateToCanvas}
-                title="PhD Canvas"
+                title={canvasLabel}
               >
                 <FileText size={20} />
-                {!isCollapsed && <span>PhD Canvas</span>}
+                {!isCollapsed && <span>{canvasLabel}</span>}
               </button>
             </div>
           )}

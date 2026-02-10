@@ -8,13 +8,14 @@ import ThemeToggle from '../components/ThemeToggle';
 import ProviderDropdown from '../components/ProviderDropdown';
 import ExportButton from '../components/ExportButton';
 import Sidebar from '../components/Sidebar';
-import { advisors, getAdvisorColors } from '../data/advisors';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
 import '../styles/ChatPage.css';
 import '../styles/EnhancedChatInput.css';
 import AdvisorStatusDropdown from '../components/AdvisorStatusDropdown';
 
 const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSignOut }) => {
+  const { config, advisors, getAdvisorColors } = useAppConfig();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [thinkingAdvisors, setThinkingAdvisors] = useState([]);
@@ -643,7 +644,7 @@ const handleNewChat = async (sessionId = null) => {
     setReplyingTo({
       advisorId: message.persona_id,
       messageId: message.id,
-      advisorName: advisor.name,
+      advisorName: advisor?.name || message.advisorName || 'Advisor',
       persona_id: message.persona_id
     });
   };
@@ -654,7 +655,7 @@ const handleNewChat = async (sessionId = null) => {
       setReplyingTo({
         advisorId: message.persona_id,
         messageId: message.id,
-        advisorName: advisor.name,
+        advisorName: advisor?.name || message.advisorName || 'Advisor',
         persona_id: message.persona_id
       });
     }
@@ -682,6 +683,8 @@ const handleNewChat = async (sessionId = null) => {
 
   const hasMessages = messages.length > 0;
   const hasConversationMessages = messages.filter(m => m.type !== 'system' && m.type !== 'document_upload').length > 0;
+
+  const chatPlaceholder = config?.chat_page?.placeholder || "Ask your advisors anything...";
 
   return (
     <div className="chat-page-with-sidebar">
@@ -718,8 +721,8 @@ const handleNewChat = async (sessionId = null) => {
                   <Users size={24} />
                 </div>
                 <div className="brand-text">
-                  <h1>PhD Advisory</h1>
-                  <p>AI-Powered Academic Guidance</p>
+                  <h1>{config?.app?.title || 'Advisory'}</h1>
+                  <p>{config?.app?.subtitle || 'AI-Powered Guidance'}</p>
                 </div>
               </div>
             </div>
@@ -921,7 +924,7 @@ const handleNewChat = async (sessionId = null) => {
               placeholder={
                 replyingTo 
                   ? `Reply to ${replyingTo.advisorName}...`
-                  : "Ask your advisors anything about your PhD journey..."
+                  : chatPlaceholder
               }
             />
           </div>

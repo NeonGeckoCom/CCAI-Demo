@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.config import get_settings
 
 import logging
 
@@ -8,10 +9,12 @@ router = APIRouter()
 
 @router.get("/")
 def root():
+    title = get_settings().app.title
     return {
-        "message": "Multi-LLM PhD Advisor Backend is up and running",
-        "version": "1.0.0",
+        "message": f"{title} Backend is up and running",
+        "version": "2.0.0",
         "features": [
+            "Configurable Personas",
             "Improved Session Management",
             "Unified Context Handling",
             "Ollama Support",

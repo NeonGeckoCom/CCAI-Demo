@@ -1,12 +1,16 @@
 import React from 'react';
-import { advisors, getAdvisorColors } from '../data/advisors';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 const ThinkingIndicator = ({ advisorId }) => {
+  const { advisors, getAdvisorColors } = useAppConfig();
   const advisor = advisors[advisorId];
-  const Icon = advisor.icon;
   const { isDark } = useTheme();
   const colors = getAdvisorColors(advisorId, isDark);
+
+  if (!advisor) return null;
+
+  const Icon = advisor.icon;
 
   return (
     <div className="thinking-container">
@@ -14,7 +18,7 @@ const ThinkingIndicator = ({ advisorId }) => {
         className="advisor-avatar" 
         style={{ backgroundColor: colors.bgColor }}
       >
-        <Icon style={{ color: colors.color }} />
+        {Icon ? <Icon style={{ color: colors.color }} /> : null}
       </div>
       <div 
         className="thinking-bubble"

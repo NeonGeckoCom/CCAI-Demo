@@ -3,19 +3,22 @@ import os
 from typing import List
 from app.llm.llm_client import LLMClient
 from app.core.context_manager import get_context_manager
+from app.config import get_settings
 import logging
 
 logger = logging.getLogger(__name__)
 
 class ImprovedGeminiClient(LLMClient):
     def __init__(self, model_name: str = None):
+        settings = get_settings()
         if model_name is None:
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
+            model_name = settings.llm.gemini.model
         
         self.model_name = model_name
-        self.api_key = os.getenv("GEMINI_API_KEY")
+        # Config validator already falls back to GEMINI_API_KEY env var
+        self.api_key = settings.llm.gemini.api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
+            raise ValueError("Gemini API key not set. Provide it in config.yaml (llm.gemini.api_key) or as GEMINI_API_KEY env var.")
         
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.context_manager = get_context_manager()

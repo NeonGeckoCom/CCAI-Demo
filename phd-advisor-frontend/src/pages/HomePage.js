@@ -1,10 +1,14 @@
 import React from 'react';
-import { MessageCircle, Users, Target, Brain, ArrowRight } from 'lucide-react';
+import { MessageCircle, ArrowRight } from 'lucide-react';
 import AdvisorCard from '../components/AdvisorCard';
 import ThemeToggle from '../components/ThemeToggle';
-import { advisors } from '../data/advisors';
+import { useAppConfig } from '../contexts/AppConfigContext';
 
 const HomePage = ({ onNavigateToChat }) => {
+  const { config, advisors, resolveIcon } = useAppConfig();
+
+  const UsersIcon = resolveIcon('Users');
+
   return (
     <div className="homepage">
       {/* Header */}
@@ -12,11 +16,11 @@ const HomePage = ({ onNavigateToChat }) => {
         <div className="header-content">
           <div className="header-left">
             <div className="logo-container">
-              <Users className="logo-icon" />
+              <UsersIcon className="logo-icon" />
             </div>
             <div>
-              <h1 className="logo-title">PhD Advisory Panel</h1>
-              <p className="logo-subtitle">Your AI-powered academic advisors</p>
+              <h1 className="logo-title">{config.app.title}</h1>
+              <p className="logo-subtitle">{config.app.subtitle}</p>
             </div>
           </div>
           <div className="header-right">
@@ -29,11 +33,11 @@ const HomePage = ({ onNavigateToChat }) => {
       <main className="main">
         <div className="hero-section">
           <h2 className="hero-title">
-            Get Guidance from <span className="hero-highlight">Advisor Personas</span>
+            {config.homepage.headline_prefix}{' '}
+            <span className="hero-highlight">{config.homepage.headline_highlight}</span>
           </h2>
           <p className="hero-subtitle">
-            Receive diverse perspectives on your PhD journey from our specialized AI advisors, 
-            each bringing unique insights to help you succeed.
+            {config.homepage.description}
           </p>
           <button
             onClick={onNavigateToChat}
@@ -54,35 +58,22 @@ const HomePage = ({ onNavigateToChat }) => {
 
         {/* Features Section */}
         <div className="features-section">
-          <h3 className="features-title">Why Choose Our Advisory Panel?</h3>
+          <h3 className="features-title">{config.homepage.features_title}</h3>
           <div className="features-grid">
-            <div className="feature-card">
-              <div className="feature-icon">
-                <Users />
-              </div>
-              <h4 className="feature-title">Multiple Perspectives</h4>
-              <p className="feature-description">
-                Get varied viewpoints from different advisory styles
-              </p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">
-                <Brain />
-              </div>
-              <h4 className="feature-title">AI-Powered Insights</h4>
-              <p className="feature-description">
-                Leverage advanced AI for comprehensive guidance
-              </p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">
-                <Target />
-              </div>
-              <h4 className="feature-title">Focused Advice</h4>
-              <p className="feature-description">
-                Receive targeted recommendations for your specific needs
-              </p>
-            </div>
+            {(config.homepage.features || []).map((feature, index) => {
+              const FeatureIcon = resolveIcon(feature.icon);
+              return (
+                <div key={index} className="feature-card">
+                  <div className="feature-icon">
+                    <FeatureIcon />
+                  </div>
+                  <h4 className="feature-title">{feature.title}</h4>
+                  <p className="feature-description">
+                    {feature.description}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </main>
@@ -90,7 +81,7 @@ const HomePage = ({ onNavigateToChat }) => {
       <footer className="footer">
         <div className="footer-content">
           <p className="footer-text">
-            © 2025 University of Colorado Boulder. All rights reserved.
+            {config.app.footer_text}
           </p>
         </div>
       </footer>

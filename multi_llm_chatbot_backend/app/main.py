@@ -7,6 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+# Load configuration FIRST so every module can use it
+from app.config import load_settings
+settings = load_settings()
+
 # Import the new database functions
 from app.core.database import connect_to_mongo, close_mongo_connection
 
@@ -32,7 +36,7 @@ async def lifespan(app: FastAPI):
     await close_mongo_connection()
 
 app = FastAPI(
-    title="Multi-LLM Chatbot Backend",
+    title=f"{settings.app.title} Backend",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -54,16 +58,25 @@ app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
 
+# ---------------------------------------------------------------------------
+# Public configuration endpoint — serves the frontend-safe subset
+# ---------------------------------------------------------------------------
+@app.get("/api/config")
+def get_public_config():
+    """Return the public (non-secret) application configuration."""
+    return settings.get_public_config()
+
 @app.get("/")
 def root():
     return {
-        "message": "Multi-LLM PhD Advisor Backend with Authentication",
+        "message": f"{settings.app.title} Backend",
         "version": "2.0.0",
         "features": [
             "User Authentication", 
             "Persistent Chat Sessions",
             "MongoDB Integration",
             "Ollama Support", 
-            "Gemini API Support"
+            "Gemini API Support",
+            "Configurable Personas"
         ]
     }

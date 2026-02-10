@@ -8,6 +8,7 @@ from collections import defaultdict
 from app.models.phd_canvas import CanvasInsight, CanvasSection
 from app.llm.improved_gemini_client import ImprovedGeminiClient
 from app.llm.improved_ollama_client import ImprovedOllamaClient
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -127,14 +128,15 @@ class CanvasAnalysisService:
         
         try:
             # Use LLM to extract key insights
+            app_title = get_settings().app.title
             extraction_prompt = f"""
-            Extract actionable insights from this PhD advisor response that would be valuable for a student's progress summary:
+            Extract actionable insights from this {app_title} advisor response that would be valuable for a user's progress summary:
 
             PERSONA: {persona_id}
             CONTENT: {content}
 
             Return a JSON list of insights. Each insight should be:
-            - Actionable and specific to PhD progress
+            - Actionable and specific to the user's progress
             - 1-2 sentences long
             - Valuable for advisor meetings
             - Not generic advice
@@ -147,7 +149,7 @@ class CanvasAnalysisService:
             if self.llm_client:
                 try:
                     llm_response = await self.llm_client.generate(
-                        system_prompt="You are an expert at extracting actionable PhD guidance from advisor responses.",
+                        system_prompt=f"You are an expert at extracting actionable guidance from {app_title} advisor responses.",
                         context=[{"role": "user", "content": extraction_prompt}],
                         temperature=0.3,
                         max_tokens=500

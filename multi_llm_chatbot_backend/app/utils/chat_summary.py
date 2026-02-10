@@ -1,5 +1,6 @@
 from typing import List
 from app.llm.llm_client import LLMClient
+from app.config import get_settings
 import logging
 import re
 from typing import List, Dict
@@ -11,10 +12,11 @@ async def generate_summary_from_messages(messages: List[dict], llm: LLMClient, m
     Summarize the conversation using the given LLM client.
     """
     try:
+        app_title = get_settings().app.title
         full_text = "\n\n".join([f"{m['role']}:\n{m['content']}" for m in messages])
 
         system_prompt = (
-            "You are an academic assistant. Summarize the following PhD chat conversation "
+            f"You are an assistant for {app_title}. Summarize the following chat conversation "
             "into a well-formatted summary with clear bullet points. "
             "Please format your response as follows:\n"
             "- Use bullet points (starting with *) for key insights\n"

@@ -1,10 +1,11 @@
 import React from 'react';
-import { getAdvisorColors } from '../data/advisors';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 const AdvisorCard = ({ advisor, advisorId }) => {
   const Icon = advisor.icon;
   const { isDark } = useTheme();
+  const { getAdvisorColors } = useAppConfig();
   const colors = getAdvisorColors(advisorId, isDark);
 
   return (
