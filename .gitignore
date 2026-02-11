@@ -21,3 +21,6 @@ phd-advisor-frontend/firebase.json
 # Ignore all __pycache__ folders
 **/__pycache__/
 
+
+# Python virtual environments
+**/venv/
