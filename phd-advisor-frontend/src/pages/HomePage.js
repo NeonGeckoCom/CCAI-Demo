@@ -4,7 +4,7 @@ import AdvisorCard from '../components/AdvisorCard';
 import ThemeToggle from '../components/ThemeToggle';
 import { useAppConfig } from '../contexts/AppConfigContext';
 
-const HomePage = ({ onNavigateToChat }) => {
+const HomePage = ({ onNavigateToChat, isAuthenticated }) => {
   const { config, advisors, resolveIcon } = useAppConfig();
 
   const UsersIcon = resolveIcon('Users');
@@ -44,7 +44,7 @@ const HomePage = ({ onNavigateToChat }) => {
             className="cta-button"
           >
             <MessageCircle className="cta-icon" />
-            <span>Start Conversation</span>
+            <span>{isAuthenticated ? 'Continue Conversation' : 'Start Conversation'}</span>
             <ArrowRight className="cta-arrow" />
           </button>
         </div>
