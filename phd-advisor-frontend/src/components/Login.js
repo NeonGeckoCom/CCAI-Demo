@@ -247,6 +247,12 @@ const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
               Sign up here
             </button>
           </p>
+          <div className="login-powered-by">
+            <a href="https://neon.ai" target="_blank" rel="noopener noreferrer" className="footer-neon-link">
+              <img src="/neon-logo.png" alt="" className="footer-neon-logo" />
+              Powered by Neon.ai
+            </a>
+          </div>
         </div>
       </div>
     </div>

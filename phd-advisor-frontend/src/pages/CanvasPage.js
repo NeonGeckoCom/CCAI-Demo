@@ -402,22 +402,33 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         </div>
         
         <div className="header-actions">
-          <button 
-            onClick={handleRefreshCanvas}
-            disabled={isRefreshing || isUpdating}
-            className={`refresh-button ${(isRefreshing || isUpdating) ? 'disabled' : ''}`}
+          <div className="header-buttons">
+            <button 
+              onClick={handleRefreshCanvas}
+              disabled={isRefreshing || isUpdating}
+              className={`refresh-button ${(isRefreshing || isUpdating) ? 'disabled' : ''}`}
+            >
+              <RefreshCw className={`refresh-icon ${(isRefreshing || isUpdating) ? 'spinning' : ''}`} />
+              {(isRefreshing || isUpdating) ? 'Refreshing...' : 'Refresh Canvas'}
+            </button>
+            
+            <button 
+              className="action-button print-button"
+              onClick={handlePrint}
+            >
+              <Printer className="action-icon" />
+              Print
+            </button>
+          </div>
+          <a 
+            href="https://neon.ai" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="canvas-powered-by"
           >
-            <RefreshCw className={`refresh-icon ${(isRefreshing || isUpdating) ? 'spinning' : ''}`} />
-            {(isRefreshing || isUpdating) ? 'Refreshing...' : 'Refresh Canvas'}
-          </button>
-          
-          <button 
-            className="action-button print-button"
-            onClick={handlePrint}
-          >
-            <Printer className="action-icon" />
-            Print
-          </button>
+            <img src="/neon-logo.png" alt="" className="canvas-powered-by-logo" />
+            Powered by Neon.ai
+          </a>
         </div>
       </div>
 
@@ -499,6 +510,21 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           </div>
         )}
       </div>
+
+      {/* Copyright Footer */}
+      <footer className="canvas-copyright-footer">
+        <p className="footer-text">
+          Copyright{' '}
+          <a href="https://neon.ai" target="_blank" rel="noopener noreferrer" className="footer-neon-link">
+            <img src="/neon-logo.png" alt="" className="footer-neon-logo" />
+            Neon.ai
+          </a>
+          , portions copyright University of Colorado Boulder. All rights reserved.{' '}
+          <a href="https://www.neon.ai/contact" target="_blank" rel="noopener noreferrer" className="footer-patents-link">
+            Patents and licensing.
+          </a>
+        </p>
+      </footer>
 
       {/* Print Footer */}
       {isPrintView && (

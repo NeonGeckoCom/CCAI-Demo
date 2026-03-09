@@ -588,6 +588,73 @@
   background: var(--bg-tertiary-dark, #4b5563);
 }
 
+/* Sidebar Footer */
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: 20px;
+  border-top: 1px solid var(--border-light, #e5e7eb);
+  background: var(--bg-primary, #ffffff);
+}
+
+.dark .sidebar-footer {
+  border-top-color: var(--border-dark, #374151);
+  background: var(--bg-primary-dark, #1f2937);
+}
+
+.sidebar-neon-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--text-primary, #111827);
+  text-decoration: none;
+  font-size: 28px;
+  font-weight: bold;
+  transition: opacity 0.2s ease;
+}
+
+.sidebar-neon-link:hover {
+  opacity: 0.8;
+}
+
+.dark .sidebar-neon-link {
+  color: var(--text-primary-dark, #f9fafb);
+}
+
+.sidebar-neon-logo {
+  height: 1em;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-copyright-text {
+  margin: 8px 0 0 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary, #6b7280);
+}
+
+.dark .sidebar-copyright-text {
+  color: var(--text-secondary-dark, #9ca3af);
+}
+
+.sidebar-patents-link {
+  color: var(--text-secondary, #6b7280);
+  text-decoration: underline;
+}
+
+.dark .sidebar-patents-link {
+  color: var(--text-secondary-dark, #9ca3af);
+}
+
+.sidebar-footer.collapsed .sidebar-neon-link {
+  justify-content: center;
+}
+
+.sidebar-footer.collapsed .sidebar-neon-logo {
+  height: 28px;
+}
+
 /* Tooltip for collapsed state */
 .session-item.collapsed {
   position: relative;
