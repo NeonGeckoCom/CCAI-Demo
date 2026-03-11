@@ -13,9 +13,9 @@ services:
     environment:
       MONGODB_CONNECTION_STRING: "mongodb://database:27017"
       MONGODB_DATABASE: phd_advisor
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-"CHANGEME-by-overriding-in-dot-env-file"}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-CHANGEME-by-overriding-in-dot-env-file}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-?}
-      CORS_ORIGINS: ${CORS_ORIGINS:-"http://localhost:3000"}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       GEMINI_MODEL: gemini-2.5-flash
   frontend:
     build:
@@ -29,7 +29,7 @@ services:
     depends_on:
       - backend
     environment:
-      REACT_APP_API_URL: ${REACT_APP_API_URL:-"http://localhohst:8000"}
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
   database:
     image: mongo:8.0
     volumes:
