@@ -16,9 +16,9 @@ class ImprovedGeminiClient(LLMClient):
         
         self.model_name = model_name
         # Config validator already falls back to GEMINI_API_KEY env var
-        self.api_key = settings.llm.gemini.api_key or os.getenv("GEMINI_API_KEY")
+        self.api_key = settings.llm.gemini.api_key
         if not self.api_key:
-            raise ValueError("Gemini API key not set. Provide it in config.yaml (llm.gemini.api_key) or as GEMINI_API_KEY env var.")
+            raise ValueError("Gemini API key not set. Provide it in config.yaml (llm.gemini.api_key).")
         
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.context_manager = get_context_manager()
