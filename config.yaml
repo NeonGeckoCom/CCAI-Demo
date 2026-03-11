@@ -607,21 +607,17 @@ orchestrator:
 # ── Backend Settings (private — never sent to frontend) ────────────────────
 
 auth:
-  jwt_secret: ""            # Falls back to JWT_SECRET_KEY env var
   algorithm: "HS256"
   token_expiry_minutes: 43200   # 30 days
 
 mongodb:
-  connection_string: ""     # Falls back to MONGODB_CONNECTION_STRING env var
   database_name: "phd_advisor"
 
 llm:
   gemini:
-    api_key: ""             # Falls back to GEMINI_API_KEY env var
     model: "gemini-2.0-flash"
   ollama:
     model: "llama3.2:1b"
-    base_url: "http://localhost:11434"
 
 rag:
   embedding_model: "all-MiniLM-L6-v2"
