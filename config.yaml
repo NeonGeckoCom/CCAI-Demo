@@ -579,19 +579,6 @@ personas:
 # ── Orchestrator / Clarification ───────────────────────────────────────────
 
 orchestrator:
-  # When the first user message is vague, the system asks for clarification.
-  # These patterns (regex) trigger clarification on the first message.
-  vague_patterns:
-    - "^(help|advice|guidance|assistance)$"
-    - "i'?m (stuck|lost|confused|not sure)"
-    - "i am (stuck|lost|confused|not sure)"
-    - "(what should i|how do i|where do i start)"
-    - "i need (help|advice|guidance)"
-    - "(any|some) (advice|suggestions|ideas)"
-    - "don'?t know (what|how|where)"
-    - "(stuck|struggling) with"
-    - "unsure about"
-
   # Minimum word count (with no specific keywords) before clarification triggers
   min_words_without_keywords: 6
 

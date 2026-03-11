@@ -143,10 +143,26 @@ class ImprovedChatOrchestrator:
         Determine if the user input needs clarification.
         Patterns and keywords are driven by config.yaml → orchestrator section.
         """
+        # TODO: This method should be refactored to be more generic instead of
+        # relying on hard-coded regex and keywords.
+
         # If this is not the first message, probably don't need clarification
         user_messages = [msg for msg in session.messages if msg.get('role') == 'user']
         if len(user_messages) > 1:
             return False
+
+        # Check for vague patterns - FIXED to handle "I am" vs "I'm"
+        vague_patterns = [
+            r"^(help|advice|guidance|assistance)$",
+            r"i'?m (stuck|lost|confused|not sure)",  # matches "I'm confused"
+            r"i am (stuck|lost|confused|not sure)",  # matches "I am confused" 
+            r"(what should i|how do i|where do i start)",
+            r"i need (help|advice|guidance)",
+            r"(any|some) (advice|suggestions|ideas)",
+            r"don'?t know (what|how|where)",
+            r"(stuck|struggling) with",
+            r"unsure about"
+        ]
 
         orch_cfg = get_settings().orchestrator
         
@@ -154,7 +170,7 @@ class ImprovedChatOrchestrator:
         
         logger.info(f"Checking clarification for: '{user_input}' (lowercase: '{user_lower}')")
         
-        for pattern in orch_cfg.vague_patterns:
+        for pattern in vague_patterns:
             if re.search(pattern, user_lower):
                 logger.info(f"CLARIFICATION TRIGGERED: Pattern '{pattern}' matched input '{user_input}'")
                 return True
