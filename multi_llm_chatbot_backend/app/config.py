@@ -1,5 +1,5 @@
 """
-Centralised application configuration.
+Centralized application configuration.
 
 Reads ``config.yaml`` from the project root (two levels above this file) and
 validates it with Pydantic models.  Every setting falls back to environment
@@ -7,15 +7,13 @@ variables when the YAML value is empty, so existing ``.env`` workflows keep
 working.
 """
 
-from __future__ import annotations
-
 import os
 import logging
 from pathlib import Path
 from typing import List, Optional
 
 import yaml
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, validator, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -96,43 +94,33 @@ class OrchestratorConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    jwt_secret: str = ""
+    jwt_secret: str = Field(default=os.getenv("JWT_SECRET_KEY", ""))
     algorithm: str = "HS256"
     token_expiry_minutes: int = 43200  # 30 days
 
-    @validator("jwt_secret", always=True)
-    def _fallback_jwt_secret(cls, v: str) -> str:  # noqa: N805
-        return v or os.getenv(
-            "JWT_SECRET_KEY",
-            "your-secret-key-change-this-in-production",
-        )
+    @model_validator(mode="after")
+    def _validate_jwt_secret(self):
+        if not self.jwt_secret:
+            logger.warning(
+                    "Insecure default JWT secret will be used. "
+                    "Set auth.jwt_secret in config.yaml for production use.")
+            self.jwt_secret = "your-secret-key-change-me"
+        return self
 
 
 class MongoDBConfig(BaseModel):
-    connection_string: str = ""
+    connection_string: str = Field(default=os.getenv("MONGODB_CONNECTION_STRING")) 
     database_name: str = "phd_advisor"
-
-    @validator("connection_string", always=True)
-    def _fallback_connection_string(cls, v: str) -> str:  # noqa: N805
-        return v or os.getenv("MONGODB_CONNECTION_STRING", "")
 
 
 class GeminiConfig(BaseModel):
-    api_key: str = ""
+    api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
     model: str = "gemini-2.0-flash"
-
-    @validator("api_key", always=True)
-    def _fallback_api_key(cls, v: str) -> str:  # noqa: N805
-        return v or os.getenv("GEMINI_API_KEY", "")
 
 
 class OllamaConfig(BaseModel):
     model: str = "llama3.2:1b"
-    base_url: str = "http://localhost:11434"
-
-    @validator("base_url", always=True)
-    def _fallback_base_url(cls, v: str) -> str:  # noqa: N805
-        return v or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    base_url: str = Field(default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
 
 
 class LLMConfig(BaseModel):
@@ -162,7 +150,7 @@ class AppSettings(BaseModel):
     # Convenience helpers
     # ------------------------------------------------------------------
 
-    def get_public_config(self) -> dict:
+    def get_frontend_config(self) -> dict:
         """Return the subset of configuration safe to expose to the frontend
         via ``GET /api/config``.  Secrets are excluded."""
         return {
@@ -196,18 +184,6 @@ class AppSettings(BaseModel):
 _settings: Optional[AppSettings] = None
 
 
-def _find_config_yaml() -> Path:
-    """Walk upwards from this file to find ``config.yaml``."""
-    current = Path(__file__).resolve().parent  # app/
-    for _ in range(5):
-        candidate = current / "config.yaml"
-        if candidate.exists():
-            return candidate
-        current = current.parent
-    # Fallback: project root relative to workspace
-    return Path(__file__).resolve().parent.parent.parent / "config.yaml"
-
-
 def load_settings(config_path: Optional[str] = None) -> AppSettings:
     """Load and validate ``config.yaml``, returning an ``AppSettings`` object.
 
@@ -219,19 +195,20 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
     if _settings is not None:
         return _settings
 
-    path = Path(config_path) if config_path else _find_config_yaml()
-    if path.exists():
-        logger.info("Loading configuration from %s", path)
+    config_path = config_path or os.getenv("CONFIG_PATH")
+    if not config_path:
+        logger.warning("No CONFIG_PATH specified. Using default values")
+        raw = {}
+    else:
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Configuration file not found at {config_path}")
+        logger.info(f"Loading configuration from {path}")
         with open(path, "r", encoding="utf-8") as fh:
             raw = yaml.safe_load(fh) or {}
-    else:
-        logger.warning(
-            "config.yaml not found at %s — using defaults + env vars", path
-        )
-        raw = {}
 
     _settings = AppSettings(**raw)
-    logger.info("Configuration loaded: app.title=%r", _settings.app.title)
+    logger.info(f"Configuration loaded: app.title={_settings.app._title}")
     return _settings
 
 

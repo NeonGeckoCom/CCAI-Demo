@@ -64,7 +64,7 @@ app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
 @app.get("/api/config")
 def get_public_config():
     """Return the public (non-secret) application configuration."""
-    return settings.get_public_config()
+    return settings.get_frontend_config()
 
 @app.get("/")
 def root():
