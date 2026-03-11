@@ -79,6 +79,19 @@ class PersonaItemConfig(BaseModel):
     temperature: int = 5
     persona_prompt: str = ""
 
+    def to_frontend_config(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "role": self.role,
+            "summary": self.summary,
+            "color": self.color,
+            "bg_color": self.bg_color,
+            "dark_color": self.dark_color,
+            "dark_bg_color": self.dark_bg_color,
+            "icon": self.icon
+            }
+
 
 class PersonasConfig(BaseModel):
     base_prompt: str = ""
@@ -86,7 +99,6 @@ class PersonasConfig(BaseModel):
 
 
 class OrchestratorConfig(BaseModel):
-    vague_patterns: List[str] = []
     min_words_without_keywords: int = 6
     specific_keywords: List[str] = []
     clarification_questions: List[str] = []
@@ -159,20 +171,7 @@ class AppSettings(BaseModel):
             "login": self.login.dict(),
             "chat_page": self.chat_page.dict(),
             "personas": {
-                "items": [
-                    {
-                        "id": p.id,
-                        "name": p.name,
-                        "role": p.role,
-                        "summary": p.summary,
-                        "color": p.color,
-                        "bg_color": p.bg_color,
-                        "dark_color": p.dark_color,
-                        "dark_bg_color": p.dark_bg_color,
-                        "icon": p.icon,
-                    }
-                    for p in self.personas.items
-                ],
+                "items": [p.to_frontend_config() for p in self.personas.items],
             },
         }
 
