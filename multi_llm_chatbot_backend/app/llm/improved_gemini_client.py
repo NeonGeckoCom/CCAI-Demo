@@ -1,5 +1,4 @@
 import httpx
-import os
 from typing import List
 from app.llm.llm_client import LLMClient
 from app.core.context_manager import get_context_manager

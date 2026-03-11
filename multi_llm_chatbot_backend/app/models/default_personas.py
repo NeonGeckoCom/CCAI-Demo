@@ -6,8 +6,6 @@ The heavy persona definitions have moved into ``config.yaml`` (under the
 and exposes the same public API the rest of the codebase already relies on.
 """
 
-from __future__ import annotations
-
 from typing import List, Optional
 
 from app.config import get_settings
