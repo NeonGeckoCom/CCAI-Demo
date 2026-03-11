@@ -12,7 +12,7 @@ def root():
     title = get_settings().app.title
     return {
         "message": f"{title} Backend is up and running",
-        "version": "2.0.0",
+        "version": "1.0.0",
         "features": [
             "Configurable Personas",
             "Improved Session Management",
