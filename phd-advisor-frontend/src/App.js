@@ -49,11 +49,6 @@ function App() {
 
   const navigateToHome = () => {
     setCurrentView('home');
-    setIsAuthenticated(false);
-    setUser(null);
-    setAuthToken(null);
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
   };
 
   const handleAuthSuccess = (userData, token) => {
@@ -77,7 +72,10 @@ function App() {
       <ThemeProvider>
         <div className="App">
           {currentView === 'home' && (
-            <HomePage onNavigateToChat={navigateToAuth} />
+            <HomePage
+              onNavigateToChat={isAuthenticated ? navigateToChat : navigateToAuth}
+              isAuthenticated={isAuthenticated}
+            />
           )}
           {currentView === 'auth' && (
             <AuthPage onAuthSuccess={handleAuthSuccess} />
