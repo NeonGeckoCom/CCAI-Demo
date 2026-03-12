@@ -8,14 +8,16 @@ from jose import JWTError, jwt
 from bson import ObjectId
 from app.core.database import get_database
 from app.models.user import User, UserResponse
+from app.config import get_settings
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# JWT settings
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30 days
+# JWT settings — driven by config.yaml with env-var fallback
+_cfg = get_settings().auth
+SECRET_KEY = _cfg.jwt_secret
+ALGORITHM = _cfg.algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = _cfg.token_expiry_minutes
 
 # Security scheme
 security = HTTPBearer()

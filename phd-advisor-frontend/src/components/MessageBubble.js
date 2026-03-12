@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Reply, Copy, Check, Maximize2, Info, FileText, Hash, Target } from 'lucide-react';
-import { advisors, getAdvisorColors } from '../data/advisors';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 const MessageBubble = ({ 
@@ -13,6 +13,7 @@ const MessageBubble = ({
   showReplyButton = false 
 }) => {
   const { isDark } = useTheme();
+  const { advisors, getAdvisorColors } = useAppConfig();
   const [showTooltip, setShowTooltip] = useState(null);
   const [copiedStates, setCopiedStates] = useState({});
   const [showInfoOverlay, setShowInfoOverlay] = useState(false);

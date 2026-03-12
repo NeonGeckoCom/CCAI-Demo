@@ -9,7 +9,7 @@ const EnhancedChatInput = ({
   isLoading,
   currentChatSessionId,
   authToken, 
-  placeholder = "Ask your advisors anything about your PhD journey..." 
+  placeholder = "Ask your advisors anything..." 
 }) => {
   const [inputMessage, setInputMessage] = useState('');
   const [showUpload, setShowUpload] = useState(false);

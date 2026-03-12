@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Send } from 'lucide-react';
 
-const ChatInput = ({ onSendMessage, isLoading, placeholder = "Ask your advisors anything about your PhD journey..." }) => {
+const ChatInput = ({ onSendMessage, isLoading, placeholder = "Ask your advisors anything..." }) => {
   const [inputMessage, setInputMessage] = useState('');
 
   const handleSend = () => {

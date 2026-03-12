@@ -3,6 +3,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure
 import logging
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 class Database:
@@ -14,21 +16,27 @@ db = Database()
 async def connect_to_mongo():
     """Create database connection"""
     try:
-        # Get MongoDB connection string from environment
-        mongo_url = os.getenv("MONGODB_CONNECTION_STRING")
+        settings = get_settings()
+
+        # Connection string: config.yaml → env var fallback (handled by Pydantic validator)
+        mongo_url = settings.mongodb.connection_string
         if not mongo_url:
-            raise ValueError("MONGODB_CONNECTION_STRING environment variable not set")
-        
-        # Get database name from environment or use default
-        db_name = os.getenv("MONGODB_DATABASE_NAME", "phd_advisor")
+            # Last-resort fallback to raw env var (backwards compat)
+            mongo_url = os.getenv("MONGODB_CONNECTION_STRING", "")
+        if not mongo_url:
+            raise ValueError(
+                "MongoDB connection string not set. "
+                "Provide it in config.yaml (mongodb.connection_string) "
+                "or as the MONGODB_CONNECTION_STRING environment variable."
+            )
+
+        db_name = settings.mongodb.database_name
         
         db.client = AsyncIOMotorClient(mongo_url)
         db.database = db.client[db_name]
         
         # Test connection
         await db.client.admin.command('ping')
-
-        # Create indexes for better performance
 
         logger.info(f"Successfully connected to MongoDB database: {db_name}")
         

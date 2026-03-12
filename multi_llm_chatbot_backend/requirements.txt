@@ -13,6 +13,7 @@ python-docx
 
 # Environment configuration
 python-dotenv
+pyyaml~=6.0
 
 # Vector database and embeddings
 chromadb

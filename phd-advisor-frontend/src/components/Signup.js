@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, BookOpen, Phone, GraduationCap } from 'lucide-react';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import '../styles/Signup.css';
 
 const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
+  const { config } = useAppConfig();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -17,17 +19,14 @@ const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
-  const academicStages = [
-    { value: '', label: 'Select your stage' },
-    { value: 'prospective', label: 'Prospective PhD Student' },
-    { value: 'first-year', label: 'First Year PhD' },
-    { value: 'coursework', label: 'Coursework Phase' },
-    { value: 'qualifying', label: 'Qualifying Exams' },
-    { value: 'dissertation', label: 'Dissertation Phase' },
-    { value: 'writing', label: 'Writing & Defense' },
-    { value: 'postdoc', label: 'Postdoc' },
-    { value: 'faculty', label: 'Faculty/Researcher' }
-  ];
+  const academicStages = config?.login?.academic_stages?.length
+    ? config.login.academic_stages
+    : [
+        { value: '', label: 'Select your stage' },
+        { value: 'beginner', label: 'Beginner' },
+        { value: 'intermediate', label: 'Intermediate' },
+        { value: 'advanced', label: 'Advanced' },
+      ];
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -145,7 +144,7 @@ const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
           </div>
           <h1 className="signup-title">Join Our Community</h1>
           <p className="signup-subtitle">
-            Create your account to get personalized PhD guidance from expert advisors
+            {config?.login?.signup_subtitle || 'Create your account to get personalized guidance from expert advisors'}
           </p>
         </div>
 

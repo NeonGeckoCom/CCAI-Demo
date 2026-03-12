@@ -177,7 +177,11 @@ class RAGManager:
     Handles document storage, embedding, and retrieval using ChromaDB
     """
     
-    def __init__(self, embedding_model: str = "all-MiniLM-L6-v2", persist_directory: str = "./chroma_db"):
+    def __init__(self, embedding_model: str = None, persist_directory: str = "./chroma_db"):
+        from app.config import get_settings
+        settings = get_settings()
+        if embedding_model is None:
+            embedding_model = settings.rag.embedding_model
         self.embedding_model_name = embedding_model
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(exist_ok=True)
@@ -205,8 +209,8 @@ class RAGManager:
             logger.error(f"Failed to initialize ChromaDB client: {e}")
             raise
         
-        # Initialize collection
-        self.collection_name = "phd_advisor_documents"
+        # Initialize collection — name from config
+        self.collection_name = settings.rag.chroma_collection
         self.collection = self._get_or_create_collection()
         
         # Initialize chunker
@@ -228,7 +232,7 @@ class RAGManager:
                 collection = self.client.create_collection(
                     name=self.collection_name,
                     embedding_function=SimpleEmbeddingFunction(self.embedding_model),
-                    metadata={"description": "PhD Advisor document storage"}
+                    metadata={"description": f"{settings.app.title} document storage"}
                 )
                 logger.info(f"Created collection: {self.collection_name}")
                 return collection
@@ -242,7 +246,7 @@ class RAGManager:
                 collection = self.client.create_collection(
                     name=self.collection_name,
                     embedding_function=SimpleEmbeddingFunction(self.embedding_model),
-                    metadata={"description": "PhD Advisor document storage"}
+                    metadata={"description": f"{settings.app.title} document storage"}
                 )
                 logger.info("Successfully recreated collection")
                 return collection
@@ -457,6 +461,9 @@ class RAGManager:
 class EnhancedRAGManager:
     def __init__(self, persist_directory: str = "./chromadb_storage"):
         """Initialize enhanced RAG manager with improved document handling"""
+        from app.config import get_settings
+        settings = get_settings()
+
         self.persist_directory = persist_directory
         Path(persist_directory).mkdir(exist_ok=True)
         
@@ -466,9 +473,12 @@ class EnhancedRAGManager:
             settings=Settings(anonymized_telemetry=False)
         )
         
+        # Collection name from config
+        collection_name = settings.rag.chroma_collection
+
         # Create or get collection
         self.collection = self.client.get_or_create_collection(
-            name="phd_advisor_documents",
+            name=collection_name,
             metadata={"hnsw:space": "cosine"}
         )
         
