@@ -409,7 +409,7 @@ auth:
   token_expiry_minutes: 43200   # 30 days
 
 mongodb:
-  database_name: "phd_advisor"
+  database_name: "undergrad_advisor"
 
 llm:
   gemini:
