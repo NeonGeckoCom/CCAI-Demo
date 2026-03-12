@@ -124,14 +124,44 @@ class MongoDBConfig(BaseModel):
     connection_string: str = Field(default=os.getenv("MONGODB_CONNECTION_STRING")) 
     database_name: str = "phd_advisor"
 
+    @model_validator(mode="after")
+    def _warn_connection_envvar(self):
+        if os.getenv("MONGODB_CONNECTION_STRING"):
+            if self.connection_string != os.getenv("MONGODB_CONNECTION_STRING"):
+                logger.warning(
+                    "MONGODB_CONNECTION_STRING envvar is overridden in "
+                    "config.yaml"
+                )
+            else:
+                logger.warning(
+                    "MongoDB connection string not set in config.yaml. "
+                    "Falling back to MONGODB_CONNECTION_STRING envvar."
+                )
+        return self
+
 
 class GeminiConfig(BaseModel):
     api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
     model: str = "gemini-2.0-flash"
 
+    @model_validator(mode="after")
+    def _warn_gemini_envvar(self):
+        if os.getenv("GEMINI_API_KEY"):
+            if self.api_key != os.getenv("GEMINI_API_KEY"):
+                logger.warning(
+                    "GEMINI_API_KEY envvar is overridden in config.yaml"
+                )
+            else:
+                logger.warning(
+                    "Gemini API key not set in config.yaml. "
+                    "Falling back to GEMINI_API_KEY environment variable."
+                )
+        return self
+
 
 class OllamaConfig(BaseModel):
     model: str = "llama3.2:1b"
+    # TODO: Drop support for `OLLAMA_BASE_URL` envvar handling
     base_url: str = Field(default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
 
 
@@ -207,7 +237,7 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
             raw = yaml.safe_load(fh) or {}
 
     _settings = AppSettings(**raw)
-    logger.info(f"Configuration loaded: app.title={_settings.app._title}")
+    logger.info(f"Configuration loaded: app.title={_settings.app.title}")
     return _settings
 
 
