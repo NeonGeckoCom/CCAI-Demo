@@ -32,7 +32,6 @@ COPY . .
 # ---- Backend target --------------------------------------------------------
 FROM base AS backend
 WORKDIR /ccai/multi_llm_chatbot_backend
-ENV CONFIG_PATH=/ccai/config.yaml
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ---- Frontend target -------------------------------------------------------
