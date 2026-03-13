@@ -3,8 +3,6 @@ from app.models.persona import Persona
 from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
-from app.llm.llm_client import LLMClient
-from app.models.default_personas import is_valid_persona_id
 from app.config import get_settings
 
 import json
@@ -153,7 +151,7 @@ class ImprovedChatOrchestrator:
         # If this is not the first message, probably don't need clarification
         user_messages = [msg for msg in session.messages if msg.get('role') == 'user']
         if len(user_messages) > 1:
-            logger.info("Skipping clarification: session already has %d user message(s)", len(user_messages))
+            logger.info(f"Skipping clarification: session already has {len(user_messages)} user message(s)")
             return False
 
         # Check for vague patterns - FIXED to handle "I am" vs "I'm"
@@ -173,23 +171,24 @@ class ImprovedChatOrchestrator:
         user_lower = user_input.lower().strip()
         word_count = len(user_input.split())
 
-        logger.info("Checking clarification for: %r (%d words)", user_input, word_count)
+        logger.info(f"Checking clarification for: {user_input} ({word_count} words)")
 
         has_specific_keywords = any(
-            kw in user_lower for kw in orch_cfg.specific_keywords
+            keyword in user_lower for keyword in orch_cfg.specific_keywords
         )
         if has_specific_keywords:
             logger.info("NO CLARIFICATION: input contains specific keywords")
             return False
 
         if word_count >= orch_cfg.min_words_without_keywords:
-            logger.info("NO CLARIFICATION: input has %d words (>= %d threshold)",
-                        word_count, orch_cfg.min_words_without_keywords)
+            logger.info(
+                    f"NO CLARIFICATION: input has {word_count} words "
+                    f"(>= {orch_cfg.min_words_without_keywords} threshold)")
             return False
 
-        for pattern in orch_cfg.vague_patterns:
+        for pattern in vague_patterns:
             if re.search(pattern, user_lower):
-                logger.info("CLARIFICATION TRIGGERED: pattern %r matched %r", pattern, user_input)
+                logger.info(f"CLARIFICATION TRIGGERED: pattern `{pattern}` matched `{user_input}`")
                 return True
 
         logger.info("CLARIFICATION TRIGGERED: short input (%d words) without specific keywords", word_count)
@@ -240,24 +239,19 @@ class ImprovedChatOrchestrator:
             if json_match:
                 cleaned = json_match.group(0)
 
-            logger.debug("LLM raw: %s | cleaned: %s", raw[:200], cleaned[:200])
             parsed = json.loads(cleaned)
             question = parsed.get("question", "").strip()
             suggestions = parsed.get("suggestions", [])
 
             if question and isinstance(suggestions, list) and len(suggestions) >= 2:
-                logger.info("LLM clarification generated for: %r", user_input)
+                logger.info(f"LLM clarification generated for: {user_input}")
                 return {"question": question, "suggestions": suggestions[:4]}
 
         except Exception as e:
-            logger.warning("LLM clarification failed, using config fallback: %s", e)
+            logger.error(f"LLM clarification failed, using config fallback: {e}")
 
-        fallback_questions = orch_cfg.clarification_questions or [
-            "Could you provide more details about what you need help with?"
-        ]
-        fallback_suggestions = orch_cfg.clarification_suggestions or [
-            "Provide more details about your question"
-        ]
+        fallback_questions = orch_cfg.clarification_questions
+        fallback_suggestions = orch_cfg.clarification_suggestions
         return {
             "question": fallback_questions[0],
             "suggestions": fallback_suggestions,
