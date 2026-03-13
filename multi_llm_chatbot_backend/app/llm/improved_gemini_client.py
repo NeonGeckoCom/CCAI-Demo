@@ -1,4 +1,6 @@
 import httpx
+import os
+import re
 from typing import List
 from app.llm.llm_client import LLMClient
 from app.core.context_manager import get_context_manager
@@ -91,7 +93,12 @@ class ImprovedGeminiClient(LLMClient):
                     logger.error(f"Invalid candidate structure: {candidate}")
                     return "I apologize, but I received an unexpected response format. Please try again."
                 
-                text = candidate["content"]["parts"][0].get("text", "").strip()
+                parts = candidate["content"]["parts"]
+                text = "\n\n".join(
+                    p.get("text", "")
+                    for p in parts
+                    if not p.get("thought") and p.get("text", "").strip()
+                ).strip()
                 
                 if not text:
                     logger.warning("Empty response from Gemini")
@@ -110,21 +117,9 @@ class ImprovedGeminiClient(LLMClient):
             return "I encountered an unexpected error. Please try again."
     
     def _clean_response(self, response: str) -> str:
-        """Clean up response text"""
-        # Remove common issues
-        """response = response.strip()
-        
-        # Remove duplicate spaces and normalize
-        response = ' '.join(response.split())
-        
-        return response"""
-        response = response.strip()
-
-        # Preserve line breaks for Markdown; only trim right-side spaces and collapse 3+ blank lines
+        """Clean up response text, preserving Markdown formatting."""
         response = response.replace("\r\n", "\n").replace("\r", "\n")
         lines = [ln.rstrip() for ln in response.split("\n")]
-
-        import re
         response = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
         return response
