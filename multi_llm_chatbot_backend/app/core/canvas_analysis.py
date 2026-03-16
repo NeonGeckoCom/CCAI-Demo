@@ -1,12 +1,10 @@
 import re
+import json
 import logging
-from typing import Dict, List, Tuple, Set
-from datetime import datetime
+from typing import Dict, List
 from collections import defaultdict
 
-from app.models.phd_canvas import CanvasInsight, CanvasSection
-from app.llm.improved_gemini_client import ImprovedGeminiClient
-from app.llm.improved_ollama_client import ImprovedOllamaClient
+from app.models.phd_canvas import CanvasInsight
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -127,19 +125,23 @@ class CanvasAnalysisService:
         
         try:
             app_title = get_settings().app.title
-            extraction_prompt = (
-                f"Extract actionable insights from this {app_title} advisor response "
-                f"that would be valuable for a user's progress summary.\n\n"
-                f"PERSONA: {persona_id}\n"
-                f"CONTENT: {content}\n\n"
-                f"Return ONLY a numbered list (1. 2. 3.) of insights. Each insight should be:\n"
-                f"- Actionable and specific to the user's progress\n"
-                f"- 1-2 sentences long\n"
-                f"- Valuable for advisor meetings\n"
-                f"- Not generic advice\n\n"
-                f"Return ONLY the numbered list, no other text."
-            )
+            extraction_prompt = f"""
+            Extract actionable insights from this {app_title} advisor response that would be valuable for a user's progress summary:
+
+            PERSONA: {persona_id}
+            CONTENT: {content}
+
+            Return a JSON list of insights. Each insight should be:
+            - Actionable and specific to the user's progress
+            - 1-2 sentences long
+            - Valuable for advisor meetings
+            - Not generic advice
+
+            Format: [{{"insight": "specific actionable insight here", "keywords": ["keyword1", "keyword2"]}}]
             
+            Return ONLY the JSON array, no other text.
+            """
+
             if self.llm_client:
                 try:
                     llm_response = await self.llm_client.generate(
@@ -148,27 +150,29 @@ class CanvasAnalysisService:
                         temperature=0.3,
                         max_tokens=500
                     )
-                    
-                    lines = [
-                        re.sub(r"^\d+[\.\)]\s*", "", line).strip()
-                        for line in llm_response.strip().splitlines()
-                        if re.match(r"^\d+[\.\)]", line.strip())
-                    ]
-                    
+
+                    # Clean the response to extract just the JSON
+                    llm_response = llm_response.strip()
+                    if llm_response.startswith('```json'):
+                        llm_response = llm_response[7:]
+                    if llm_response.endswith('```'):
+                        llm_response = llm_response[:-3]
+                    llm_response = llm_response.strip()
+
+                    insights_data = json.loads(llm_response)
                     insights = []
-                    for line in lines:
-                        if len(line) < 15:
-                            continue
-                        length_bonus = min(len(line) / 500, 1.0) * 0.15
-                        insight = CanvasInsight(
-                            content=line,
-                            source_persona=persona_id,
-                            source_message_id=message_id,
-                            source_chat_session=chat_session_id,
-                            confidence_score=round(0.75 + length_bonus, 2),
-                            keywords=self._extract_keywords_from_sentence(line)
-                        )
-                        insights.append(insight)
+
+                    for item in insights_data:
+                        if isinstance(item, dict) and "insight" in item:
+                            insight = CanvasInsight(
+                                content=item["insight"],
+                                source_persona=persona_id,
+                                source_message_id=message_id,
+                                source_chat_session=chat_session_id,
+                                confidence_score=0.8,  # High confidence from LLM extraction
+                                keywords=item.get("keywords", [])
+                            )
+                            insights.append(insight)
                     
                     if insights:
                         logger.debug(f"LLM extracted {len(insights)} insights from {persona_id}")
