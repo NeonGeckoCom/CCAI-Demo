@@ -70,8 +70,8 @@ docker compose up -d
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/sohank-17/Neon-AI-Project.git
-cd Neon-AI-Project
+git clone https://github.com/NeonGeckoCom/CCAI-Demo.git
+cd CCAI-Demo
 ```
 
 ### Step 2: MongoDB Setup
