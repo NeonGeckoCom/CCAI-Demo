@@ -194,14 +194,15 @@ async def chat_sequential_enhanced(
         rag_stats = session.get_rag_stats()
         logger.info(f"Session {session_id} has {rag_stats.get('total_documents', 0)} documents available")
         
-        # Ensure user message exists in session exactly once
-        already_in_session = (
-            session.messages
-            and session.messages[-1].get('role') == 'user'
-            and session.messages[-1].get('content') == message.user_input
-        )
-        if not already_in_session:
-            session.append_message("user", message.user_input)
+        # Warn if a repeated input message is received
+        if all((
+            session.messages,
+            session.messages[-1].get('role') == 'user',
+            session.messages[-1].get('content') == message.user_input
+            )):
+            # TODO: This should be handled in the front-end input
+            logger.warning(f"Repeated user input: {message.user_input}")
+        session.append_message("user", message.user_input)
         
         # Check if the user's message is vague and needs clarification
         if chat_orchestrator._needs_clarification(session, message.user_input):

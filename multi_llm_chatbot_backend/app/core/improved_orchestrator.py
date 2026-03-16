@@ -140,10 +140,6 @@ class ImprovedChatOrchestrator:
         """
         Determine if the user input needs clarification.
         Patterns and keywords are driven by config.yaml → orchestrator section.
-
-        The caller guarantees the current message is in the session
-        exactly once before calling.  More than 1 user message means
-        this is not the first turn → skip clarification.
         """
         # TODO: This method should be refactored to be more generic instead of
         # relying on hard-coded regex and keywords.
