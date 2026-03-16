@@ -36,8 +36,8 @@ An AI-powered academic guidance system that provides personalized advice through
 ### Instructions
 1. **Clone the repository**
 ```bash
-git clone https://github.com/sohank-17/Neon-AI-Project
-cd Neon-AI-Project
+git clone https://github.com/NeonGeckoCom/CCAI-Demo.git
+cd CCAI-Demo
 ```
 
 1. **Configure via `.env` file**
