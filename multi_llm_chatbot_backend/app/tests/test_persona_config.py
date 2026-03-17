@@ -1,5 +1,5 @@
 import pytest
-import tempfile, os, yaml
+import os, yaml
 from app.config import load_settings, load_personas_from_dir
 
 
@@ -59,8 +59,8 @@ def test_load_settings_uses_personas_dir(tmp_path):
 
 
 def test_bad_persona_does_not_crash_everything(tmp_path):
-    """This test will FAIL with the current code — that's the point.
-    It documents the problem the refactor will fix."""
+    """Validates that a bad persona in the inline items list causes a
+    validation error — the directory loader solves this for file-based configs."""
     cfg_path = _write_config(tmp_path, {
         "personas": {
             "items": [

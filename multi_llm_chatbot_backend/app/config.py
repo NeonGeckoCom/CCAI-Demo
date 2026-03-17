@@ -239,7 +239,7 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
             raw = yaml.safe_load(fh) or {}
 
     _settings = AppSettings(**raw)
-    
+
     # If a personas directory is configured, load individual persona files
     # from that directory and use them instead of the inline items list.
     # The directory path is resolved relative to the config file's location.
@@ -268,6 +268,12 @@ def get_settings() -> AppSettings:
 
 
 def load_personas_from_dir(personas_dir: str) -> List[PersonaItemConfig]:
+    """Load persona configs from individual YAML files in a directory.
+    
+    Each file is validated independently — invalid files are skipped with a
+    warning.  Duplicate ids/names and disabled personas are filtered out.
+    """
+
     dir_path = Path(personas_dir)
     if not dir_path.is_dir():
         logger.warning(f"Personas directory not found: {personas_dir}")
@@ -277,6 +283,7 @@ def load_personas_from_dir(personas_dir: str) -> List[PersonaItemConfig]:
     seen_ids: dict[str, str] = {}     # id -> filename that defined it
     seen_names: dict[str, str] = {}   # name -> filename that defined it
 
+    # sorting files alphabetically ensures consistent and predictable loading order
     for filepath in sorted(dir_path.glob("*.yaml")):
         try:
             with open(filepath, "r", encoding="utf-8") as fh:
