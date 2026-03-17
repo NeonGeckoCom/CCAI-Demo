@@ -40,3 +40,6 @@ python-jose[cryptography]
 email-validator
 python-docx
 python-multipart
+
+# Unit testing
+pytest
