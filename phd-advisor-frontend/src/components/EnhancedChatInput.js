@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, FileText, X, Trash2, Download } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Paperclip, FileText, X, Trash2, Download, Mic, MicOff, MessageCircle, ClipboardList, Loader2, Columns3, FileOutput } from 'lucide-react';
+import { useVoiceStatus } from '../contexts/VoiceStatusContext';
 import FileUpload from './FileUpload';
 
 const EnhancedChatInput = ({ 
@@ -9,13 +10,92 @@ const EnhancedChatInput = ({
   isLoading,
   currentChatSessionId,
   authToken, 
-  placeholder = "Ask your advisors anything..." 
+  placeholder = "Ask your advisors anything...",
+  showProfileButtons = false,
+  onOpenOnboarding,
+  onOpenProfileForm,
+  synthesizedMode = false,
+  onToggleSynthesized,
+  ensureSessionId,
 }) => {
   const [inputMessage, setInputMessage] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const voiceStatus = useVoiceStatus();
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const textareaRef = useRef(null);
+  const uploadRef = useRef(null);
+  const uploadBtnRef = useRef(null);
+
+  const sendForTranscription = useCallback(async (blob) => {
+    if (!blob || blob.size < 100) {
+      console.warn('STT: blob too small, skipping', blob?.size);
+      return;
+    }
+    setIsTranscribing(true);
+    try {
+      const form = new FormData();
+      form.append('audio', blob, 'recording.webm');
+      const token = authToken || localStorage.getItem('authToken');
+      const resp = await fetch(`${process.env.REACT_APP_API_URL}/api/transcribe`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: form,
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data?.text?.trim();
+        if (text) {
+          setInputMessage(prev => prev ? `${prev} ${text}` : text);
+        }
+      } else {
+        console.error('STT response not ok:', resp.status, await resp.text().catch(() => ''));
+      }
+    } catch (err) {
+      console.error('Transcription failed:', err);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [authToken]);
+
+  const toggleRecording = useCallback(async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+    if (voiceStatus && !voiceStatus.ensureReady('stt')) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Pick a supported mimeType
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', '']
+        .find(mt => mt === '' || MediaRecorder.isTypeSupported(mt));
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
+
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blobType = mediaRecorder.mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type: blobType });
+        sendForTranscription(blob);
+      };
+      mediaRecorderRef.current = mediaRecorder;
+      // Request data every 500ms so chunks are available when stop() fires
+      mediaRecorder.start(500);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone access error:', err);
+    }
+  }, [isRecording, voiceStatus, sendForTranscription]);
 
   const handleSend = () => {
     if (!inputMessage.trim() || isLoading || isUploading) return;
@@ -67,6 +147,21 @@ const EnhancedChatInput = ({
     }
   }, [inputMessage]);
 
+  // Close upload panel when clicking outside
+  useEffect(() => {
+    if (!showUpload) return;
+    const handleClickOutside = (e) => {
+      if (
+        uploadRef.current && !uploadRef.current.contains(e.target) &&
+        uploadBtnRef.current && !uploadBtnRef.current.contains(e.target)
+      ) {
+        setShowUpload(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showUpload]);
+
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -98,13 +193,14 @@ const EnhancedChatInput = ({
     <div className="enhanced-chat-input-container">
       {/* File Upload Area */}
       {showUpload && (
-        <div className="floating-upload-section">
+        <div className="floating-upload-section" ref={uploadRef}>
           <FileUpload 
             onFileUploaded={handleFileUploaded}
             isUploading={isUploading}
             currentChatSessionId={currentChatSessionId}  
             authToken={authToken}
             onUploadStart={handleUploadStart}
+            ensureSessionId={ensureSessionId}
           />
         </div>
       )}
@@ -184,6 +280,7 @@ const EnhancedChatInput = ({
           {/* Left - File Controls */}
           <div className="file-controls">
             <button
+              ref={uploadBtnRef}
               onClick={toggleUpload}
               className={`add-docs-btn ${showUpload ? 'active' : ''}`}
               disabled={isUploading}
@@ -204,17 +301,98 @@ const EnhancedChatInput = ({
                 <span className="docs-count">{uploadedDocuments.length}</span>
               </button>
             )}
+            {showProfileButtons && (
+              <>
+                <button
+                  onClick={onOpenOnboarding}
+                  className="add-docs-btn"
+                  type="button"
+                >
+                  <MessageCircle size={16} />
+                  <span>Tell us about yourself</span>
+                </button>
+                <button
+                  onClick={onOpenProfileForm}
+                  className="add-docs-btn"
+                  type="button"
+                >
+                  <ClipboardList size={16} />
+                  <span>Fill out profile form</span>
+                </button>
+              </>
+            )}
           </div>
 
-          {/* Right - Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            className={`send-button ${canSend ? 'enabled' : 'disabled'}`}
-            type="button"
-          >
-            <Send size={16} />
-          </button>
+          {/* Right - Mode Toggle + Mic + Send */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {onToggleSynthesized && (
+              <div style={{
+                display: 'flex', borderRadius: '18px', overflow: 'hidden',
+                border: '1px solid #3b82f6', flexShrink: 0,
+              }}>
+                <button
+                  onClick={synthesizedMode ? onToggleSynthesized : undefined}
+                  type="button"
+                  title="Panel Response (3 advisors)"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '5px 10px', fontSize: '12px', fontWeight: 600,
+                    cursor: synthesizedMode ? 'pointer' : 'default',
+                    border: 'none', transition: 'all 0.2s', whiteSpace: 'nowrap',
+                    background: !synthesizedMode ? '#3b82f6' : 'transparent',
+                    color: !synthesizedMode ? '#fff' : '#3b82f6',
+                  }}
+                >
+                  <Columns3 size={13} />
+                  Panel
+                </button>
+                <div style={{ width: 1, background: '#3b82f6', alignSelf: 'stretch' }} />
+                <button
+                  onClick={!synthesizedMode ? onToggleSynthesized : undefined}
+                  type="button"
+                  title="Aggregate synthesized answer"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '5px 10px', fontSize: '12px', fontWeight: 600,
+                    cursor: !synthesizedMode ? 'pointer' : 'default',
+                    border: 'none', transition: 'all 0.2s', whiteSpace: 'nowrap',
+                    background: synthesizedMode ? '#3b82f6' : 'transparent',
+                    color: synthesizedMode ? '#fff' : '#3b82f6',
+                  }}
+                >
+                  <FileOutput size={13} />
+                  Aggregate
+                </button>
+              </div>
+            )}
+            <button
+              onClick={toggleRecording}
+              disabled={isTranscribing}
+              className={`mic-button ${isRecording ? 'listening' : ''}`}
+              type="button"
+              title={isTranscribing ? 'Transcribing...' : isRecording ? 'Stop recording' : 'Voice input'}
+              style={{
+                background: isRecording ? '#EF4444' : 'transparent',
+                border: isRecording ? '1px solid #EF4444' : '1px solid var(--border-primary)',
+                color: isRecording ? '#fff' : 'var(--text-secondary)',
+                borderRadius: '50%', width: 36, height: 36,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: isTranscribing ? 'wait' : 'pointer', transition: 'all 0.2s',
+                animation: isRecording ? 'mic-pulse 1.5s ease-in-out infinite' : 'none',
+                opacity: isTranscribing ? 0.6 : 1,
+              }}
+            >
+              {isTranscribing ? <Loader2 size={16} className="spinning" /> : isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              className={`send-button ${canSend ? 'enabled' : 'disabled'}`}
+              type="button"
+            >
+              <Send size={16} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
