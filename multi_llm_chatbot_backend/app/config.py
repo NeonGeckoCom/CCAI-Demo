@@ -96,6 +96,7 @@ class PersonaItemConfig(BaseModel):
 
 class PersonasConfig(BaseModel):
     base_prompt: str = ""
+    personas_dir: str = ""
     items: List[PersonaItemConfig] = []
 
 
@@ -238,6 +239,20 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
             raw = yaml.safe_load(fh) or {}
 
     _settings = AppSettings(**raw)
+    
+    # If a personas directory is configured, load individual persona files
+    # from that directory and use them instead of the inline items list.
+    # The directory path is resolved relative to the config file's location.
+    if _settings.personas.personas_dir:
+        if config_path:
+            base = Path(config_path).parent
+        else:
+            base = Path.cwd()
+        personas_dir = base / _settings.personas.personas_dir
+        loaded = load_personas_from_dir(str(personas_dir))
+        if loaded:
+            _settings.personas.items = loaded
+
     logger.info(f"Configuration loaded: app.title={_settings.app.title}")
     return _settings
 

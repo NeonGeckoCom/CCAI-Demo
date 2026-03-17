@@ -16,6 +16,10 @@ def _write_persona(directory, filename, data: dict):
         yaml.dump(data, f)
 
 
+# ---------------------------------------------------------------------------
+# load_settings tests
+# ---------------------------------------------------------------------------
+
 def test_loads_personas_from_main_config(tmp_path):
     cfg_path = _write_config(tmp_path, {
         "personas": {
@@ -28,6 +32,30 @@ def test_loads_personas_from_main_config(tmp_path):
     settings = load_settings(cfg_path)
     assert len(settings.personas.items) == 1
     assert settings.personas.items[0].id == "test1"
+
+
+def test_load_settings_uses_personas_dir(tmp_path):
+    """Test that load_settings loads personas from a directory when personas_dir is set."""
+    # Create a personas subdirectory inside the temp dir
+    personas_dir = os.path.join(str(tmp_path), "personas")
+    os.makedirs(personas_dir)
+
+    # Write two persona files into it
+    _write_persona(personas_dir, "one.yaml", {"id": "one", "name": "One"})
+    _write_persona(personas_dir, "two.yaml", {"id": "two", "name": "Two"})
+
+    # Write a main config that points to the directory
+    cfg_path = _write_config(tmp_path, {
+        "personas": {
+            "base_prompt": "Be helpful.",
+            "personas_dir": "personas",
+        }
+    })
+
+    settings = load_settings(cfg_path)
+    assert len(settings.personas.items) == 2
+    ids = {p.id for p in settings.personas.items}
+    assert ids == {"one", "two"}
 
 
 def test_bad_persona_does_not_crash_everything(tmp_path):
@@ -44,6 +72,10 @@ def test_bad_persona_does_not_crash_everything(tmp_path):
     with pytest.raises(Exception):
         load_settings(cfg_path)
 
+
+# ---------------------------------------------------------------------------
+# load_personas_from_dir tests
+# ---------------------------------------------------------------------------
 
 def test_loads_personas_from_directory(tmp_path):
     _write_persona(tmp_path, "one.yaml", {"id": "one", "name": "One"})
@@ -89,5 +121,4 @@ def test_duplicate_name_rejected(tmp_path):
 def test_missing_directory_returns_empty(tmp_path):
     result = load_personas_from_dir(os.path.join(str(tmp_path), "nonexistent"))
     assert result == []
-
 
