@@ -94,11 +94,6 @@ class ImprovedOllamaClient(LLMClient):
         for pattern in fluff_patterns:
             response = response.replace(pattern, "").strip()
         
-        """# Normalize whitespace
-        response = ' '.join(response.split())
-        
-        return response"""
-        # Preserve Markdown line breaks; trim right-side spaces; collapse very long blank runs
         response = response.replace("\r\n", "\n").replace("\r", "\n")
         lines = [ln.rstrip() for ln in response.split("\n")]
 

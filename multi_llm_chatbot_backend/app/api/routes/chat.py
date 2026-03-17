@@ -194,8 +194,31 @@ async def chat_sequential_enhanced(
         rag_stats = session.get_rag_stats()
         logger.info(f"Session {session_id} has {rag_stats.get('total_documents', 0)} documents available")
         
-        # Add user message to session (needed for persona ranking)
+        # Warn if a repeated input message is received
+        if all((
+            session.messages,
+            session.messages[-1].get('role') == 'user',
+            session.messages[-1].get('content') == message.user_input
+            )):
+            # TODO: This should be handled in the front-end input
+            logger.warning(f"Repeated user input: {message.user_input}")
         session.append_message("user", message.user_input)
+        
+        # Check if the user's message is vague and needs clarification
+        if chat_orchestrator._needs_clarification(session, message.user_input):
+            clarification = await chat_orchestrator.generate_contextual_clarification(
+                message.user_input
+            )
+            logger.info(f"Clarification triggered for input: {message.user_input!r}")
+            return {
+                "status": "clarification_needed",
+                "message": clarification["question"],
+                "suggestions": clarification["suggestions"],
+                "session_debug": {
+                    "session_id": session_id,
+                    "trigger": "vague_input"
+                }
+            }
         
         # RESTORED: Get intelligently ordered personas based on context
         top_personas = await chat_orchestrator.get_top_personas(

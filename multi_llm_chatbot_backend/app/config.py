@@ -101,8 +101,16 @@ class PersonasConfig(BaseModel):
 class OrchestratorConfig(BaseModel):
     min_words_without_keywords: int = 6
     specific_keywords: List[str] = []
-    clarification_questions: List[str] = []
-    clarification_suggestions: List[str] = []
+    clarification_questions: List[str] = [
+            "Could you provide more details about what you need help with?"]
+    clarification_suggestions: List[str] = [
+            "Provide more details about your question."]
+
+    @model_validator(mode="after")
+    def validate_clarificaiton_questions(self):
+        if len(self.clarification_questions) < 1:
+            raise ValueError("At least one clarification question is required.")
+        return self
 
 
 class AuthConfig(BaseModel):

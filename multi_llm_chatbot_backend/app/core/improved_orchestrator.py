@@ -3,8 +3,6 @@ from app.models.persona import Persona
 from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
-from app.llm.llm_client import LLMClient
-from app.models.default_personas import is_valid_persona_id
 from app.config import get_settings
 
 import json
@@ -149,6 +147,7 @@ class ImprovedChatOrchestrator:
         # If this is not the first message, probably don't need clarification
         user_messages = [msg for msg in session.messages if msg.get('role') == 'user']
         if len(user_messages) > 1:
+            logger.info(f"Skipping clarification: session already has {len(user_messages)} user message(s)")
             return False
 
         # Check for vague patterns - FIXED to handle "I am" vs "I'm"
@@ -165,47 +164,94 @@ class ImprovedChatOrchestrator:
         ]
 
         orch_cfg = get_settings().orchestrator
-        
         user_lower = user_input.lower().strip()
-        
-        logger.info(f"Checking clarification for: '{user_input}' (lowercase: '{user_lower}')")
-        
-        for pattern in vague_patterns:
-            if re.search(pattern, user_lower):
-                logger.info(f"CLARIFICATION TRIGGERED: Pattern '{pattern}' matched input '{user_input}'")
-                return True
-        
-        # Check if input is too short and vague
         word_count = len(user_input.split())
+
+        logger.info(f"Checking clarification for: {user_input} ({word_count} words)")
+
         has_specific_keywords = any(
             keyword in user_lower for keyword in orch_cfg.specific_keywords
         )
-        
-        if word_count < orch_cfg.min_words_without_keywords and not has_specific_keywords:
-            logger.info(f"CLARIFICATION TRIGGERED: Short input ({word_count} words) without specific keywords")
-            return True
-        
-        logger.info(f"NO CLARIFICATION: Input has {word_count} words, specific keywords: {has_specific_keywords}")
-        return False
+        if has_specific_keywords:
+            logger.info("NO CLARIFICATION: input contains specific keywords")
+            return False
+
+        if word_count >= orch_cfg.min_words_without_keywords:
+            logger.info(
+                    f"NO CLARIFICATION: input has {word_count} words "
+                    f"(>= {orch_cfg.min_words_without_keywords} threshold)")
+            return False
+
+        for pattern in vague_patterns:
+            if re.search(pattern, user_lower):
+                logger.info(f"CLARIFICATION TRIGGERED: pattern `{pattern}` matched `{user_input}`")
+                return True
+
+        logger.info("CLARIFICATION TRIGGERED: short input (%d words) without specific keywords", word_count)
+        return True
     
-    async def _generate_clarification_question(self, session: ConversationContext) -> str:
+    async def generate_contextual_clarification(self, user_input: str) -> Dict[str, Any]:
         """
-        Generate a clarification question based on the conversation context.
-        Questions are driven by config.yaml → orchestrator.clarification_questions.
+        Use the LLM to produce a clarification question and clickable
+        suggestions that are tailored to what the user actually typed.
+        Falls back to the static values in config.yaml if the LLM call fails.
         """
         orch_cfg = get_settings().orchestrator
-        questions = orch_cfg.clarification_questions or [
-            "Could you provide more details about what you need help with?"
-        ]
-        # Return the first option for now (could be made smarter with AI)
-        return questions[0]
-    
-    def _get_clarification_suggestions(self) -> List[str]:
-        """Get suggestions for clarification from config."""
-        orch_cfg = get_settings().orchestrator
-        return orch_cfg.clarification_suggestions or [
-            "Provide more details about your question"
-        ]
+
+        advisor_list = ", ".join(
+            f"{p.name} ({p.id})" for p in self.personas.values()
+        )
+
+        system_prompt = (
+            "You are a helpful routing assistant. The user's message is too "
+            "vague to send to the advisors. Produce a short clarifying question "
+            "and exactly 4 clickable suggestion buttons the user could press.\n\n"
+            "Reply ONLY with valid JSON — no markdown, no extra text:\n"
+            '{"question": "...", "suggestions": ["...", "...", "...", "..."]}\n\n'
+            "Keep the question to one sentence. Each suggestion should be a "
+            "complete sentence the user could send as their next message."
+        )
+
+        user_prompt = (
+            f"User said: \"{user_input}\"\n"
+            f"Available advisors: {advisor_list}\n\n"
+            "Generate a clarifying question and 4 suggestion buttons that "
+            "relate to what the user said and steer toward the advisors above."
+        )
+
+        try:
+            llm = next(iter(self.personas.values())).llm
+            raw = await llm.generate(
+                system_prompt=system_prompt,
+                context=[{"role": "user", "content": user_prompt}],
+                temperature=0.4,
+                max_tokens=1024,
+            )
+
+            cleaned = raw.strip()
+            cleaned = re.sub(r"```(?:json)?", "", cleaned).strip()
+
+            json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if json_match:
+                cleaned = json_match.group(0)
+
+            parsed = json.loads(cleaned)
+            question = parsed.get("question", "").strip()
+            suggestions = parsed.get("suggestions", [])
+
+            if question and isinstance(suggestions, list) and len(suggestions) >= 2:
+                logger.info(f"LLM clarification generated for: {user_input}")
+                return {"question": question, "suggestions": suggestions[:4]}
+
+        except Exception as e:
+            logger.error(f"LLM clarification failed, using config fallback: {e}")
+
+        fallback_questions = orch_cfg.clarification_questions
+        fallback_suggestions = orch_cfg.clarification_suggestions
+        return {
+            "question": fallback_questions[0],
+            "suggestions": fallback_suggestions,
+        }
     
     async def _generate_persona_responses(self, session: ConversationContext, response_length: str = "medium"):
         """
