@@ -813,3 +813,51 @@ When analyzing the document context:
         except Exception as e:
             logger.error(f"Error selecting top personas: {e}")
             return list(self.personas.keys())[:k]
+
+    async def synthesize_responses(self, responses: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Combine multiple advisor responses into a single synthesised answer."""
+        try:
+            llm = next(iter(self.personas.values())).llm
+            advisor_texts = "\n\n".join(
+                f"**{r['persona_name']}:** {r['content']}" for r in responses
+            )
+            system_prompt = (
+                "You are a synthesis assistant. You receive multiple advisor responses to "
+                "the same student question. Your job is to merge them into ONE comprehensive "
+                "answer using exactly this structure:\n\n"
+                "### Thought\n"
+                "A single paragraph (2-4 sentences) that weaves together the key insights "
+                "from every advisor.\n\n"
+                "### What to do\n"
+                "A merged bullet list. Combine similar advice, keep unique ideas separate. "
+                "Aim for 4-6 bullets total.\n\n"
+                "### Next steps\n"
+                "Concrete, immediate actions as imperative bullets.\n\n"
+                "Rules:\n"
+                "- Use GitHub-Flavored Markdown, `###` headings, `-` bullets.\n"
+                "- Do NOT mention advisor names.\n"
+                "- Write as one unified voice.\n"
+                "- Never repeat the same idea in different sections."
+            )
+            result = await llm.generate(
+                system_prompt=system_prompt,
+                context=[{"role": "user", "content": advisor_texts}],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            return {
+                "persona_id": "orchestrator",
+                "persona_name": "Synthesized Answer",
+                "content": result,
+                "used_documents": any(r.get("used_documents") for r in responses),
+                "document_chunks_used": sum(r.get("document_chunks_used", 0) for r in responses),
+            }
+        except Exception as e:
+            logger.error(f"Synthesis failed: {e}")
+            return responses[0] if responses else {
+                "persona_id": "orchestrator",
+                "persona_name": "Synthesized Answer",
+                "content": "Unable to synthesize responses.",
+                "used_documents": False,
+                "document_chunks_used": 0,
+            }

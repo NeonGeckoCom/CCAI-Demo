@@ -359,7 +359,6 @@ const handleNewChat = async (sessionId = null) => {
   const handleSendMessage = async (inputMessage) => {
     if (!inputMessage.trim()) return;
 
-    // Create user message
     const userMessage = {
       id: generateMessageId(),
       type: 'user',
@@ -367,10 +366,8 @@ const handleNewChat = async (sessionId = null) => {
       timestamp: new Date()
     };
 
-    // Add to local state immediately
     setMessages(prev => [...prev, userMessage]);
 
-    // Create new session if we don't have one
     let sessionId = currentSessionId;
     if (!sessionId) {
       sessionId = await createNewSession(inputMessage);
@@ -380,10 +377,8 @@ const handleNewChat = async (sessionId = null) => {
       }
     }
 
-    // Save user message to database
     await saveMessageToSession(userMessage);
 
-    // Update session title if this is the first message and title is generic
     if (messages.length === 0 && currentSessionTitle.includes('Chat ')) {
       const newTitle = inputMessage.length > 30 
         ? `${inputMessage.substring(0, 30)}...` 
@@ -391,26 +386,20 @@ const handleNewChat = async (sessionId = null) => {
       await updateSessionTitle(sessionId, newTitle);
     }
 
-    // Set loading state
     setIsLoading(true);
     setThinkingAdvisors(['system']);
 
     try {
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      };
-      
-
-      console.log('Sending message with session ID:', currentSessionId); // Debug log
-
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-sequential`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-stream`, {
         method: 'POST',
-        headers: headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
           user_input: inputMessage,
           response_length: 'medium',
-          chat_session_id: currentSessionId // Include current session ID
+          chat_session_id: currentSessionId,
         }),
       });
 
@@ -418,32 +407,72 @@ const handleNewChat = async (sessionId = null) => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Rest of the function remains the same...
-      const data = await response.json();
-      
-      // Process responses...
-      if (data.responses && Array.isArray(data.responses)) {
-        const newResponses = data.responses.map(response => ({
-          id: generateMessageId(),
-          type: 'advisor',
-          persona_id: response.persona_id,
-          content: response.content,
-          timestamp: new Date(),
-          advisorName: response.persona_name || response.persona_id,
-          used_documents: response.used_documents || false,
-          document_chunks_used: response.document_chunks_used || 0
-        }));
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-        setMessages(prev => [...prev, ...newResponses]);
-        
-        // Save advisor responses to database
-        for (const response of newResponses) {
-          await saveMessageToSession(response);
-        }
-        
-        // Log session debug info if available
-        if (data.session_debug) {
-          console.log('Session debug info:', data.session_debug);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        let eventType = null;
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith('data: ') && eventType) {
+            const payload = JSON.parse(line.slice(6));
+
+            if (eventType === 'advisor') {
+              const msg = {
+                id: generateMessageId(),
+                type: 'advisor',
+                persona_id: payload.persona_id,
+                content: payload.content,
+                timestamp: new Date(),
+                advisorName: payload.persona_name || payload.persona_id,
+                used_documents: payload.used_documents || false,
+                document_chunks_used: payload.document_chunks_used || 0,
+              };
+              setMessages(prev => [...prev, msg]);
+              setThinkingAdvisors(prev => prev.filter(a => a !== payload.persona_id));
+              await saveMessageToSession(msg);
+            } else if (eventType === 'synthesized') {
+              const msg = {
+                id: generateMessageId(),
+                type: 'advisor',
+                persona_id: 'orchestrator',
+                content: payload.content,
+                timestamp: new Date(),
+                advisorName: payload.persona_name || 'Synthesized Answer',
+                used_documents: payload.used_documents || false,
+                document_chunks_used: payload.document_chunks_used || 0,
+              };
+              setMessages(prev => [...prev, msg]);
+              await saveMessageToSession(msg);
+            } else if (eventType === 'clarification') {
+              setMessages(prev => [...prev, {
+                id: generateMessageId(),
+                type: 'clarification',
+                content: payload.message,
+                suggestions: payload.suggestions || [],
+                timestamp: new Date(),
+              }]);
+            } else if (eventType === 'progress') {
+              setThinkingAdvisors(prev => prev.filter(a => a !== payload.persona_id));
+            } else if (eventType === 'error') {
+              setMessages(prev => [...prev, {
+                id: generateMessageId(),
+                type: 'error',
+                content: payload.detail || 'An error occurred',
+                timestamp: new Date(),
+              }]);
+            }
+            eventType = null;
+          }
         }
       }
 
