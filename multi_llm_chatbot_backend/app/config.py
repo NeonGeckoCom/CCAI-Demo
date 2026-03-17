@@ -69,6 +69,7 @@ class ChatPageConfig(BaseModel):
 class PersonaItemConfig(BaseModel):
     id: str
     name: str
+    enabled: bool = True
     role: str = ""
     summary: str = ""
     color: str = "#6B7280"
@@ -244,3 +245,53 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
 def get_settings() -> AppSettings:
     """Return the cached settings singleton (loads on first call)."""
     return load_settings()
+
+
+# ---------------------------------------------------------------------------
+# Personas loader from directory
+# ---------------------------------------------------------------------------
+
+
+def load_personas_from_dir(personas_dir: str) -> List[PersonaItemConfig]:
+    dir_path = Path(personas_dir)
+    if not dir_path.is_dir():
+        logger.warning(f"Personas directory not found: {personas_dir}")
+        return []
+
+    personas: List[PersonaItemConfig] = []
+    seen_ids: dict[str, str] = {}     # id -> filename that defined it
+    seen_names: dict[str, str] = {}   # name -> filename that defined it
+
+    for filepath in sorted(dir_path.glob("*.yaml")):
+        try:
+            with open(filepath, "r", encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh) or {}
+            persona = PersonaItemConfig(**raw)
+        except Exception as exc:
+            logger.warning(f"Skipping invalid persona file {filepath.name}: {exc}")
+            continue
+
+        if not persona.enabled:
+            logger.info(f"Persona '{persona.id}' is disabled, skipping")
+            continue
+
+        if persona.id in seen_ids:
+            logger.warning(
+                f"Duplicate persona id '{persona.id}' in {filepath.name} "
+                f"(already defined in {seen_ids[persona.id]}), skipping"
+            )
+            continue
+
+        if persona.name in seen_names:
+            logger.warning(
+                f"Duplicate persona name '{persona.name}' in {filepath.name} "
+                f"(already defined in {seen_names[persona.name]}), skipping"
+            )
+            continue
+
+        seen_ids[persona.id] = filepath.name
+        seen_names[persona.name] = filepath.name
+        personas.append(persona)
+
+    logger.info(f"Loaded {len(personas)} persona(s) from {personas_dir}")
+    return personas
