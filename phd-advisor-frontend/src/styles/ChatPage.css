@@ -415,6 +415,21 @@
   margin-bottom: 24px;
 }
 
+.orchestrator-thinking .thinking-bubble {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-gradient, var(--accent-primary));
+  color: white;
+  border: none;
+  box-shadow: var(--shadow-sm);
+}
+
 .thinking-content {
   display: flex;
   align-items: center;
@@ -457,7 +472,7 @@
 .floating-input-area {
   position: fixed;
   bottom: 20px;
-  left: 0;
+  left: 300px;
   right: 0;
   z-index: 50;
   background: transparent;
@@ -465,8 +480,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: 800px;
+  max-width: 860px;
   margin: 0 auto;
+  transition: left 0.3s ease;
+}
+
+.floating-input-area.sidebar-collapsed {
+  left: 70px;
 }
 
 /* Reply Banner in ChatPage - matches input width and fixes dark mode */
@@ -1050,8 +1070,10 @@
     padding-bottom: 30px;
   }
   
-  .floating-input-area {
+  .floating-input-area,
+  .floating-input-area.sidebar-collapsed {
     bottom: 10px;
+    left: 0;
   }
   
   .floating-input-area .reply-banner {

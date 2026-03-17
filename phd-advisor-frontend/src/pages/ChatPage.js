@@ -13,6 +13,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import '../styles/ChatPage.css';
 import '../styles/EnhancedChatInput.css';
 import AdvisorStatusDropdown from '../components/AdvisorStatusDropdown';
+import AdvisorCarousel from '../components/AdvisorCarousel';
 
 const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSignOut }) => {
   const { config, advisors, getAdvisorColors } = useAppConfig();
@@ -776,6 +777,7 @@ const handleNewChat = async (sessionId = null) => {
           <div className="chat-content">
             {!hasMessages ? (
               <div className="welcome-state">
+                <AdvisorCarousel />
                 <SuggestionsPanel onSuggestionClick={handleSendMessage} />
               </div>
             ) : (
@@ -813,6 +815,7 @@ const handleNewChat = async (sessionId = null) => {
                             onExpand={handleExpandMessage}
                             onClick={handleMessageClick}
                             showReplyButton={true}
+                            inlineAvatar={true}
                           />
                         )}
 
