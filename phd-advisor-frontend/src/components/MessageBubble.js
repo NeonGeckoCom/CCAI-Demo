@@ -6,7 +6,6 @@ import * as LucideIcons from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useVoiceStatus } from '../contexts/VoiceStatusContext';
-import LemonSliceAvatar from './LemonSliceAvatar';
 
 const stripMarkdown = (md) => {
   if (!md) return '';
@@ -344,9 +343,6 @@ const MessageBubble = ({
             className="advisor-avatar" 
             style={{ backgroundColor: colors.bgColor || 'var(--bg-muted)', overflow: 'hidden' }}
           >
-            <LemonSliceAvatar agentId={advisor.lemonsliceAgentId} active={isSpeaking || isLoadingTTS} size={40}>
-              {avatarElement(40)}
-            </LemonSliceAvatar>
           </div>
         )}
 
