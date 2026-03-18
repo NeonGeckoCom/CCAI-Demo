@@ -1,6 +1,14 @@
 import pytest
 import os, yaml
-from app.config import load_settings, load_personas_from_dir
+import app.config
+from app.config import load_settings, load_personas_from_dir, PersonasConfig
+
+
+@pytest.fixture(autouse=True)
+def _reset_settings_singleton():
+    app.config._settings = None
+    yield
+    app.config._settings = None
 
 
 def _write_config(tmp_path, data: dict) -> str:
@@ -83,6 +91,17 @@ def test_loads_personas_from_directory(tmp_path):
     result = load_personas_from_dir(str(tmp_path))
     assert len(result) == 2
     ids = {p.id for p in result}
+    assert ids == {"one", "two"}
+
+
+def test_personas_config_validator_loads_from_dir(tmp_path):
+    """Test that PersonasConfig's model_validator loads personas automatically."""
+    _write_persona(tmp_path, "one.yaml", {"id": "one", "name": "One"})
+    _write_persona(tmp_path, "two.yaml", {"id": "two", "name": "Two"})
+
+    config = PersonasConfig(personas_dir=str(tmp_path))
+    assert len(config.items) == 2
+    ids = {p.id for p in config.items}
     assert ids == {"one", "two"}
 
 

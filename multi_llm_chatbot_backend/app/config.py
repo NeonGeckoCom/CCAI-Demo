@@ -99,6 +99,14 @@ class PersonasConfig(BaseModel):
     personas_dir: str = ""
     items: List[PersonaItemConfig] = []
 
+    @model_validator(mode='after')
+    def _load_personas_from_directory(self):
+        if self.personas_dir:
+            loaded = load_personas_from_dir(self.personas_dir)
+            if loaded:
+                self.items = loaded
+        return self
+
 
 class OrchestratorConfig(BaseModel):
     min_words_without_keywords: int = 6
@@ -238,20 +246,16 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
         with open(path, "r", encoding="utf-8") as fh:
             raw = yaml.safe_load(fh) or {}
 
-    _settings = AppSettings(**raw)
+    personas_cfg = raw.get("personas", {})
 
-    # If a personas directory is configured, load individual persona files
-    # from that directory and use them instead of the inline items list.
-    # The directory path is resolved relative to the config file's location.
-    if _settings.personas.personas_dir:
+    if personas_cfg.get("personas_dir"):
         if config_path:
             base = Path(config_path).parent
         else:
             base = Path.cwd()
-        personas_dir = base / _settings.personas.personas_dir
-        loaded = load_personas_from_dir(str(personas_dir))
-        if loaded:
-            _settings.personas.items = loaded
+        personas_cfg["personas_dir"] = str(base / personas_cfg["personas_dir"])
+
+    _settings = AppSettings(**raw)
 
     logger.info(f"Configuration loaded: app.title={_settings.app.title}")
     return _settings
