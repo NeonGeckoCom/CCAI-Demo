@@ -100,7 +100,7 @@ personas:
     - Insert one blank line between blocks.
 
   # Individual persona files are loaded from this directory (relative to this file).
-  personas_dir: "personas"
+  personas_dir: "personas/phd_advisors"
 
 # ── Orchestrator / Clarification ───────────────────────────────────────────
 
