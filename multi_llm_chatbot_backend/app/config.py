@@ -69,6 +69,7 @@ class ChatPageConfig(BaseModel):
 class PersonaItemConfig(BaseModel):
     id: str
     name: str
+    enabled: bool = True
     role: str = ""
     summary: str = ""
     color: str = "#6B7280"
@@ -95,7 +96,23 @@ class PersonaItemConfig(BaseModel):
 
 class PersonasConfig(BaseModel):
     base_prompt: str = ""
+    personas_dir: str = ""
+    config_dir: str = ""
     items: List[PersonaItemConfig] = []
+
+    @model_validator(mode='after')
+    def _load_personas_from_directory(self):
+        if self.personas_dir:
+            dir_path = Path(self.personas_dir)
+            if not dir_path.is_absolute() and self.config_dir:
+                dir_path = Path(self.config_dir) / dir_path
+            loaded = load_personas_from_dir(str(dir_path))
+            if loaded:
+                self.items = loaded
+                logger.info(f"Loaded {len(loaded)} personas.")
+            else:
+                logger.warning(f"No personas found in {self.personas_dir}. falling back to personas.items config")
+        return self
 
 
 class OrchestratorConfig(BaseModel):
@@ -244,6 +261,11 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
         with open(path, "r", encoding="utf-8") as fh:
             raw = yaml.safe_load(fh) or {}
 
+    personas_cfg = raw.setdefault("personas", {})
+
+    if config_path:
+        personas_cfg["config_dir"] = str(Path(config_path).parent)
+
     _settings = AppSettings(**raw)
     logger.info(f"Configuration loaded: app.title={_settings.app.title}")
     return _settings
@@ -252,3 +274,60 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
 def get_settings() -> AppSettings:
     """Return the cached settings singleton (loads on first call)."""
     return load_settings()
+
+
+# ---------------------------------------------------------------------------
+# Personas loader from directory
+# ---------------------------------------------------------------------------
+
+
+def load_personas_from_dir(personas_dir: str) -> List[PersonaItemConfig]:
+    """Load persona configs from individual YAML files in a directory.
+    
+    Each file is validated independently — invalid files are skipped with a
+    warning.  Duplicate ids/names and disabled personas are filtered out.
+    """
+
+    dir_path = Path(personas_dir)
+    if not dir_path.is_dir():
+        logger.warning(f"Personas directory not found: {personas_dir}")
+        return []
+
+    personas: List[PersonaItemConfig] = []
+    seen_ids: dict[str, str] = {}     # id -> filename that defined it
+    seen_names: dict[str, str] = {}   # name -> filename that defined it
+
+    # sorting files alphabetically ensures consistent and predictable loading order
+    for filepath in sorted(dir_path.glob("*.yaml")):
+        try:
+            with open(filepath, "r", encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh) or {}
+            persona = PersonaItemConfig(**raw)
+        except Exception as exc:
+            logger.warning(f"Skipping invalid persona file {filepath.name}: {exc}")
+            continue
+
+        if not persona.enabled:
+            logger.info(f"Persona '{persona.id}' is disabled, skipping")
+            continue
+
+        if persona.id in seen_ids:
+            logger.warning(
+                f"Duplicate persona id '{persona.id}' in {filepath.name} "
+                f"(already defined in {seen_ids[persona.id]}), skipping"
+            )
+            continue
+
+        if persona.name in seen_names:
+            logger.warning(
+                f"Duplicate persona name '{persona.name}' in {filepath.name} "
+                f"(already defined in {seen_names[persona.name]}), skipping"
+            )
+            continue
+
+        seen_ids[persona.id] = filepath.name
+        seen_names[persona.name] = filepath.name
+        personas.append(persona)
+
+    logger.info(f"Loaded {len(personas)} persona(s) from {personas_dir}")
+    return personas

@@ -24,3 +24,4 @@ phd-advisor-frontend/firebase.json
 
 # Python virtual environments
 **/venv/
+.venv/
