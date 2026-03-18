@@ -197,6 +197,7 @@ async def chat_sequential_enhanced(
         # Warn if a repeated input message is received
         if all((
             session.messages,
+            len(session.messages) > 0,
             session.messages[-1].get('role') == 'user',
             session.messages[-1].get('content') == message.user_input
             )):
