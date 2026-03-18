@@ -4,7 +4,7 @@ import MessageBubble from './MessageBubble';
 
 const CAROUSEL_BREAKPOINT = 700;
 
-const AdvisorCarousel = ({ messages, onReply, onExpand, onClick, onSearchReferences, userAvatarId, userAvatarOptions }) => {
+const AdvisorCarousel = ({ messages = [], onReply, onExpand, onClick, onSearchReferences, userAvatarId, userAvatarOptions }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isCarouselMode, setIsCarouselMode] = useState(false);
   const containerRef = useRef(null);
