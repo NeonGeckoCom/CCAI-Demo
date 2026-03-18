@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText , LogOut, Menu} from 'lucide-react';
 import EnhancedChatInput from '../components/EnhancedChatInput';
 import MessageBubble from '../components/MessageBubble';
@@ -662,6 +662,26 @@ const handleNewChat = async (sessionId = null) => {
     }
   };
 
+  /** Group consecutive advisor messages so we can render them in a horizontal carousel */
+  const messageGroups = useMemo(() => {
+    const groups = [];
+    let i = 0;
+    while (i < messages.length) {
+      if (messages[i].type === 'advisor') {
+        const advisorGroup = [];
+        while (i < messages.length && messages[i].type === 'advisor') {
+          advisorGroup.push(messages[i]);
+          i++;
+        }
+        groups.push({ type: 'advisor_group', messages: advisorGroup });
+      } else {
+        groups.push({ type: 'single', message: messages[i] });
+        i++;
+      }
+    }
+    return groups;
+  }, [messages]);
+
   const handleInputSubmit = async (inputMessage) => {
   if (replyingTo) {
     // This is a reply to a specific message
@@ -792,72 +812,70 @@ const handleNewChat = async (sessionId = null) => {
                 
                 <div className="messages-list">
                   <div className="messages-scroll">
-                    {messages.map((message) => (
-                      <div key={message.id}>
-                        {message.type === 'user' && (
+                    {messageGroups.map((group) => (
+                      group.type === 'advisor_group' ? (
+                        <AdvisorCarousel
+                          key={group.messages.map(m => m.id).join('-')}
+                          messages={group.messages}
+                          onReply={handleReplyToMessage}
+                          onExpand={handleExpandMessage}
+                          onClick={handleMessageClick}
+                        />
+                      ) : (
+                      <div key={group.message.id}>
+                        {group.message.type === 'user' && (
                           <div className="user-message-container">
                             <div className="user-message">
-                              {message.replyTo && (
+                              {group.message.replyTo && (
                                 <div className="reply-indicator">
                                   <Reply size={12} />
-                                  <span>Reply to {message.replyTo.advisorName}</span>
+                                  <span>Reply to {group.message.replyTo.advisorName}</span>
                                 </div>
                               )}
-                              <p>{message.content}</p>
+                              <p>{group.message.content}</p>
                             </div>
                           </div>
                         )}
 
-                        {message.type === 'advisor' && (
-                          <MessageBubble
-                            message={message}
-                            onReply={handleReplyToMessage}
-                            onExpand={handleExpandMessage}
-                            onClick={handleMessageClick}
-                            showReplyButton={true}
-                            inlineAvatar={true}
-                          />
-                        )}
-
-                        {message.type === 'error' && (
+                        {group.message.type === 'error' && (
                           <div className="error-message-container">
                             <div className="error-message">
-                              <p>{message.content}</p>
+                              <p>{group.message.content}</p>
                             </div>
                           </div>
                         )}
 
-                        {message.type === 'system' && (
+                        {group.message.type === 'system' && (
                           <div className="system-message-container">
                             <div className="system-message">
-                              <p>{message.content}</p>
+                              <p>{group.message.content}</p>
                             </div>
                           </div>
                         )}
 
-                        {message.type === 'document_upload' && (
+                        {group.message.type === 'document_upload' && (
                           <div className="system-message-container">
                             <div className="system-message document-upload">
                               <FileText size={16} />
-                              <p>{message.content}</p>
+                              <p>{group.message.content}</p>
                             </div>
                           </div>
                         )}
 
-                        {message.type === 'clarification' && (
+                        {group.message.type === 'clarification' && (
                           <div className="clarification-message-container">
                             <div className="clarification-message">
                               <div className="clarification-header">
                                 <MessageCircle size={16} />
                                 <span>I need a bit more information</span>
                               </div>
-                              <p>{message.content}</p>
+                              <p>{group.message.content}</p>
                               
-                              {message.suggestions && message.suggestions.length > 0 && (
+                              {group.message.suggestions && group.message.suggestions.length > 0 && (
                                 <div className="clarification-suggestions">
                                   <p className="suggestions-label">Here are some ways you could be more specific:</p>
                                   <div className="suggestions-list">
-                                    {message.suggestions.map((suggestion, index) => (
+                                    {group.message.suggestions.map((suggestion, index) => (
                                       <button
                                         key={index}
                                         className="suggestion-button"
@@ -872,9 +890,8 @@ const handleNewChat = async (sessionId = null) => {
                             </div>
                           </div>
                         )}
-
-                        
                       </div>
+                      )
                     ))}
 
                     {thinkingAdvisors.includes('system') && (

@@ -69,10 +69,10 @@ const AdvisorCarousel = ({ messages = [], onReply, onExpand, onClick, onSearchRe
       <div className="carousel-viewport">
         <div
           className="carousel-track"
-          style={isCarouselMode ? { transform: `translateX(-${activeIndex * 100}%)` } : undefined}
+          style={isCarouselMode ? { width: `${messages.length * 100}%`, transform: `translateX(-${activeIndex * (100 / messages.length)}%)` } : undefined}
         >
           {messages.map(message => (
-            <div key={message.id} className="carousel-slide">
+            <div key={message.id} className="carousel-slide" style={isCarouselMode ? { width: `${100 / messages.length}%` } : undefined}>
               <MessageBubble
                 message={message}
                 onReply={onReply}
