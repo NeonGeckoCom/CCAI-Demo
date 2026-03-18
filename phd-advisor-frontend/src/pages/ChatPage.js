@@ -446,19 +446,6 @@ const handleNewChat = async (sessionId = null) => {
               setMessages(prev => [...prev, msg]);
               setThinkingAdvisors(prev => prev.filter(a => a !== payload.persona_id));
               await saveMessageToSession(msg);
-            } else if (eventType === 'synthesized') {
-              const msg = {
-                id: generateMessageId(),
-                type: 'advisor',
-                persona_id: 'orchestrator',
-                content: payload.content,
-                timestamp: new Date(),
-                advisorName: payload.persona_name || 'Synthesized Answer',
-                used_documents: payload.used_documents || false,
-                document_chunks_used: payload.document_chunks_used || 0,
-              };
-              setMessages(prev => [...prev, msg]);
-              await saveMessageToSession(msg);
             } else if (eventType === 'clarification') {
               setMessages(prev => [...prev, {
                 id: generateMessageId(),

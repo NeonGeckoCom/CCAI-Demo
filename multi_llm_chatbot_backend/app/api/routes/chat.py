@@ -31,7 +31,6 @@ class ChatMessage(BaseModel):
     chat_session_id: Optional[str] = None  # MongoDB chat session ID
     response_length: str = "medium"
     active_advisors: Optional[List[str]] = None
-    synthesized: bool = False
 
 class ReplyToAdvisor(BaseModel):
     user_input: str
@@ -102,7 +101,6 @@ async def chat_stream(
                 user_input=message.user_input, session_id=sid, persona_id="",
             )
 
-            is_synthesized = bool(message.synthesized)
             done_queue: asyncio.Queue = asyncio.Queue()
 
             async def _run(pid: str) -> None:
@@ -131,16 +129,9 @@ async def chat_stream(
                 }
                 collected.append(evt)
 
-                if is_synthesized:
-                    yield f"event: progress\ndata: {json_mod.dumps({'persona_id': evt['persona_id'], 'persona_name': evt['persona_name']})}\n\n"
-                else:
-                    yield f"event: advisor\ndata: {json_mod.dumps(evt)}\n\n"
+                yield f"event: advisor\ndata: {json_mod.dumps(evt)}\n\n"
 
             await asyncio.gather(*tasks, return_exceptions=True)
-
-            if is_synthesized and len(collected) > 1:
-                synth = await chat_orchestrator.synthesize_responses(collected)
-                yield f"event: synthesized\ndata: {json_mod.dumps(synth)}\n\n"
 
             yield "event: done\ndata: {}\n\n"
 
