@@ -97,12 +97,16 @@ class PersonaItemConfig(BaseModel):
 class PersonasConfig(BaseModel):
     base_prompt: str = ""
     personas_dir: str = ""
+    config_dir: str = ""
     items: List[PersonaItemConfig] = []
 
     @model_validator(mode='after')
     def _load_personas_from_directory(self):
         if self.personas_dir:
-            loaded = load_personas_from_dir(self.personas_dir)
+            dir_path = Path(self.personas_dir)
+            if not dir_path.is_absolute() and self.config_dir:
+                dir_path = Path(self.config_dir) / dir_path
+            loaded = load_personas_from_dir(str(dir_path))
             if loaded:
                 self.items = loaded
                 logger.info(f"Loaded {len(loaded)} personas.")
@@ -249,17 +253,15 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
         with open(path, "r", encoding="utf-8") as fh:
             raw = yaml.safe_load(fh) or {}
 
-    personas_cfg = raw.get("personas", {})
+    personas_cfg = raw.setdefault("personas", {})
 
-    if personas_cfg.get("personas_dir"):
-        if config_path:
-            base = Path(config_path).parent
-        else:
-            base = Path.cwd()
-        personas_cfg["personas_dir"] = str(base / personas_cfg["personas_dir"])
+    if config_path:
+        personas_cfg["config_dir"] = str(Path(config_path).parent)
+    else:
+        personas_cfg["config_dir"] = str(Path.cwd())
 
     _settings = AppSettings(**raw)
-
+    
     logger.info(f"Configuration loaded: app.title={_settings.app.title}")
     return _settings
 
