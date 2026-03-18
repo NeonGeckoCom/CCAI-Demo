@@ -261,7 +261,6 @@ def load_settings(config_path: Optional[str] = None) -> AppSettings:
         personas_cfg["config_dir"] = str(Path.cwd())
 
     _settings = AppSettings(**raw)
-    
     logger.info(f"Configuration loaded: app.title={_settings.app.title}")
     return _settings
 
