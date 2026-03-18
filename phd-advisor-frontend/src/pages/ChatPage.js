@@ -359,6 +359,7 @@ const handleNewChat = async (sessionId = null) => {
   const handleSendMessage = async (inputMessage) => {
     if (!inputMessage.trim()) return;
 
+    // Create user message
     const userMessage = {
       id: generateMessageId(),
       type: 'user',
@@ -366,8 +367,10 @@ const handleNewChat = async (sessionId = null) => {
       timestamp: new Date()
     };
 
+    // Add to local state immediately
     setMessages(prev => [...prev, userMessage]);
 
+    // Create new session if we don't have one
     let sessionId = currentSessionId;
     if (!sessionId) {
       sessionId = await createNewSession(inputMessage);
@@ -377,8 +380,10 @@ const handleNewChat = async (sessionId = null) => {
       }
     }
 
+    // Save user message to database
     await saveMessageToSession(userMessage);
 
+    // Update session title if this is the first message and title is generic
     if (messages.length === 0 && currentSessionTitle.includes('Chat ')) {
       const newTitle = inputMessage.length > 30 
         ? `${inputMessage.substring(0, 30)}...` 
@@ -386,6 +391,7 @@ const handleNewChat = async (sessionId = null) => {
       await updateSessionTitle(sessionId, newTitle);
     }
 
+    // Set loading state
     setIsLoading(true);
     setThinkingAdvisors(['system']);
 
@@ -399,7 +405,7 @@ const handleNewChat = async (sessionId = null) => {
         body: JSON.stringify({
           user_input: inputMessage,
           response_length: 'medium',
-          chat_session_id: currentSessionId,
+          chat_session_id: currentSessionId // Include current session ID
         }),
       });
 
