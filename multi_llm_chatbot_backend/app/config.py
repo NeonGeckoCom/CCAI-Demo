@@ -105,6 +105,9 @@ class PersonasConfig(BaseModel):
             loaded = load_personas_from_dir(self.personas_dir)
             if loaded:
                 self.items = loaded
+                logger.info(f"Loaded {len(loaded)} personas.")
+            else:
+                logger.warning(f"No personas found in {self.personas_dir}. falling back to personas.items config")
         return self
 
 
