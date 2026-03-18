@@ -94,7 +94,7 @@ async def chat_stream(
                 all_ids = [pid for pid in all_ids if pid in message.active_advisors]
             k = min(3, len(all_ids))
             top_personas = await chat_orchestrator.get_top_personas(
-                session_id=sid, k=k, allowed_ids=all_ids,
+                session_id=sid, k=k,
             )
 
             doc_ctx = await chat_orchestrator._retrieve_relevant_documents(
