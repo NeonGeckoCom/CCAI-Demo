@@ -102,20 +102,31 @@ async def chat_stream(
             )
 
             done_queue: asyncio.Queue = asyncio.Queue()
+            # Only run for personas that exist so every task puts one result
+            valid_ids = [pid for pid in top_personas if chat_orchestrator.get_persona(pid)]
 
             async def _run(pid: str) -> None:
                 persona = chat_orchestrator.get_persona(pid)
                 if not persona:
                     return
-                result = await chat_orchestrator._generate_single_persona_response(
-                    session, persona,
-                    message.response_length or "medium",
-                    prefetched_document_context=doc_ctx,
-                )
-                session.append_message(pid, result["response"])
-                await done_queue.put(result)
+                try:
+                    result = await chat_orchestrator._generate_single_persona_response(
+                        session, persona,
+                        message.response_length or "medium",
+                    )
+                    session.append_message(pid, result["response"])
+                    await done_queue.put(result)
+                except Exception as e:
+                    logger.exception(f"chat-stream _run failed for {pid}: {e}")
+                    await done_queue.put({
+                        "persona_id": persona.id,
+                        "persona_name": persona.name,
+                        "response": f"I ran into a technical issue. Please try again. ({e!s})",
+                        "used_documents": False,
+                        "document_chunks_used": 0,
+                    })
 
-            tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
+            tasks = [asyncio.create_task(_run(pid)) for pid in valid_ids]
 
             collected = []
             for _ in range(len(tasks)):
