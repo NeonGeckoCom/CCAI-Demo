@@ -97,13 +97,7 @@ async def chat_stream(
                 session_id=sid, k=k,
             )
 
-            doc_ctx = await chat_orchestrator._retrieve_relevant_documents(
-                user_input=message.user_input, session_id=sid, persona_id="",
-            )
-
             done_queue: asyncio.Queue = asyncio.Queue()
-            # Only run for personas that exist so every task puts one result
-            valid_ids = [pid for pid in top_personas if chat_orchestrator.get_persona(pid)]
 
             async def _run(pid: str) -> None:
                 persona = chat_orchestrator.get_persona(pid)
@@ -126,7 +120,7 @@ async def chat_stream(
                         "document_chunks_used": 0,
                     })
 
-            tasks = [asyncio.create_task(_run(pid)) for pid in valid_ids]
+            tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
 
             collected = []
             for _ in range(len(tasks)):
