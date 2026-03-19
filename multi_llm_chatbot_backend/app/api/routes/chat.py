@@ -75,13 +75,15 @@ async def chat_stream(
 
             session = session_manager.get_session(sid)
 
-            already = (
-                session.messages
-                and session.messages[-1].get("role") == "user"
-                and session.messages[-1].get("content") == message.user_input
-            )
-            if not already:
-                session.append_message("user", message.user_input)
+            if (
+                len(session.messages) > 0 and
+                session.messages[-1].get("role") == "user" and
+                session.messages[-1].get("content") == message.user_input
+            ):
+                # TODO: This should be handled in the front-end input
+                logger.warning(f"Repeated user input: {message.user_input}")
+
+            session.append_message("user", message.user_input)
 
             if chat_orchestrator._needs_clarification(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
