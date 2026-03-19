@@ -1,5 +1,5 @@
 import asyncio
-import json as json_mod
+import json
 import logging
 import traceback
 from typing import List, Optional
@@ -85,7 +85,7 @@ async def chat_stream(
 
             if chat_orchestrator._needs_clarification(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
-                yield f"event: clarification\ndata: {json_mod.dumps({'message': clar['question'], 'suggestions': clar['suggestions']})}\n\n"
+                yield f"event: clarification\ndata: {json.dumps({'message': clar['question'], 'suggestions': clar['suggestions']})}\n\n"
                 yield "event: done\ndata: {}\n\n"
                 return
 
@@ -140,7 +140,7 @@ async def chat_stream(
                 }
                 collected.append(evt)
 
-                yield f"event: advisor\ndata: {json_mod.dumps(evt)}\n\n"
+                yield f"event: advisor\ndata: {json.dumps(evt)}\n\n"
 
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -149,7 +149,7 @@ async def chat_stream(
         except Exception as exc:
             logger.error(f"chat-stream error: {exc}")
             logger.error(traceback.format_exc())
-            yield f"event: error\ndata: {json_mod.dumps({'detail': str(exc)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
 
     return StreamingResponse(
         _event_generator(),
