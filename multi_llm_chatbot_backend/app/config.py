@@ -21,7 +21,23 @@ logger = logging.getLogger(__name__)
 # Pydantic models
 # ---------------------------------------------------------------------------
 
-class FeatureConfig(BaseModel):
+class _IconValidatorMixin(BaseModel):
+    """Validates that the ``icon`` field is a known Lucide icon name."""
+
+    @model_validator(mode="after")
+    def _validate_icon(self):
+        from app.utils.lucide_icons import get_valid_icon_names
+
+        valid = get_valid_icon_names()
+        if valid and self.icon not in valid:
+            raise ValueError(
+                f"Unknown icon {self.icon!r}. "
+                f"Must be a valid Lucide icon name."
+            )
+        return self
+
+
+class FeatureConfig(_IconValidatorMixin):
     title: str = ""
     description: str = ""
     icon: str = "HelpCircle"
@@ -53,7 +69,7 @@ class LoginConfig(BaseModel):
     academic_stages: List[AcademicStage] = []
 
 
-class ExampleCategory(BaseModel):
+class ExampleCategory(_IconValidatorMixin):
     title: str
     icon: str = "BookOpen"
     color: str = "#3B82F6"
@@ -66,7 +82,7 @@ class ChatPageConfig(BaseModel):
     examples: List[ExampleCategory] = []
 
 
-class PersonaItemConfig(BaseModel):
+class PersonaItemConfig(_IconValidatorMixin):
     id: str
     name: str
     enabled: bool = True
