@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Fetch valid Lucide icon names and write them to a static JSON file.
+"""Fetch valid Lucide icon names by introspecting the installed lucide-react package.
 
-Run this whenever the lucide-react version is bumped in
-phd-advisor-frontend/package.json:
+Requires node_modules to be installed in phd-advisor-frontend/:
 
+    cd phd-advisor-frontend && npm install
     python3 scripts/generate_icon_names.py
 """
 
 import json
-import re
+import subprocess
 import sys
 from pathlib import Path
-from urllib.request import urlopen
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_JSON = REPO_ROOT / "phd-advisor-frontend" / "package.json"
+FRONTEND_DIR = REPO_ROOT / "phd-advisor-frontend"
 OUTPUT_FILE = (
     REPO_ROOT
     / "multi_llm_chatbot_backend"
@@ -23,27 +23,39 @@ OUTPUT_FILE = (
     / "_lucide_icon_names.json"
 )
 
-
-def _kebab_to_pascal(name: str) -> str:
-    return "".join(
-        seg.capitalize() if seg.isalpha() else seg for seg in name.split("-")
-    )
+JS_SNIPPET = """\
+const icons = require('lucide-react');
+const names = Object.keys(icons).filter(k => /^[A-Z]/.test(k) && !k.endsWith('Icon') && !k.startsWith('Lucide')).sort();
+console.log(JSON.stringify(names));
+"""
 
 
 def main() -> int:
     package_data = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
     version = package_data["dependencies"]["lucide-react"].lstrip("^~")
 
-    url = (
-        f"https://unpkg.com/lucide-react@{version}"
-        "/dist/esm/dynamicIconImports.js"
-    )
-    print(f"Fetching {url} ...")
-    with urlopen(url, timeout=15) as resp:  # noqa: S310
-        js_source = resp.read().decode("utf-8")
+    node_modules = FRONTEND_DIR / "node_modules" / "lucide-react"
+    if not node_modules.exists():
+        print(
+            f"Error: lucide-react not found at {node_modules}\n"
+            f"Run 'cd phd-advisor-frontend && npm install' first.",
+            file=sys.stderr,
+        )
+        return 1
 
-    kebab_names = re.findall(r'"([a-z0-9][a-z0-9-]*)"(?=\s*:)', js_source)
-    pascal_names = sorted(set(_kebab_to_pascal(n) for n in kebab_names))
+    print(f"Introspecting lucide-react@{version} exports via Node ...")
+    result = subprocess.run(
+        ["node", "-e", JS_SNIPPET],
+        cwd=str(FRONTEND_DIR),
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"Node failed:\n{result.stderr}", file=sys.stderr)
+        return 1
+
+    pascal_names = json.loads(result.stdout)
 
     OUTPUT_FILE.write_text(
         json.dumps({"version": version, "icons": pascal_names}, indent=2) + "\n",
