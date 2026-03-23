@@ -9,6 +9,8 @@ working.
 
 import os
 import logging
+import hashlib
+import colorsys
 from pathlib import Path
 from typing import List, Optional
 
@@ -88,13 +90,23 @@ class PersonaItemConfig(_IconValidatorMixin):
     enabled: bool = True
     role: str = ""
     summary: str = ""
-    color: str = "#6B7280"
-    bg_color: str = "#F3F4F6"
-    dark_color: str = "#9CA3AF"
-    dark_bg_color: str = "#374151"
+    color: Optional[str] = None
+    bg_color: Optional[str] = None
+    dark_color: Optional[str] = None
+    dark_bg_color: Optional[str] = None
     icon: str = "HelpCircle"
     temperature: int = 5
     persona_prompt: str = ""
+
+    @model_validator(mode='after')
+    def _auto_generate_colors(self):
+        if self.color is None:
+            generated = generate_persona_colors(self.name)
+            self.color = generated["color"]
+            self.bg_color = generated["bg_color"]
+            self.dark_color = generated["dark_color"]
+            self.dark_bg_color = generated["dark_bg_color"]
+        return self
 
     def to_frontend_config(self) -> dict:
         return {
@@ -293,7 +305,7 @@ def get_settings() -> AppSettings:
 
 
 # ---------------------------------------------------------------------------
-# Personas loader from directory
+# Helper Functions
 # ---------------------------------------------------------------------------
 
 
@@ -347,3 +359,26 @@ def load_personas_from_dir(personas_dir: str) -> List[PersonaItemConfig]:
 
     logger.info(f"Loaded {len(personas)} persona(s) from {personas_dir}")
     return personas
+
+
+def generate_persona_colors(name: str) -> dict:
+    """Deterministically generate four theme colors from a persona name.
+
+    Hashes the lowercased name to pick a hue, then derives light/dark
+    accent and background variants using fixed saturation/lightness values.
+    """
+    # Multiply by the golden angle (137.508°) to spread similar hash values
+    # far apart on the color wheel before taking modulo 360.
+    hue = (int(hashlib.md5(name.lower().encode()).hexdigest()[:8], 16) * 137.508) % 360
+    h = hue / 360  # colorsys wants 0.0-1.0
+
+    def hsl_to_hex(h, s, l):
+        r, g, b = colorsys.hls_to_rgb(h, l, s)  # note: colorsys uses HLS order
+        return f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+
+    return {
+        "color":        hsl_to_hex(h, 0.65, 0.55),
+        "bg_color":     hsl_to_hex(h, 0.60, 0.95),
+        "dark_color":   hsl_to_hex(h, 0.70, 0.70),
+        "dark_bg_color": hsl_to_hex(h, 0.65, 0.25),
+    }
