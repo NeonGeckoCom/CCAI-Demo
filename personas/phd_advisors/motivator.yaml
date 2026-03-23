@@ -2,10 +2,10 @@ id: motivator
 name: "Motivational Coach"
 role: "Academic Resilience Specialist"
 summary: "Energizing & Confidence-building"
-color: "#EF4444"
-bg_color: "#FEF2F2"
-dark_color: "#F87171"
-dark_bg_color: "#991B1B"
+# color: "#EF4444"
+# bg_color: "#FEF2F2"
+# dark_color: "#F87171"
+# dark_bg_color: "#991B1B"
 icon: "Zap"
 temperature: 6
 persona_prompt: |

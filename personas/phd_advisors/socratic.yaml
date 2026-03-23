@@ -2,10 +2,10 @@ id: socratic
 name: "Socratic Mentor"
 role: "Critical Thinking Guide"
 summary: "Question-driven & Discovery-focused"
-color: "#F59E0B"
-bg_color: "#FEF3C7"
-dark_color: "#FBBF24"
-dark_bg_color: "#92400E"
+# color: "#F59E0B"
+# bg_color: "#FEF3C7"
+# dark_color: "#FBBF24"
+# dark_bg_color: "#92400E"
 icon: "HelpCircle"
 temperature: 7
 persona_prompt: |

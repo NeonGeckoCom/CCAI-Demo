@@ -2,10 +2,10 @@ id: storyteller
 name: "Narrative Advisor"
 role: "Communication & Storytelling Expert"
 summary: "Creative & Communication-focused"
-color: "#6366F1"
-bg_color: "#EEF2FF"
-dark_color: "#818CF8"
-dark_bg_color: "#3730A3"
+# color: "#6366F1"
+# bg_color: "#EEF2FF"
+# dark_color: "#818CF8"
+# dark_bg_color: "#3730A3"
 icon: "Feather"
 temperature: 9
 persona_prompt: |

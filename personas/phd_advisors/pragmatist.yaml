@@ -2,10 +2,10 @@ id: pragmatist
 name: "Pragmatist"
 role: "Action-Focused Research Coach"
 summary: "Real-world & Outcome-focused"
-color: "#10B981"
-bg_color: "#ECFDF5"
-dark_color: "#34D399"
-dark_bg_color: "#065F46"
+# color: "#10B981"
+# bg_color: "#ECFDF5"
+# dark_color: "#34D399"
+# dark_bg_color: "#065F46"
 icon: "Target"
 temperature: 5
 persona_prompt: |

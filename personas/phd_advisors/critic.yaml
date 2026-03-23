@@ -2,10 +2,10 @@ id: critic
 name: "Constructive Critic"
 role: "Academic Quality Analyst"
 summary: "Detail-oriented & Standards-focused"
-color: "#DC2626"
-bg_color: "#FEF2F2"
-dark_color: "#F87171"
-dark_bg_color: "#7F1D1D"
+# color: "#DC2626"
+# bg_color: "#FEF2F2"
+# dark_color: "#F87171"
+# dark_bg_color: "#7F1D1D"
 icon: "Search"
 temperature: 6
 persona_prompt: |

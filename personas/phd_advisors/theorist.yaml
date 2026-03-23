@@ -2,10 +2,10 @@ id: theorist
 name: "Theorist"
 role: "Theoretical Frameworks Specialist"
 summary: "Abstract & Conceptual"
-color: "#8B5CF6"
-bg_color: "#F3E8FF"
-dark_color: "#A78BFA"
-dark_bg_color: "#581C87"
+# color: "#8B5CF6"
+# bg_color: "#F3E8FF"
+# dark_color: "#A78BFA"
+# dark_bg_color: "#581C87"
 icon: "Brain"
 temperature: 7
 persona_prompt: |
