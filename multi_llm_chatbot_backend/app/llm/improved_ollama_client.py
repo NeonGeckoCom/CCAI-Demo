@@ -13,7 +13,8 @@ class ImprovedOllamaClient(LLMClient):
         self.base_url = base_url
         self.context_manager = get_context_manager()
     
-    async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int) -> str:
+    # response_mime_type is not currently supported for Ollama but need it to match the abstract base class
+    async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int, response_mime_type: str = None) -> str:
         """
         Generate response using improved context management
         """

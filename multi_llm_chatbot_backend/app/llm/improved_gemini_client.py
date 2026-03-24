@@ -24,7 +24,7 @@ class ImprovedGeminiClient(LLMClient):
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.context_manager = get_context_manager()
     
-    async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int) -> str:
+    async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int, response_mime_type: str = None) -> str:
         """
         Generate response using improved context management
         FIXED VERSION - Better debugging and context handling
@@ -71,6 +71,9 @@ class ImprovedGeminiClient(LLMClient):
                     }
                 ]
             }
+
+            if response_mime_type is not None:
+                payload["generationConfig"]["responseMimeType"] = response_mime_type
             
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
