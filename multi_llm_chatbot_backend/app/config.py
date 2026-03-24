@@ -9,7 +9,6 @@ working.
 
 import os
 import logging
-import hashlib
 import colorsys
 from pathlib import Path
 from typing import List, Optional
