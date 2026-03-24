@@ -24,10 +24,10 @@ jobs:
           pip install wheel
           pip install -r requirements.txt -r test_requirements.txt
 
-      - name: Run persona config tests
+      - name: Run unit tests
         working-directory: multi_llm_chatbot_backend
         run: |
-          pytest app/tests/test_persona_config.py --junitxml=test-results/persona-config.xml
+          pytest app/tests/ --ignore=app/tests/test_document_upload.py --ignore=app/tests/test_mistral.py --junitxml=test-results/results.xml
 
       - name: Upload test results
         if: always()
