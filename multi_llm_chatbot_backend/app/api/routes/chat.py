@@ -195,12 +195,11 @@ async def chat_sequential_enhanced(
         logger.info(f"Session {session_id} has {rag_stats.get('total_documents', 0)} documents available")
         
         # Warn if a repeated input message is received
-        if all((
-            session.messages,
-            len(session.messages) > 0,
-            session.messages[-1].get('role') == 'user',
+        if (
+            session.messages and
+            session.messages[-1].get('role') == 'user' and
             session.messages[-1].get('content') == message.user_input
-            )):
+            ):
             # TODO: This should be handled in the front-end input
             logger.warning(f"Repeated user input: {message.user_input}")
         session.append_message("user", message.user_input)
