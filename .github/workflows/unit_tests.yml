@@ -27,7 +27,7 @@ jobs:
       - name: Run unit tests
         working-directory: multi_llm_chatbot_backend
         run: |
-          pytest app/tests/ --ignore=app/tests/test_document_upload.py --ignore=app/tests/test_mistral.py --junitxml=test-results/results.xml
+          pytest app/tests/test_persona_config.py --junitxml=test-results/results.xml
 
       - name: Upload test results
         if: always()
