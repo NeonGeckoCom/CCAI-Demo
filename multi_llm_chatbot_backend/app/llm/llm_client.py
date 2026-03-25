@@ -12,6 +12,9 @@ class LLMClient(ABC):
         Args:
             system_prompt (str): The system prompt defining the persona/role
             context (List[dict]): List of conversation messages with 'role' and 'content' keys
+            temperature (float): Sampling temperature for generation
+            max_tokens (int): Maximum number of tokens to generate
+            response_mime_type (str, optional): MIME type for the response format. Defaults to None.
             
         Returns:
             str: The generated response text
