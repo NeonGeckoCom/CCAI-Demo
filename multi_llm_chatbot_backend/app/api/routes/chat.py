@@ -2,12 +2,12 @@ import asyncio
 import json
 import logging
 import traceback
-from typing import List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
@@ -48,16 +48,32 @@ class SwitchChatRequest(BaseModel):
 class NewChatRequest(BaseModel):
     title: Optional[str] = "New Chat"
 
+ChatStreamEventType = Literal["error", "progress", "clarification", "advisor"]
+
+
+class ChatStreamLine(BaseModel):
+    """One NDJSON line from ``/chat-stream``."""
+
+    type: ChatStreamEventType
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+    def to_ndjson(self) -> str:
+        return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
+
+
 @router.post("/chat-stream")
 async def chat_stream(
     message: ChatMessage,
     request: Request,
     current_user: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
-    """SSE streaming variant of chat-sequential.
+    """
+    Streaming variant of chat-sequential (newline-delimited JSON).
+    @param message: ChatMessage containing user input and optional session/chat IDs
+    @param request: FastAPI Request object for session management
+    @param current_user: Authenticated user from dependency injection
+    @return: StreamingResponse that yields ChatStreamLine events as NDJSON
 
-    Sends each advisor response as a server-sent event the moment it is ready,
-    so the frontend can display advisors incrementally.
     """
 
     async def _event_generator():
@@ -87,8 +103,17 @@ async def chat_stream(
 
             if chat_orchestrator._needs_clarification(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
-                yield f"event: clarification\ndata: {json.dumps({'message': clar['question'], 'suggestions': clar['suggestions']})}\n\n"
-                yield "event: done\ndata: {}\n\n"
+                yield ChatStreamLine(
+                    type="clarification",
+                    data={
+                        "message": clar["question"],
+                        "suggestions": clar["suggestions"],
+                    },
+                ).to_ndjson()
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "complete"},
+                ).to_ndjson()
                 return
 
             all_ids = list(chat_orchestrator.personas.keys())
@@ -124,32 +149,38 @@ async def chat_stream(
 
             tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
 
-            collected = []
             for _ in range(len(tasks)):
                 result = await done_queue.get()
-                evt = {
-                    "persona_id": result["persona_id"],
-                    "persona_name": result["persona_name"],
-                    "content": result["response"],
-                    "used_documents": result.get("used_documents", False),
-                    "document_chunks_used": result.get("document_chunks_used", 0),
-                }
-                collected.append(evt)
-
-                yield f"event: advisor\ndata: {json.dumps(evt)}\n\n"
+                line = ChatStreamLine(
+                    type="advisor",
+                    data={
+                        "persona_id": result["persona_id"],
+                        "persona_name": result["persona_name"],
+                        "content": result["response"],
+                        "used_documents": result.get("used_documents", False),
+                        "document_chunks_used": result.get("document_chunks_used", 0),
+                    },
+                )
+                yield line.to_ndjson()
 
             await asyncio.gather(*tasks, return_exceptions=True)
 
-            yield "event: done\ndata: {}\n\n"
+            yield ChatStreamLine(
+                type="progress",
+                data={"phase": "complete"},
+            ).to_ndjson()
 
         except Exception as exc:
             logger.error(f"chat-stream error: {exc}")
             logger.error(traceback.format_exc())
-            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+            yield ChatStreamLine(
+                type="error",
+                data={"detail": str(exc)},
+            ).to_ndjson()
 
     return StreamingResponse(
         _event_generator(),
-        media_type="text/event-stream",
+        media_type="application/x-ndjson",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",

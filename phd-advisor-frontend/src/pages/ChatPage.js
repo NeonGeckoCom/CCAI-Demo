@@ -423,48 +423,58 @@ const handleNewChat = async (sessionId = null) => {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop();
+        buffer = lines.pop() ?? '';
 
-        let eventType = null;
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim();
-          } else if (line.startsWith('data: ') && eventType) {
-            const payload = JSON.parse(line.slice(6));
+          if (!line.trim()) continue;
+          const payload = JSON.parse(line);
 
-            if (eventType === 'advisor') {
+          const d = payload.data || {};
+
+          switch (payload.type) {
+            case 'advisor': {
               const msg = {
                 id: generateMessageId(),
                 type: 'advisor',
-                persona_id: payload.persona_id,
-                content: payload.content,
+                persona_id: d.persona_id,
+                content: d.content,
                 timestamp: new Date(),
-                advisorName: payload.persona_name || payload.persona_id,
-                used_documents: payload.used_documents || false,
-                document_chunks_used: payload.document_chunks_used || 0,
+                advisorName: d.persona_name || d.persona_id,
+                used_documents: d.used_documents || false,
+                document_chunks_used: d.document_chunks_used || 0,
               };
               setMessages(prev => [...prev, msg]);
-              setThinkingAdvisors(prev => prev.filter(a => a !== payload.persona_id));
+              setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
               await saveMessageToSession(msg);
-            } else if (eventType === 'clarification') {
+              break;
+            }
+            case 'clarification':
               setMessages(prev => [...prev, {
                 id: generateMessageId(),
                 type: 'clarification',
-                content: payload.message,
-                suggestions: payload.suggestions || [],
+                content: d.message,
+                suggestions: d.suggestions || [],
                 timestamp: new Date(),
               }]);
-            } else if (eventType === 'progress') {
-              setThinkingAdvisors(prev => prev.filter(a => a !== payload.persona_id));
-            } else if (eventType === 'error') {
+              break;
+            case 'progress':
+              if (d.phase === 'complete') {
+                break;
+              }
+              if (d.persona_id != null) {
+                setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              }
+              break;
+            case 'error':
               setMessages(prev => [...prev, {
                 id: generateMessageId(),
                 type: 'error',
-                content: payload.detail || 'An error occurred',
+                content: d.detail || 'An error occurred',
                 timestamp: new Date(),
               }]);
-            }
-            eventType = null;
+              break;
+            default:
+              break;
           }
         }
       }
