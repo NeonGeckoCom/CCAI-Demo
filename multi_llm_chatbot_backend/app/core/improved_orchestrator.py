@@ -813,4 +813,3 @@ When analyzing the document context:
         except Exception as e:
             logger.error(f"Error selecting top personas: {e}")
             return list(self.personas.keys())[:k]
-
