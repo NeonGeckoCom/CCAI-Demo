@@ -17,24 +17,21 @@ from pydantic import BaseModel
 
 from app.core.auth import get_current_active_user
 from app.models.user import User
+from app.config import get_settings
 
 LOG = logging.getLogger(__name__)
 
 router = APIRouter()
 
-COQUI_BASE = "https://coqui.neonaiservices.com"
-WHISPER_BASE = "https://whisper.neonaiservices.com"
+voice_settings = get_settings().voice
+TTS_BASE = voice_settings.tts_endpoint
+STT_BASE = voice_settings.stt_endpoint
 
 HTTP_TIMEOUT = 120
 PROBE_TIMEOUT = 12
 CACHE_TTL = 120
 # Coqui uses GET /synthesize/{text}; keep chunks small for URL limits.
 MAX_SYNTH_CHUNK = 200
-
-_status_cache: Dict[str, Any] = {
-    "tts": {"ready": False, "checked_at": 0.0},
-    "stt": {"ready": False, "checked_at": 0.0},
-}
 
 _SECTION_HEADERS = re.compile(
     r"\b(Thought|What to do|Next step)\s*[:.]?\s*", flags=re.IGNORECASE
@@ -43,41 +40,6 @@ _SECTION_HEADERS = re.compile(
 
 class TTSRequest(BaseModel):
     text: str
-
-
-async def _probe_tts() -> bool:
-    try:
-        async with httpx.AsyncClient(timeout=PROBE_TIMEOUT) as c:
-            r = await c.get(f"{COQUI_BASE}/status")
-            ok = r.status_code < 500
-            _status_cache["tts"] = {"ready": ok, "checked_at": time.time()}
-            return ok
-    except Exception:
-        _status_cache["tts"] = {"ready": False, "checked_at": time.time()}
-        return False
-
-
-async def _probe_stt() -> bool:
-    try:
-        async with httpx.AsyncClient(timeout=PROBE_TIMEOUT) as c:
-            r = await c.get(f"{WHISPER_BASE}/status")
-            ok = r.status_code < 500
-            _status_cache["stt"] = {"ready": ok, "checked_at": time.time()}
-            return ok
-    except Exception:
-        _status_cache["stt"] = {"ready": False, "checked_at": time.time()}
-        return False
-
-
-def _cached_ready(service: str) -> Optional[bool]:
-    entry = _status_cache[service]
-    if time.time() - entry["checked_at"] < CACHE_TTL:
-        return entry["ready"]
-    return None
-
-
-async def wake_both() -> None:
-    await asyncio.gather(_probe_tts(), _probe_stt(), return_exceptions=True)
 
 
 def _rough_spoken_text(raw: str) -> str:
@@ -115,7 +77,7 @@ def _text_chunks(text: str, max_len: int = MAX_SYNTH_CHUNK) -> List[str]:
 
 
 async def _synthesize_one(client: httpx.AsyncClient, chunk: str) -> Optional[bytes]:
-    url = f"{COQUI_BASE}/synthesize/{quote(chunk, safe='')}"
+    url = f"{TTS_BASE}/synthesize/{quote(chunk, safe='')}"
     try:
         r = await client.get(url)
         r.raise_for_status()
@@ -191,23 +153,10 @@ def _convert_to_wav(audio_bytes: bytes, src_mime: str) -> bytes:
 async def voice_status(
     current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, bool]:
-    tts_ready = _cached_ready("tts")
-    stt_ready = _cached_ready("stt")
-
-    if tts_ready is None or stt_ready is None:
-        tts_ok, stt_ok = await asyncio.gather(_probe_tts(), _probe_stt())
-        tts_ready = tts_ok if tts_ready is None else tts_ready
-        stt_ready = stt_ok if stt_ready is None else stt_ready
+    tts_ready = TTS_BASE is not None
+    stt_ready = STT_BASE is not None
 
     return {"tts_ready": tts_ready, "stt_ready": stt_ready}
-
-
-@router.post("/voice/wake")
-async def voice_wake(
-    current_user: User = Depends(get_current_active_user),
-) -> Dict[str, str]:
-    asyncio.create_task(wake_both())
-    return {"status": "waking"}
 
 
 @router.post("/voice/transcribe")
@@ -239,14 +188,11 @@ async def transcribe_audio(
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             resp = await client.post(
-                f"{WHISPER_BASE}/stt",
+                f"{STT_BASE}/stt",
                 content=wav_bytes,
                 headers={"Content-Type": "audio/wav"},
             )
             resp.raise_for_status()
-
-            _status_cache["stt"] = {"ready": True, "checked_at": time.time()}
-
             text = resp.text.strip().strip('"')
             LOG.info("STT result: %r", text[:100])
             return {"text": text}
@@ -291,7 +237,6 @@ async def text_to_speech(
                 )
 
             combined = _concat_wav(wav_segments)
-            _status_cache["tts"] = {"ready": True, "checked_at": time.time()}
             return Response(content=combined, media_type="audio/wav")
     except HTTPException:
         raise
