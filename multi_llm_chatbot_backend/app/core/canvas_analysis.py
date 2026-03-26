@@ -152,14 +152,6 @@ class CanvasAnalysisService:
                         response_mime_type="application/json"
                     )
 
-                    # Clean the response to extract just the JSON
-                    llm_response = llm_response.strip()
-                    if llm_response.startswith('```json'):
-                        llm_response = llm_response[7:]
-                    if llm_response.endswith('```'):
-                        llm_response = llm_response[:-3]
-                    llm_response = llm_response.strip()
-
                     insights_data = json.loads(llm_response)
                     insights = []
 
