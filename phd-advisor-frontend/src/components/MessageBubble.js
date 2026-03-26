@@ -57,7 +57,7 @@ const MessageBubble = ({
     setIsLoadingTTS(true);
     try {
       const token = localStorage.getItem('authToken');
-      const resp = await fetch(`${process.env.REACT_APP_API_URL}/api/voice/tts`, {
+      const resp = await fetch(`${process.env.REACT_APP_API_URL}/voice/tts`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
