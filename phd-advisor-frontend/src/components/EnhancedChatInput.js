@@ -41,7 +41,7 @@ const EnhancedChatInput = ({
       const form = new FormData();
       form.append('audio', blob, 'recording.webm');
       const token = authToken || localStorage.getItem('authToken');
-      const resp = await fetch(`${process.env.REACT_APP_API_URL}/api/transcribe`, {
+      const resp = await fetch(`${process.env.REACT_APP_API_URL}/api/voice/transcribe`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: form,
