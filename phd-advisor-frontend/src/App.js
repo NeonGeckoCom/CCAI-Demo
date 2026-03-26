@@ -5,7 +5,6 @@ import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import AuthPage from './pages/AuthPage';
 import CanvasPage from './pages/CanvasPage';
-import { VoiceStatusProvider } from './contexts/VoiceStatusContext';
 import './styles/components.css';
 
 function App() {
@@ -71,7 +70,6 @@ function App() {
   return (
     <AppConfigProvider>
       <ThemeProvider>
-        <VoiceStatusProvider>
         <div className="App">
           {currentView === 'home' && (
             <HomePage
@@ -100,7 +98,6 @@ function App() {
             />
           )}
         </div>
-        </VoiceStatusProvider>
       </ThemeProvider>
     </AppConfigProvider>
   );

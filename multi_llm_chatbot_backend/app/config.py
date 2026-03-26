@@ -293,6 +293,11 @@ class ToolsConfig(BaseModel):
         return cfg if isinstance(cfg, dict) else {}
 
 
+class VoiceConfig(BaseModel):
+    stt_endpoint: str = "https://whisper.neonaiservices.com"
+    tts_endpoint: str = "https://coqui.neonaiservices.com"
+
+
 class AppSettings(BaseModel):
     """Top-level container that mirrors the YAML structure."""
     app: AppConfig = AppConfig()
@@ -306,6 +311,7 @@ class AppSettings(BaseModel):
     llm: LLMConfig = LLMConfig()
     rag: RAGConfig = RAGConfig()
     tools: ToolsConfig = ToolsConfig()
+    voice: VoiceConfig = VoiceConfig()
 
     # ------------------------------------------------------------------
     # Convenience helpers

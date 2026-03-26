@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, FileText, X, Trash2, Download, Mic, MicOff, MessageCircle, ClipboardList, Loader2, Columns3, FileOutput } from 'lucide-react';
-import { useVoiceStatus } from '../contexts/VoiceStatusContext';
 import FileUpload from './FileUpload';
 
 const EnhancedChatInput = ({ 
@@ -24,7 +23,6 @@ const EnhancedChatInput = ({
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const voiceStatus = useVoiceStatus();
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const textareaRef = useRef(null);
@@ -68,7 +66,6 @@ const EnhancedChatInput = ({
       setIsRecording(false);
       return;
     }
-    if (voiceStatus && !voiceStatus.ensureReady('stt')) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -95,7 +92,7 @@ const EnhancedChatInput = ({
     } catch (err) {
       console.error('Microphone access error:', err);
     }
-  }, [isRecording, voiceStatus, sendForTranscription]);
+  }, [isRecording, sendForTranscription]);
 
   const handleSend = () => {
     if (!inputMessage.trim() || isLoading || isUploading) return;
