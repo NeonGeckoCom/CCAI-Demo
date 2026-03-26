@@ -148,7 +148,7 @@ class CanvasAnalysisService:
                         system_prompt=f"You are an expert at extracting actionable guidance from {app_title} advisor responses.",
                         context=[{"role": "user", "content": extraction_prompt}],
                         temperature=0.3,
-                        max_tokens=500,
+                        max_tokens=1000,
                         response_mime_type="application/json"
                     )
 
