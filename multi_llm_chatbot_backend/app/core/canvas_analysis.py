@@ -148,16 +148,9 @@ class CanvasAnalysisService:
                         system_prompt=f"You are an expert at extracting actionable guidance from {app_title} advisor responses.",
                         context=[{"role": "user", "content": extraction_prompt}],
                         temperature=0.3,
-                        max_tokens=500
+                        max_tokens=1000,
+                        response_mime_type="application/json"
                     )
-
-                    # Clean the response to extract just the JSON
-                    llm_response = llm_response.strip()
-                    if llm_response.startswith('```json'):
-                        llm_response = llm_response[7:]
-                    if llm_response.endswith('```'):
-                        llm_response = llm_response[:-3]
-                    llm_response = llm_response.strip()
 
                     insights_data = json.loads(llm_response)
                     insights = []
