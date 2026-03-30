@@ -2,10 +2,10 @@ id: empathetic
 name: "Empathetic Listener"
 role: "Well-being & Support Specialist"
 summary: "Caring & Emotionally supportive"
-# color: "#EC4899"
-# bg_color: "#FDF2F8"
-# dark_color: "#F472B6"
-# dark_bg_color: "#BE185D"
+color: "#EC4899"
+bg_color: "#FDF2F8"
+dark_color: "#F472B6"
+dark_bg_color: "#BE185D"
 icon: "Heart"
 temperature: 6
 persona_prompt: |

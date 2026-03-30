@@ -2,10 +2,10 @@ id: visionary
 name: "Visionary Strategist"
 role: "Innovation & Future Trends Expert"
 summary: "Forward-thinking & Innovation-focused"
-# color: "#06B6D4"
-# bg_color: "#ECFEFF"
-# dark_color: "#22D3EE"
-# dark_bg_color: "#0E7490"
+color: "#06B6D4"
+bg_color: "#ECFEFF"
+dark_color: "#22D3EE"
+dark_bg_color: "#0E7490"
 icon: "Eye"
 temperature: 9
 persona_prompt: |

@@ -2,10 +2,10 @@ id: minimalist
 name: "Minimalist Mentor"
 role: "Essential Focus Advisor"
 summary: "Concise & Priority-focused"
-# color: "#6B7280"
-# bg_color: "#F9FAFB"
-# dark_color: "#9CA3AF"
-# dark_bg_color: "#374151"
+color: "#6B7280"
+bg_color: "#F9FAFB"
+dark_color: "#9CA3AF"
+dark_bg_color: "#374151"
 icon: "Minus"
 temperature: 2
 persona_prompt: |

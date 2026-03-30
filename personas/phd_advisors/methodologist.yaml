@@ -2,10 +2,10 @@ id: methodologist
 name: "Methodologist"
 role: "Research Methodology Expert"
 summary: "Structured & Planning-focused"
-# color: "#3B82F6"
-# bg_color: "#EFF6FF"
-# dark_color: "#60A5FA"
-# dark_bg_color: "#1E3A8A"
+color: "#3B82F6"
+bg_color: "#EFF6FF"
+dark_color: "#60A5FA"
+dark_bg_color: "#1E3A8A"
 icon: "BookOpen"
 temperature: 4
 persona_prompt: |
