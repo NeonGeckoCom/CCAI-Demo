@@ -9,8 +9,10 @@ working.
 
 import os
 import logging
+import colorsys
 from pathlib import Path
 from typing import List, Optional
+from colorhash import ColorHash
 
 import yaml
 from pydantic import BaseModel, validator, Field, model_validator
@@ -88,13 +90,23 @@ class PersonaItemConfig(_IconValidatorMixin):
     enabled: bool = True
     role: str = ""
     summary: str = ""
-    color: str = "#6B7280"
-    bg_color: str = "#F3F4F6"
-    dark_color: str = "#9CA3AF"
-    dark_bg_color: str = "#374151"
+    color: Optional[str] = None
+    bg_color: Optional[str] = None
+    dark_color: Optional[str] = None
+    dark_bg_color: Optional[str] = None
     icon: str = "HelpCircle"
     temperature: int = 5
     persona_prompt: str = ""
+
+    @model_validator(mode='after')
+    def _auto_generate_colors(self):
+        if self.color is None:
+            generated = generate_persona_colors(self.name)
+            self.color = generated["color"]
+            self.bg_color = generated["bg_color"]
+            self.dark_color = generated["dark_color"]
+            self.dark_bg_color = generated["dark_bg_color"]
+        return self
 
     def to_frontend_config(self) -> dict:
         return {
@@ -293,7 +305,7 @@ def get_settings() -> AppSettings:
 
 
 # ---------------------------------------------------------------------------
-# Personas loader from directory
+# Helper Functions
 # ---------------------------------------------------------------------------
 
 
@@ -347,3 +359,22 @@ def load_personas_from_dir(personas_dir: str) -> List[PersonaItemConfig]:
 
     logger.info(f"Loaded {len(personas)} persona(s) from {personas_dir}")
     return personas
+
+
+def generate_persona_colors(name: str) -> dict:
+    """Deterministically generate four theme colors from a persona name."""
+
+    ch = ColorHash(name.lower(), lightness=[0.55], saturation=[0.65])
+    hue = ch.hsl[0]  # grab the hue colorhash picked
+    h = hue / 360
+
+    def hsl_to_hex(h, s, l):
+        r, g, b = colorsys.hls_to_rgb(h, l, s)
+        return f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+
+    return {
+        "color":         hsl_to_hex(h, 0.65, 0.55),
+        "bg_color":      hsl_to_hex(h, 0.60, 0.95),
+        "dark_color":    hsl_to_hex(h, 0.70, 0.70),
+        "dark_bg_color": hsl_to_hex(h, 0.65, 0.25),
+    }

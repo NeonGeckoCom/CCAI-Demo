@@ -15,6 +15,9 @@ python-docx
 python-dotenv
 pyyaml~=6.0
 
+# Persona color generation
+colorhash~=2.3
+
 # Vector database and embeddings
 chromadb
 sentence-transformers
