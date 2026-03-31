@@ -420,25 +420,18 @@ llm:
     clients:
       4090-x1-0:
         api_url: https://4090-x1-0.neonaiservices2.com/vllm0
-        api_key: API_KEY
       4090-x1-1:
         api_url: https://4090-x1-1.neonaiservices2.com/vllm0
-        api_key: API_KEY
       4090-x1-2:
         api_url: https://4090-x1-2.neonaiservices2.com/vllm0
-        api_key: API_KEY
       4090-x1-3:
         api_url: https://4090-x1-3.neonaiservices2.com/vllm0
-        api_key: API_KEY
       4090-x1-4:
         api_url: https://4090-x1-4.neonaiservices2.com/vllm0
-        api_key: API_KEY
       4090-x1-6:
         api_url: https://4090-x1-6.neonaiservices2.com/vllm0
-        api_key: API_KEY
       4090-x1-7:
         api_url: https://4090-x1-7.neonaiservices2.com/vllm0
-        api_key: API_KEY
 
 rag:
   embedding_model: "all-MiniLM-L6-v2"
