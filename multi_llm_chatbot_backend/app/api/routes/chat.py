@@ -73,7 +73,6 @@ async def chat_stream(
     @param request: FastAPI Request object for session management
     @param current_user: Authenticated user from dependency injection
     @return: StreamingResponse that yields ChatStreamLine events as NDJSON
-
     """
 
     async def _event_generator():
@@ -303,9 +302,13 @@ async def chat_sequential_enhanced(
     message: ChatMessage, 
     request: Request,
     current_user: User = Depends(get_current_active_user)
-):
+    ) -> Dict[str, Any]:
     """
     Enhanced sequential chat with proper session management, document access, and intelligent persona ordering
+    @param message: ChatMessage containing user input and optional session/chat IDs
+    @param request: FastAPI Request object for session management
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict response with LLM responses if successful, else error details
     """
     try:
         # Ensure consistent session ID for document retrieval
