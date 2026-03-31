@@ -16,7 +16,7 @@ python-dotenv
 pyyaml~=6.0
 
 # Persona color generation
-colorhash
+colorhash~=2.3
 
 # Vector database and embeddings
 chromadb
