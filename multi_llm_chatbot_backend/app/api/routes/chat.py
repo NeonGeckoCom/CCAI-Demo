@@ -100,7 +100,7 @@ async def chat_stream(
 
             session.append_message("user", message.user_input)
 
-            if chat_orchestrator._needs_clarification(session, message.user_input):
+            if chat_orchestrator.needs_clarification(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
                 yield ChatStreamLine(
                     type="clarification",
@@ -115,22 +115,27 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
-            all_ids = list(chat_orchestrator.personas.keys())
+            # Get all personas available in the application
+            available_advisors = list(chat_orchestrator.personas.keys())
+
             if message.active_advisors:
-                all_ids = [pid for pid in all_ids if pid in message.active_advisors]
-            k = min(3, len(all_ids))
+                available_advisors = [
+                        persona_id for persona_id in available_advisors 
+                        if persona_id in message.active_advisors]
+
+            # Pick 3 relevant personas (unless fewer are available)
+            num_advisors = min(3, len(available_advisors))
+
             top_personas = await chat_orchestrator.get_top_personas(
-                session_id=sid, k=k,
+                session_id=sid, k=num_advisors,
             )
 
             done_queue: asyncio.Queue = asyncio.Queue()
 
             async def _run(pid: str) -> None:
-                persona = chat_orchestrator.get_persona(pid)
-                if not persona:
-                    return
                 try:
-                    result = await chat_orchestrator._generate_single_persona_response(
+                    persona = chat_orchestrator.get_persona(pid)
+                    result = await chat_orchestrator.generate_single_persona_response(
                         session, persona,
                         message.response_length or "medium",
                     )
@@ -354,7 +359,7 @@ async def chat_sequential_enhanced(
         session.append_message("user", message.user_input)
         
         # Check if the user's message is vague and needs clarification
-        if chat_orchestrator._needs_clarification(session, message.user_input):
+        if chat_orchestrator.needs_clarification(session, message.user_input):
             clarification = await chat_orchestrator.generate_contextual_clarification(
                 message.user_input
             )

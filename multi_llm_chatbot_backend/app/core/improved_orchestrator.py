@@ -49,7 +49,7 @@ class ImprovedChatOrchestrator:
             session.append_message("user", user_input)
             
             # Determine if we need clarification
-            needs_clarification = self._needs_clarification(session, user_input)
+            needs_clarification = self.needs_clarification(session, user_input)
             
             if needs_clarification:
                 # Generate clarification question
@@ -64,7 +64,7 @@ class ImprovedChatOrchestrator:
                 }
             
             # Generate responses from all personas
-            responses = await self._generate_persona_responses(session, response_length)
+            responses = await self.generate_persona_responses(session, response_length)
             
             return {
                 "status": "success",
@@ -100,7 +100,7 @@ class ImprovedChatOrchestrator:
             available_documents = [doc["filename"] for doc in doc_stats.get("documents", [])]
             
             # Generate enhanced persona responses
-            responses = await self._generate_persona_responses(session, response_length)
+            responses = await self.generate_persona_responses(session, response_length)
             
             return {
                 "status": "success",
@@ -136,7 +136,7 @@ class ImprovedChatOrchestrator:
         
         return references[:3]  # Limit to first 3 references
     
-    def _needs_clarification(self, session: ConversationContext, user_input: str) -> bool:
+    def needs_clarification(self, session: ConversationContext, user_input: str) -> bool:
         """
         Determine if the user input needs clarification.
         Patterns and keywords are driven by config.yaml → orchestrator section.
@@ -253,7 +253,7 @@ class ImprovedChatOrchestrator:
             "suggestions": fallback_suggestions,
         }
     
-    async def _generate_persona_responses(self, session: ConversationContext, response_length: str = "medium"):
+    async def generate_persona_responses(self, session: ConversationContext, response_length: str = "medium"):
         """
         Generate responses from all personas with enhanced RAG integration
         """
@@ -263,7 +263,7 @@ class ImprovedChatOrchestrator:
             logger.info(f"Generating response for {persona_id} with enhanced RAG")
             
             # Generate persona response with enhanced RAG
-            response_data = await self._generate_single_persona_response(session, persona, response_length)
+            response_data = await self.generate_single_persona_response(session, persona, response_length)
             
             # Add persona response to session context
             session.append_message(persona_id, response_data["response"])
@@ -272,7 +272,7 @@ class ImprovedChatOrchestrator:
         
         return responses
     
-    async def _generate_single_persona_response(self, session, persona, response_length: str = "medium"):
+    async def generate_single_persona_response(self, session, persona, response_length: str = "medium"):
         """
         Enhanced version - Generate response from a single persona with enhanced RAG integration
         """
@@ -700,7 +700,7 @@ When analyzing the document context:
             logger.info(f"Generating response for {persona_id} with session {session_id}")
             
             # Generate response from single persona using consistent session ID
-            response_data = await self._generate_single_persona_response(session, persona, response_length)
+            response_data = await self.generate_single_persona_response(session, persona, response_length)
             
             # Add response to session
             session.append_message(persona_id, response_data["response"])
