@@ -2,19 +2,26 @@
 from app.config import get_settings
 from app.llm.improved_gemini_client import ImprovedGeminiClient
 from app.llm.improved_ollama_client import ImprovedOllamaClient
+from app.llm.improved_vllm_client import ImprovedVllmClient
 from app.core.improved_orchestrator import ImprovedChatOrchestrator
 from app.models.default_personas import get_default_personas
 
 settings = get_settings()
 
 current_provider = "gemini"
-available_providers = ["ollama", "gemini"]
+available_providers = ["ollama", "gemini", "vllm"]
 
 def create_llm_client(provider=None):
     if provider is None:
         provider = current_provider
     if provider == "gemini":
         return ImprovedGeminiClient(model_name=settings.llm.gemini.model)
+    elif provider == "vllm":
+        first_client = next(iter(settings.llm.vllm.clients.values()))
+        return ImprovedVllmClient(
+            api_url=first_client.api_url,
+            api_key=first_client.api_key,
+        )
     else:
         return ImprovedOllamaClient(
             model_name=settings.llm.ollama.model,

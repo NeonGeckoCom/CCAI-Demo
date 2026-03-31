@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Body, HTTPException
+from app.config import get_settings
 from app.llm.improved_gemini_client import ImprovedGeminiClient
 from app.llm.improved_ollama_client import ImprovedOllamaClient
+from app.llm.improved_vllm_client import ImprovedVllmClient
 from app.models.default_personas import get_default_personas
 from app.core.bootstrap import chat_orchestrator, llm, current_provider, available_providers
 from pydantic import BaseModel
@@ -24,6 +26,13 @@ def create_llm_client(provider: str = None):
             return ImprovedOllamaClient(model_name="llama3.2:1b")
     elif provider == "ollama":
         return ImprovedOllamaClient(model_name="llama3.2:1b")
+    elif provider == "vllm":
+        settings = get_settings()
+        first_client = next(iter(settings.llm.vllm.clients.values()))
+        return ImprovedVllmClient(
+            api_url=first_client.api_url,
+            api_key=first_client.api_key,
+        )
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
