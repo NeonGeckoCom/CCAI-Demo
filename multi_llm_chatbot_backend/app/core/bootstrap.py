@@ -17,6 +17,10 @@ def create_llm_client(provider=None):
     if provider == "gemini":
         return ImprovedGeminiClient(model_name=settings.llm.gemini.model)
     elif provider == "vllm":
+        if not settings.llm.vllm.clients:
+            raise ValueError("No vLLM endpoints configured. Add entries under llm.vllm.clients in your config.")
+        # TODO: Currently selects the first configured vLLM endpoint.
+        # Future improvement: more sophisticated selection logic.
         first_client = next(iter(settings.llm.vllm.clients.values()))
         return ImprovedVllmClient(
             api_url=first_client.api_url,

@@ -16,12 +16,15 @@ class ImprovedVllmClient(LLMClient):
         self.client = AsyncOpenAI(
             base_url=f"{api_url}/v1",
             api_key=api_key,
+            timeout=30.0,
         )
         self.context_manager = get_context_manager()
 
     async def refresh_model(self):
         """Query the vLLM endpoint to discover the currently loaded model."""
         models = await self.client.models.list()
+        if not models.data:
+            raise ValueError("No models available at the vLLM endpoint")
         self.model_name = models.data[0].id
 
     async def generate(self, system_prompt: str, context: List[dict],
