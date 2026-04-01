@@ -58,6 +58,9 @@ class ImprovedVllmClient(LLMClient):
             return "I'm unable to connect to the AI service. Please ensure the vLLM endpoint is available."
         except APIStatusError as e:
             logger.error(f"vLLM API error: {e.status_code}")
+            if e.status_code == 404:
+                logger.info("Model not found, will re-discover on next request")
+                self.model_name = None
             return "The AI service encountered an error. Please try again."
         except Exception as e:
             logger.error(f"Unexpected error in vLLM client: {str(e)}")

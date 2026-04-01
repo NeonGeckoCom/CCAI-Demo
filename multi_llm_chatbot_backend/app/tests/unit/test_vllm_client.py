@@ -140,6 +140,26 @@ class TestImprovedVllmClient(unittest.TestCase):
         ))
         self.assertIn("error", result.lower())
 
+    def test_generate_clears_model_on_404(self, MockAsyncOpenAI, mock_get_ctx):
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="stale-model",
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        client.client.chat.completions.create = AsyncMock(
+            side_effect=APIStatusError(
+                message="Model not found", response=mock_response, body=None,
+            )
+        )
+
+        asyncio.run(client.generate(
+            system_prompt="Test",
+            context=[{"role": "user", "content": "Hi"}],
+            temperature=0.5,
+            max_tokens=50,
+        ))
+        self.assertIsNone(client.model_name)
+
     # ------------------------------------------------------------------
     # _clean_response
     # ------------------------------------------------------------------
