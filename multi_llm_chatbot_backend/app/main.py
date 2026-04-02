@@ -19,6 +19,8 @@ from app.api.routes import router as main_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
 from app.api.routes.phd_canvas import router as phd_canvas_router
+# TODO: Remove this router before production. For development only.
+from app.api.routes.tool_test import router as tool_test_router
 
 import logging
 
@@ -57,6 +59,8 @@ app.include_router(main_router)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
+# TODO: Remove this router before production. For development only.
+app.include_router(tool_test_router, prefix="/api/test", tags=["tool-test"])
 
 # ---------------------------------------------------------------------------
 # Public configuration endpoint — serves the frontend-safe subset
