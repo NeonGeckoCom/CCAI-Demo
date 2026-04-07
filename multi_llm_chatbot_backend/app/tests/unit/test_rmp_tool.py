@@ -126,6 +126,7 @@ class TestRMPToolExecutor(unittest.TestCase):
         ctx = MagicMock()
         client_instance = AsyncMock()
         client_instance.get = AsyncMock(side_effect=Exception("connection refused"))
+        client_instance.post = AsyncMock(side_effect=Exception("connection refused"))
         ctx.__aenter__ = AsyncMock(return_value=client_instance)
         ctx.__aexit__ = AsyncMock(return_value=False)
 
