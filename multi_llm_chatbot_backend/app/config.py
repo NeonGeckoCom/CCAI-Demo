@@ -218,13 +218,9 @@ class OllamaConfig(BaseModel):
     base_url: str = Field(default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
 
 
-class VllmClientConfig(BaseModel):
-    api_url: str
-    api_key: str = Field(default=os.getenv("VLLM_API_KEY", ""))
-
-
 class VllmConfig(BaseModel):
-    clients: dict[str, VllmClientConfig] = {}
+    api_url: str = ""
+    api_key: str = Field(default=os.getenv("VLLM_API_KEY", ""))
 
 
 class LLMConfig(BaseModel):

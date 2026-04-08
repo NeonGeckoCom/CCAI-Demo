@@ -134,10 +134,30 @@ class ContextManager:
             return self._format_for_gemini(messages, system_prompt)
         elif provider.lower() in ["ollama", "mistral"]:
             return self._format_for_ollama(messages, system_prompt)
+        elif provider.lower() == "vllm":
+            return self._format_for_vllm(messages, system_prompt)
         else:
             # Default format
             return [{"role": "system", "content": system_prompt}] + messages
-    
+
+    def _format_for_vllm(self, messages: List[dict], system_prompt: str) -> List[dict]:
+        """
+        Format messages for vLLM's OpenAI-compatible API.
+        Normalizes custom persona roles to 'assistant' since the API
+        only accepts system/user/assistant.
+        """
+        formatted = [{"role": "system", "content": system_prompt}]
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                continue
+            if role not in ("user", "assistant"):
+                content = f"[{role.title()} Advisor]: {content}"
+                role = "assistant"
+            formatted.append({"role": role, "content": content})
+        return formatted
+
     def _format_for_gemini(self, messages: List[dict], system_prompt: str) -> List[dict]:
         """
         Format messages for Gemini API (uses user/model roles with parts structure)
