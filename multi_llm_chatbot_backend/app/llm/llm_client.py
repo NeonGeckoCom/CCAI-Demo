@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List
+import re
 
 class LLMClient(ABC):
     """Abstract base class for all LLM clients"""
@@ -20,3 +21,10 @@ class LLMClient(ABC):
             str: The generated response text
         """
         pass
+
+    def _clean_response(self, response: str) -> str:
+        """Clean up response text, preserving Markdown formatting."""
+        response = response.replace("\r\n", "\n").replace("\r", "\n")
+        lines = [ln.rstrip() for ln in response.split("\n")]
+        response = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+        return response

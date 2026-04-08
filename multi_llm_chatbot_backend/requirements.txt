@@ -5,6 +5,7 @@ python-multipart
 
 # HTTP client for LLM APIs
 httpx
+openai~=2.30
 
 # Document processing
 PyPDF2

@@ -144,6 +144,8 @@ llm:
     model: "gemini-2.5-flash"
   ollama:
     model: "llama3.2:1b"
+  vllm:
+    api_url: https://rtx6000blackwell-1.neonaiservices2.com/vllm0
 
 rag:
   embedding_model: "all-MiniLM-L6-v2"

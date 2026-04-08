@@ -1,6 +1,6 @@
 // src/components/ProviderDropdown.js
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Cpu, Cloud, Loader2 } from 'lucide-react';
+import { ChevronDown, Cpu, Cloud, Server, Loader2 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
 const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false }) => {
@@ -22,6 +22,13 @@ const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false
       description: 'Local LLM via Ollama',
       icon: Cpu,
       badge: 'Local'
+    },
+    {
+      id: 'vllm',
+      name: 'vLLM',
+      description: 'vLLM inference endpoint',
+      icon: Server,
+      badge: 'API'
     }
   ];
 
@@ -69,7 +76,7 @@ const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false
           )}
           <div className="provider-info">
             <span className="provider-name">{currentProviderInfo?.name || 'Unknown'}</span>
-            <span className="provider-badge">{currentProviderInfo?.badge}</span>
+            <span className={`provider-badge ${currentProvider}`}>{currentProviderInfo?.badge}</span>
           </div>
         </div>
         <ChevronDown 

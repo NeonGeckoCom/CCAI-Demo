@@ -882,6 +882,10 @@
   letter-spacing: 0.5px;
 }
 
+.provider-badge.gemini { color: #4285f4; }
+.provider-badge.ollama { color: #10b981; }
+.provider-badge.vllm   { color: #ef4444; }
+
 .clarification-message-container {
   display: flex;
   justify-content: center;
@@ -1110,6 +1114,11 @@
 .provider-option-badge.ollama {
   background: rgba(16, 185, 129, 0.15);
   color: #10b981;
+}
+
+.provider-option-badge.vllm {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
 }
 
 .provider-option-description {
