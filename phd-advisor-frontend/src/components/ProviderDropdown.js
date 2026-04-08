@@ -76,7 +76,7 @@ const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false
           )}
           <div className="provider-info">
             <span className="provider-name">{currentProviderInfo?.name || 'Unknown'}</span>
-            <span className="provider-badge">{currentProviderInfo?.badge}</span>
+            <span className={`provider-badge ${currentProvider}`}>{currentProviderInfo?.badge}</span>
           </div>
         </div>
         <ChevronDown 
