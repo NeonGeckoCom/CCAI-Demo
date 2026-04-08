@@ -396,17 +396,12 @@ const handleNewChat = async (sessionId = null) => {
     setThinkingAdvisors(['system']);
 
     try {
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      };
-      
-
-      console.log('Sending message with session ID:', currentSessionId); // Debug log
-
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-sequential`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-stream`, {
         method: 'POST',
-        headers: headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
           user_input: inputMessage,
           response_length: 'medium',
@@ -418,32 +413,69 @@ const handleNewChat = async (sessionId = null) => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Rest of the function remains the same...
-      const data = await response.json();
-      
-      // Process responses...
-      if (data.responses && Array.isArray(data.responses)) {
-        const newResponses = data.responses.map(response => ({
-          id: generateMessageId(),
-          type: 'advisor',
-          persona_id: response.persona_id,
-          content: response.content,
-          timestamp: new Date(),
-          advisorName: response.persona_name || response.persona_id,
-          used_documents: response.used_documents || false,
-          document_chunks_used: response.document_chunks_used || 0
-        }));
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-        setMessages(prev => [...prev, ...newResponses]);
-        
-        // Save advisor responses to database
-        for (const response of newResponses) {
-          await saveMessageToSession(response);
-        }
-        
-        // Log session debug info if available
-        if (data.session_debug) {
-          console.log('Session debug info:', data.session_debug);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const payload = JSON.parse(line);
+
+          const d = payload.data || {};
+
+          switch (payload.type) {
+            case 'advisor': {
+              const msg = {
+                id: generateMessageId(),
+                type: 'advisor',
+                persona_id: d.persona_id,
+                content: d.content,
+                timestamp: new Date(),
+                advisorName: d.persona_name || d.persona_id,
+                used_documents: d.used_documents || false,
+                document_chunks_used: d.document_chunks_used || 0,
+              };
+              setMessages(prev => [...prev, msg]);
+              setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              await saveMessageToSession(msg);
+              break;
+            }
+            case 'clarification':
+              setMessages(prev => [...prev, {
+                id: generateMessageId(),
+                type: 'clarification',
+                content: d.message,
+                suggestions: d.suggestions || [],
+                timestamp: new Date(),
+              }]);
+              break;
+            case 'progress':
+              if (d.phase === 'complete') {
+                break;
+              }
+              if (d.persona_id != null) {
+                setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              }
+              break;
+            case 'error':
+              setMessages(prev => [...prev, {
+                id: generateMessageId(),
+                type: 'error',
+                content: d.detail || 'An error occurred',
+                timestamp: new Date(),
+              }]);
+              break;
+            default:
+              break;
+          }
         }
       }
 

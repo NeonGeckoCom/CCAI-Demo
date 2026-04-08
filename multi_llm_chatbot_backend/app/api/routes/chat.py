@@ -1,15 +1,20 @@
-from fastapi import APIRouter, Request, HTTPException, Body, Depends
-from app.models.persona import Persona
-from app.core.session_manager import get_session_manager
-from app.api.utils import get_or_create_session_for_request_async
-from app.core.bootstrap import chat_orchestrator
-from app.core.auth import get_current_active_user
-from app.models.user import User
-from pydantic import BaseModel
-from typing import Optional
+import asyncio
+import json
 import logging
-from app.core.database import get_database
+import traceback
+from typing import Any, Dict, List, Literal, Optional
+
 from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from app.api.utils import get_or_create_session_for_request_async
+from app.core.auth import get_current_active_user
+from app.core.bootstrap import chat_orchestrator
+from app.core.database import get_database
+from app.core.session_manager import get_session_manager
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,7 @@ class ChatMessage(BaseModel):
     session_id: Optional[str] = None
     chat_session_id: Optional[str] = None  # MongoDB chat session ID
     response_length: str = "medium"
+    active_advisors: Optional[List[str]] = None
 
 class ReplyToAdvisor(BaseModel):
     user_input: str
@@ -41,6 +47,140 @@ class SwitchChatRequest(BaseModel):
 
 class NewChatRequest(BaseModel):
     title: Optional[str] = "New Chat"
+
+ChatStreamEventType = Literal["error", "progress", "clarification", "advisor"]
+
+
+class ChatStreamLine(BaseModel):
+    """One NDJSON line from ``/chat-stream``."""
+
+    type: ChatStreamEventType
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+    def to_ndjson(self) -> str:
+        return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
+
+
+@router.post("/chat-stream")
+async def chat_stream(
+    message: ChatMessage,
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+) -> StreamingResponse:
+    """
+    Streaming variant of chat-sequential (newline-delimited JSON).
+    @param message: ChatMessage containing user input and optional session/chat IDs
+    @param request: FastAPI Request object for session management
+    @param current_user: Authenticated user from dependency injection
+    @return: StreamingResponse that yields ChatStreamLine events as NDJSON
+    """
+
+    async def _event_generator():
+        try:
+            if message.chat_session_id:
+                sid = f"chat_{message.chat_session_id}"
+                if sid not in session_manager.sessions:
+                    sid = await get_or_create_session_for_request_async(
+                        request,
+                        chat_session_id=message.chat_session_id,
+                        user_id=str(current_user.id),
+                    )
+            else:
+                sid = await get_or_create_session_for_request_async(request)
+
+            session = session_manager.get_session(sid)
+
+            if (
+                len(session.messages) > 0 and
+                session.messages[-1].get("role") == "user" and
+                session.messages[-1].get("content") == message.user_input
+            ):
+                # TODO: This should be handled in the front-end input
+                logger.warning(f"Repeated user input: {message.user_input}")
+
+            session.append_message("user", message.user_input)
+
+            if chat_orchestrator.needs_clarification(session, message.user_input):
+                clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
+                yield ChatStreamLine(
+                    type="clarification",
+                    data={
+                        "message": clar["question"],
+                        "suggestions": clar["suggestions"],
+                    },
+                ).to_ndjson()
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "complete"},
+                ).to_ndjson()
+                return
+
+            # Get personas most relevant to the current session
+            top_personas = await chat_orchestrator.get_top_personas(
+                session_id=sid,
+            )
+
+            done_queue: asyncio.Queue = asyncio.Queue()
+
+            async def _run(pid: str) -> None:
+                try:
+                    persona = chat_orchestrator.get_persona(pid)
+                    result = await chat_orchestrator.generate_single_persona_response(
+                        session, persona,
+                        message.response_length or "medium",
+                    )
+                    session.append_message(pid, result["response"])
+                    await done_queue.put(result)
+                except Exception as e:
+                    logger.exception(f"chat-stream _run failed for {pid}: {e}")
+                    await done_queue.put({
+                        "persona_id": persona.id,
+                        "persona_name": persona.name,
+                        "response": f"I ran into a technical issue. Please try again. ({e!s})",
+                        "used_documents": False,
+                        "document_chunks_used": 0,
+                    })
+
+            tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
+
+            for _ in range(len(tasks)):
+                result = await done_queue.get()
+                line = ChatStreamLine(
+                    type="advisor",
+                    data={
+                        "persona_id": result["persona_id"],
+                        "persona_name": result["persona_name"],
+                        "content": result["response"],
+                        "used_documents": result.get("used_documents", False),
+                        "document_chunks_used": result.get("document_chunks_used", 0),
+                    },
+                )
+                yield line.to_ndjson()
+
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            yield ChatStreamLine(
+                type="progress",
+                data={"phase": "complete"},
+            ).to_ndjson()
+
+        except Exception as exc:
+            logger.error(f"chat-stream error: {exc}")
+            logger.error(traceback.format_exc())
+            yield ChatStreamLine(
+                type="error",
+                data={"detail": str(exc)},
+            ).to_ndjson()
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 @router.post("/switch-chat")
 async def switch_to_chat(
@@ -157,9 +297,13 @@ async def chat_sequential_enhanced(
     message: ChatMessage, 
     request: Request,
     current_user: User = Depends(get_current_active_user)
-):
+    ) -> Dict[str, Any]:
     """
     Enhanced sequential chat with proper session management, document access, and intelligent persona ordering
+    @param message: ChatMessage containing user input and optional session/chat IDs
+    @param request: FastAPI Request object for session management
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict response with LLM responses if successful, else error details
     """
     try:
         # Ensure consistent session ID for document retrieval
@@ -205,7 +349,7 @@ async def chat_sequential_enhanced(
         session.append_message("user", message.user_input)
         
         # Check if the user's message is vague and needs clarification
-        if chat_orchestrator._needs_clarification(session, message.user_input):
+        if chat_orchestrator.needs_clarification(session, message.user_input):
             clarification = await chat_orchestrator.generate_contextual_clarification(
                 message.user_input
             )
