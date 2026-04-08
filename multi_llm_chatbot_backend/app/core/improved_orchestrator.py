@@ -771,6 +771,9 @@ When analyzing the document context:
                 for p in self.personas.values()
             ])
 
+            # Ensure k does not exceed the number of available personas
+            k = min(k, len(self.personas))
+
             app_title = get_settings().app.title
 
             prompt = f"""

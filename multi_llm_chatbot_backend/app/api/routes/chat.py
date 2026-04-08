@@ -115,19 +115,9 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
-            # Get all personas available in the application
-            available_advisors = list(chat_orchestrator.personas.keys())
-
-            if message.active_advisors:
-                available_advisors = [
-                        persona_id for persona_id in available_advisors 
-                        if persona_id in message.active_advisors]
-
-            # Pick 3 relevant personas (unless fewer are available)
-            num_advisors = min(3, len(available_advisors))
-
+            # Get personas most relevant to the current session
             top_personas = await chat_orchestrator.get_top_personas(
-                session_id=sid, k=num_advisors,
+                session_id=sid,
             )
 
             done_queue: asyncio.Queue = asyncio.Queue()
