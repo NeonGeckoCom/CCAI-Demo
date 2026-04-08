@@ -1,4 +1,3 @@
-import re
 from typing import List
 from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 from app.llm.llm_client import LLMClient
@@ -66,9 +65,3 @@ class ImprovedVllmClient(LLMClient):
             logger.error(f"Unexpected error in vLLM client: {str(e)}")
             return "I encountered an unexpected error. Please try again."
 
-    def _clean_response(self, response: str) -> str:
-        """Clean up response text, preserving Markdown formatting."""
-        response = response.replace("\r\n", "\n").replace("\r", "\n")
-        lines = [ln.rstrip() for ln in response.split("\n")]
-        response = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-        return response

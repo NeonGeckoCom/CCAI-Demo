@@ -1,6 +1,5 @@
 import httpx
 import os
-import re
 from typing import List
 from app.llm.llm_client import LLMClient
 from app.core.context_manager import get_context_manager
@@ -121,11 +120,3 @@ class ImprovedGeminiClient(LLMClient):
         except Exception as e:
             logger.error(f"Unexpected error in Gemini client: {str(e)}")
             return "I encountered an unexpected error. Please try again."
-    
-    def _clean_response(self, response: str) -> str:
-        """Clean up response text, preserving Markdown formatting."""
-        response = response.replace("\r\n", "\n").replace("\r", "\n")
-        lines = [ln.rstrip() for ln in response.split("\n")]
-        response = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-
-        return response
