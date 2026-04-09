@@ -8,19 +8,13 @@ execute() coroutine that the tool-calling loop dispatches to.
 import logging
 import re
 from typing import Any, Dict, List, Optional
-
 import httpx
+from app.tools import BROWSER_UA
 
 logger = logging.getLogger(__name__)
 
 FOSE_SEARCH_URL = "https://classes.colorado.edu/api/?page=fose&route=search"
 CLASSES_BASE_URL = "https://classes.colorado.edu"
-
-BROWSER_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
 
 TOOL_DEFINITION: Dict[str, Any] = {
     "name": "search_courses",

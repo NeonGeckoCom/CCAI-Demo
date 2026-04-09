@@ -23,6 +23,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Shared User-Agent for HTTP clients in tool modules (FOSE, RMP, etc.).
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
 _REGISTRY: Dict[str, Dict[str, Any]] = {}
 
 

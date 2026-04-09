@@ -1,6 +1,7 @@
 import httpx
 import os
 from typing import List
+from app.llm import GEMINI_BASE_URL
 from app.llm.llm_client import LLMClient
 from app.core.context_manager import get_context_manager
 from app.config import get_settings
@@ -20,7 +21,7 @@ class ImprovedGeminiClient(LLMClient):
         if not self.api_key:
             raise ValueError("Gemini API key not set. Provide it in config.yaml (llm.gemini.api_key).")
         
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+        self.base_url = GEMINI_BASE_URL
         self.context_manager = get_context_manager()
     
     async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int, response_mime_type: str = None) -> str:

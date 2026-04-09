@@ -9,8 +9,8 @@ execute() coroutine that the tool-calling loop dispatches to.
 import logging
 import re
 from typing import Any, Dict, List
-
 import httpx
+from app.tools import BROWSER_UA
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +20,6 @@ RMP_SEARCH_URL = "https://www.ratemyprofessors.com/search/professors/1087"
 
 # base64("School-1087") — CU Boulder's school ID in RMP's GraphQL schema
 CU_BOULDER_SCHOOL_ID = "U2Nob29sLTEwODc="
-
-BROWSER_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
 
 TEACHER_SEARCH_QUERY = """
 query TeacherSearchPaginationQuery(

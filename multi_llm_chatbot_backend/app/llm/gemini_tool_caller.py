@@ -9,12 +9,10 @@ and returns a ``ToolCallResult`` indicating whether a tool was used.
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
-
 import httpx
+from app.llm import GEMINI_BASE_URL
 
 logger = logging.getLogger(__name__)
-
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 @dataclass
@@ -80,7 +78,16 @@ async def generate_with_tools(
         fn_args = func_call.get("args", {})
         logger.info("Gemini requested tool call: %s(%s)", fn_name, fn_args)
 
-        tool_result = await tool_executor(name=fn_name, **fn_args)
+        try:
+            tool_result = await tool_executor(name=fn_name, **fn_args)
+        except Exception as exc:
+            logger.error("Tool %s failed: %s", fn_name, exc)
+            return ToolCallResult(
+                text="I tried to look that up but the data source is unavailable right now.",
+                used_tool=True,
+                tool_name=fn_name,
+                tool_args=fn_args,
+            )
 
         contents.append({
             "role": "model",

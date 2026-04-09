@@ -150,3 +150,9 @@ llm:
 rag:
   embedding_model: "all-MiniLM-L6-v2"
   chroma_collection: "phd_advisor_documents"
+
+# TODO: For development/testing only. Remove or clear before production.
+tools:
+  enabled:
+    - search_courses
+    - rate_my_professor
