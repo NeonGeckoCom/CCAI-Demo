@@ -234,6 +234,10 @@ class RAGConfig(BaseModel):
     chroma_collection: str = "phd_advisor_documents"
 
 
+class ToolsConfig(BaseModel):
+    enabled: List[str] = []
+
+
 class AppSettings(BaseModel):
     """Top-level container that mirrors the YAML structure."""
     app: AppConfig = AppConfig()
@@ -246,6 +250,7 @@ class AppSettings(BaseModel):
     mongodb: MongoDBConfig = MongoDBConfig()
     llm: LLMConfig = LLMConfig()
     rag: RAGConfig = RAGConfig()
+    tools: ToolsConfig = ToolsConfig()
 
     # ------------------------------------------------------------------
     # Convenience helpers

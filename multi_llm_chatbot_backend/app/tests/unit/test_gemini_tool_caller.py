@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.llm.gemini_tool_caller import generate_with_tools
+from app.llm.gemini_tool_caller import generate_with_tools, ToolCallResult
 
 
 FAKE_TOOL = {
@@ -85,7 +85,9 @@ class TestGenerateWithTools(unittest.TestCase):
                 tool_executor=mock_executor,
             ))
 
-        self.assertEqual(result, "Hello, world!")
+        self.assertIsInstance(result, ToolCallResult)
+        self.assertEqual(result.text, "Hello, world!")
+        self.assertFalse(result.used_tool)
         mock_executor.assert_not_called()
 
     def test_function_call_triggers_executor_and_returns_final_text(self):
@@ -112,7 +114,11 @@ class TestGenerateWithTools(unittest.TestCase):
         mock_executor.assert_called_once_with(
             name="search_courses", subject="CSCI",
         )
-        self.assertEqual(result, "CSCI 1300 is available MWF 10-10:50.")
+        self.assertIsInstance(result, ToolCallResult)
+        self.assertEqual(result.text, "CSCI 1300 is available MWF 10-10:50.")
+        self.assertTrue(result.used_tool)
+        self.assertEqual(result.tool_name, "search_courses")
+        self.assertEqual(result.tool_args, {"subject": "CSCI"})
         self.assertEqual(client.post.call_count, 2)
 
     def test_tool_definitions_included_in_payload(self):
@@ -190,4 +196,6 @@ class TestGenerateWithTools(unittest.TestCase):
                 tool_executor=AsyncMock(),
             ))
 
-        self.assertIn("unable", result.lower())
+        self.assertIsInstance(result, ToolCallResult)
+        self.assertIn("unable", result.text.lower())
+        self.assertFalse(result.used_tool)

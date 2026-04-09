@@ -4,6 +4,8 @@ from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
 from app.config import get_settings
+from app.llm.gemini_tool_caller import generate_with_tools, ToolCallResult
+from app.tools import get_tool_definitions, get_tool_executor
 
 import json
 import logging
@@ -33,7 +35,42 @@ class ImprovedChatOrchestrator:
     def list_personas(self) -> List[str]:
         """List all available persona IDs"""
         return list(self.personas.keys())
-    
+
+    async def get_tool_response(self, user_message: str) -> ToolCallResult:
+        """Check whether a tool can handle *user_message*.
+
+        If tools are disabled in config or Gemini decides no tool is needed,
+        returns ``ToolCallResult(used_tool=False)``.  Otherwise executes the
+        tool and returns the grounded response with ``used_tool=True``.
+        """
+        settings = get_settings()
+        tools_enabled = settings.tools.enabled
+
+        if not tools_enabled:
+            return ToolCallResult(text="", used_tool=False)
+
+        tool_definitions = get_tool_definitions(enabled=tools_enabled)
+        tool_executor = get_tool_executor(enabled=tools_enabled)
+
+        if not tool_definitions:
+            return ToolCallResult(text="", used_tool=False)
+
+        system_prompt = (
+            "You are a helpful assistant with access to external tools. "
+            "Use the available tools when the user's question can be answered "
+            "by one of them. If no tool is relevant, respond with a brief "
+            "text answer."
+        )
+
+        return await generate_with_tools(
+            api_key=settings.llm.gemini.api_key,
+            model_name=settings.llm.gemini.model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            tool_definitions=tool_definitions,
+            tool_executor=tool_executor,
+        )
+
     async def process_message(self, 
                             user_input: str, 
                             session_id: Optional[str] = None,
