@@ -53,7 +53,11 @@ async def tool_query(request: ToolTestRequest):
             tool_definitions=get_tool_definitions(),
             tool_executor=get_tool_executor(),
         )
-        return {"response": result}
+        return {
+            "response": result.text,
+            "used_tool": result.used_tool,
+            "tool_name": result.tool_name,
+        }
 
     except Exception as e:
         logger.error("tool-query failed: %s", e)
