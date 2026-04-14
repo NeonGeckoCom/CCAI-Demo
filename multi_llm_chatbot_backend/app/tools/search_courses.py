@@ -47,6 +47,13 @@ TOOL_DEFINITION: Dict[str, Any] = {
                     "Defaults to 'Spring 2026' if not provided."
                 ),
             },
+            "limit": {
+                "type": "integer",
+                "description": (
+                    "Maximum number of course sections to return. "
+                    "Defaults to 20. Use a smaller value for broad queries."
+                ),
+            },
         },
         "required": ["subject"],
     },
@@ -115,12 +122,15 @@ def _row_to_course(item: Dict[str, Any], term: str) -> Optional[Dict[str, Any]]:
     }
 
 
+MAX_RESULTS = 20
+
 async def execute(
     *,
     name: str = "",
     subject: str,
     course_number: str = "",
     semester: str = "Spring 2026",
+    limit: int = MAX_RESULTS,
 ) -> Dict[str, Any]:
     """Query the CU Boulder FOSE API and return matching courses.
 
@@ -168,8 +178,14 @@ async def execute(
         cn = course_number.strip()
         courses = [c for c in courses if cn in c["course_code"]]
 
+    total = len(courses)
+    truncated = total > limit
+    courses = courses[:limit]
+
     return {
         "courses": courses,
+        "total_results": total,
+        "truncated": truncated,
         "query": {
             "subject": subject,
             "course_number": course_number or None,

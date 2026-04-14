@@ -1,20 +1,70 @@
 import asyncio
+import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from openai import APIConnectionError, APIStatusError
 
+from app.llm.llm_client import ToolCallResult
 from app.llm.improved_vllm_client import ImprovedVllmClient
 
 
 FAKE_URL = "https://fake.example.com/vllm0"
 FAKE_KEY = "test-key"
 
+FAKE_TOOL = {
+    "name": "search_courses",
+    "description": "Search courses",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "subject": {"type": "string", "description": "Subject code"},
+        },
+    },
+}
+
 
 def _make_completion_mock(content="Response"):
     """Build a mock that looks like an OpenAI ChatCompletion."""
     mock_message = MagicMock()
     mock_message.content = content
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    return MagicMock(choices=[mock_choice])
+
+
+def _make_text_completion_mock(content="Response"):
+    """Build a ChatCompletion mock with no tool calls."""
+    mock_message = MagicMock()
+    mock_message.content = content
+    mock_message.tool_calls = None
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    return MagicMock(choices=[mock_choice])
+
+
+def _make_tool_call_mock(fn_name, fn_args_dict, tool_call_id="call_123"):
+    """Build a ChatCompletion mock where the model requests a tool call."""
+    fn_args_json = json.dumps(fn_args_dict)
+
+    tool_call = MagicMock()
+    tool_call.id = tool_call_id
+    tool_call.function.name = fn_name
+    tool_call.function.arguments = fn_args_json
+
+    mock_message = MagicMock()
+    mock_message.content = None
+    mock_message.tool_calls = [tool_call]
+    mock_message.model_dump.return_value = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": tool_call_id,
+            "type": "function",
+            "function": {"name": fn_name, "arguments": fn_args_json},
+        }],
+    }
+
     mock_choice = MagicMock()
     mock_choice.message = mock_message
     return MagicMock(choices=[mock_choice])
@@ -214,3 +264,187 @@ class TestImprovedVllmClient(unittest.TestCase):
         self.assertNotIn("\r", cleaned)
         self.assertNotIn("\n\n\n", cleaned)
         self.assertEqual(cleaned, "Line one.\n\nLine two.")
+
+
+@patch("app.llm.improved_vllm_client.get_context_manager")
+@patch("app.llm.improved_vllm_client.AsyncOpenAI")
+class TestVllmGenerateWithTools(unittest.TestCase):
+    """Unit tests for ImprovedVllmClient.generate_with_tools()."""
+
+    # ------------------------------------------------------------------
+    # Happy path — no tool call
+    # ------------------------------------------------------------------
+
+    def test_text_response_returns_not_used(self, MockAsyncOpenAI, mock_get_ctx):
+        """When the model responds with plain text, return used_tool=False."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(
+            return_value=_make_text_completion_mock("Hello, world!"),
+        )
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Hi there",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=AsyncMock(),
+        ))
+
+        self.assertIsInstance(result, ToolCallResult)
+        self.assertEqual(result.text, "Hello, world!")
+        self.assertFalse(result.used_tool)
+
+    # ------------------------------------------------------------------
+    # Happy path — tool call
+    # ------------------------------------------------------------------
+
+    def test_tool_call_executes_and_returns_final_text(self, MockAsyncOpenAI, mock_get_ctx):
+        """When the model requests a tool call, execute it and return
+        the text from the follow-up completion."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_tool_call_mock("search_courses", {"subject": "CSCI"}),
+            _make_text_completion_mock("CSCI 1300 is available MWF 10-10:50."),
+        ])
+        mock_executor = AsyncMock(
+            return_value={"courses": [{"title": "Intro to CS"}]},
+        )
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="What CSCI classes are there?",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        mock_executor.assert_called_once_with(
+            name="search_courses", subject="CSCI",
+        )
+        self.assertIsInstance(result, ToolCallResult)
+        self.assertEqual(result.text, "CSCI 1300 is available MWF 10-10:50.")
+        self.assertTrue(result.used_tool)
+        self.assertEqual(result.tool_name, "search_courses")
+        self.assertEqual(result.tool_args, {"subject": "CSCI"})
+        self.assertEqual(client.client.chat.completions.create.call_count, 2)
+
+    # ------------------------------------------------------------------
+    # Payload format
+    # ------------------------------------------------------------------
+
+    def test_tool_definitions_converted_to_openai_format(self, MockAsyncOpenAI, mock_get_ctx):
+        """Tool definitions must be wrapped in OpenAI's
+        ``{"type": "function", "function": {...}}`` format."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(
+            return_value=_make_text_completion_mock("Ok"),
+        )
+
+        asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Hello",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=AsyncMock(),
+        ))
+
+        call_kwargs = client.client.chat.completions.create.call_args[1]
+        tools = call_kwargs["tools"]
+        self.assertEqual(len(tools), 1)
+        self.assertEqual(tools[0]["type"], "function")
+        self.assertEqual(tools[0]["function"]["name"], "search_courses")
+        self.assertIn("parameters", tools[0]["function"])
+
+    def test_tool_result_appended_to_followup(self, MockAsyncOpenAI, mock_get_ctx):
+        """After executing a tool, the follow-up call must include
+        the assistant message and a ``role: tool`` message."""
+        tool_output = {"courses": [{"title": "Algorithms"}]}
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_tool_call_mock("search_courses", {"subject": "CSCI"}),
+            _make_text_completion_mock("Here are the results."),
+        ])
+        mock_executor = AsyncMock(return_value=tool_output)
+
+        asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Find CSCI courses",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        second_call_kwargs = client.client.chat.completions.create.call_args_list[1][1]
+        messages = second_call_kwargs["messages"]
+
+        assistant_msg = messages[-2]
+        self.assertEqual(assistant_msg["role"], "assistant")
+
+        tool_msg = messages[-1]
+        self.assertEqual(tool_msg["role"], "tool")
+        self.assertEqual(tool_msg["tool_call_id"], "call_123")
+        self.assertEqual(json.loads(tool_msg["content"]), tool_output)
+
+    # ------------------------------------------------------------------
+    # Error handling
+    # ------------------------------------------------------------------
+
+    def test_tool_executor_failure_returns_error_result(self, MockAsyncOpenAI, mock_get_ctx):
+        """If the tool executor raises, return used_tool=True with an
+        error message."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(
+            return_value=_make_tool_call_mock("search_courses", {"subject": "CSCI"}),
+        )
+        mock_executor = AsyncMock(side_effect=RuntimeError("network down"))
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Find CSCI courses",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        self.assertTrue(result.used_tool)
+        self.assertEqual(result.tool_name, "search_courses")
+        self.assertIn("unavailable", result.text.lower())
+
+    def test_connection_error_returns_not_used(self, MockAsyncOpenAI, mock_get_ctx):
+        """APIConnectionError during tool calling returns used_tool=False."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(
+            side_effect=APIConnectionError(request=MagicMock()),
+        )
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="Test",
+            user_message="Hi",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=AsyncMock(),
+        ))
+
+        self.assertIsInstance(result, ToolCallResult)
+        self.assertFalse(result.used_tool)
+        self.assertIn("unable to connect", result.text.lower())
+
+    # ------------------------------------------------------------------
+    # _gemini_to_openai_tool helper
+    # ------------------------------------------------------------------
+
+    def test_gemini_to_openai_tool_conversion(self, MockAsyncOpenAI, mock_get_ctx):
+        converted = ImprovedVllmClient._gemini_to_openai_tool(FAKE_TOOL)
+        self.assertEqual(converted["type"], "function")
+        self.assertEqual(converted["function"]["name"], "search_courses")
+        self.assertEqual(converted["function"]["description"], "Search courses")
+        self.assertEqual(
+            converted["function"]["parameters"],
+            FAKE_TOOL["parameters"],
+        )
