@@ -1,9 +1,11 @@
 """
-rate_my_professor tool — live query against RateMyProfessors' GraphQL API
-for CU Boulder professors.
+rate_my_professor tool — live query against RateMyProfessors' GraphQL API.
 
 Exposes TOOL_DEFINITION (Gemini function-declaration schema) and an
 execute() coroutine that the tool-calling loop dispatches to.
+
+Requires ``school_id`` in the tool config (see phd_config.yaml).
+Use ``scripts/rmp_school_lookup.py`` to find the ID for a given school.
 """
 
 import logging
@@ -11,6 +13,7 @@ import re
 from typing import Any, Dict, List
 import httpx
 from app.tools import BROWSER_UA
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +21,6 @@ RMP_GRAPHQL_URL = "https://www.ratemyprofessors.com/graphql"
 RMP_LANDING_URL = "https://www.ratemyprofessors.com/"
 RMP_SEARCH_URL = "https://www.ratemyprofessors.com/search/professors/1087"
 
-# base64("School-1087") — CU Boulder's school ID in RMP's GraphQL schema
-CU_BOULDER_SCHOOL_ID = "U2Nob29sLTEwODc="
 
 TEACHER_SEARCH_QUERY = """
 query TeacherSearchPaginationQuery(
@@ -121,6 +122,16 @@ async def execute(
     The 'name' kwarg is passed by the dispatch loop and ignored here.
     Returns {"professors": [...], "query": {...}}.
     """
+    tool_cfg = get_settings().tools.get_tool_config("rate_my_professor")
+    school_id = tool_cfg.get("school_id")
+    if not school_id:
+        logger.error("No school_id configured for rate_my_professor")
+        return {
+            "professors": [],
+            "error": "No school_id configured for rate_my_professor",
+            "query": {"professor_name": professor_name},
+        }
+
     professors: List[Dict[str, Any]] = []
 
     try:
@@ -140,7 +151,7 @@ async def execute(
                 "cursor": "",
                 "query": {
                     "text": professor_name,
-                    "schoolID": CU_BOULDER_SCHOOL_ID,
+                    "schoolID": school_id,
                     "fallback": True,
                     "departmentID": None,
                 },

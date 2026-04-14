@@ -49,7 +49,7 @@ class ImprovedChatOrchestrator:
             return ToolCallResult(text="", used_tool=False)
 
         settings = get_settings()
-        tools_enabled = settings.tools.enabled
+        tools_enabled = settings.tools.get_enabled_names()
 
         if not tools_enabled:
             return ToolCallResult(text="", used_tool=False)

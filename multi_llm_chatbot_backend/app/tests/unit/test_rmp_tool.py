@@ -61,6 +61,14 @@ class TestRMPToolContract(unittest.TestCase):
         self.assertTrue(asyncio.iscoroutinefunction(execute))
 
 
+def _fake_tool_config(name):
+    """Return a fake tool config dict with school_id set."""
+    if name == "rate_my_professor":
+        return {"enabled": True, "school_id": "U2Nob29sLTEwODc="}
+    return {}
+
+
+@patch("app.tools.rate_my_professor.get_settings")
 class TestRMPToolExecutor(unittest.TestCase):
     """Unit tests for rate_my_professor.execute() with mocked HTTP."""
 
@@ -86,8 +94,9 @@ class TestRMPToolExecutor(unittest.TestCase):
         ctx.__aexit__ = AsyncMock(return_value=False)
         return ctx, client_instance
 
-    def test_execute_returns_professor_data(self):
+    def test_execute_returns_professor_data(self, mock_get_settings):
         """Successful GraphQL response returns structured professor data."""
+        mock_get_settings.return_value.tools.get_tool_config = _fake_tool_config
         ctx, client = self._mock_client(
             get_response=None,
             post_response=_graphql_success_response([SAMPLE_NODE]),
@@ -106,9 +115,10 @@ class TestRMPToolExecutor(unittest.TestCase):
         self.assertAlmostEqual(prof["difficulty"], 3.1)
         self.assertEqual(prof["num_ratings"], 42)
 
-    def test_execute_returns_empty_on_no_results(self):
+    def test_execute_returns_empty_on_no_results(self, mock_get_settings):
         """When the GraphQL API returns no matching professors, return
         an empty list — not an error."""
+        mock_get_settings.return_value.tools.get_tool_config = _fake_tool_config
         ctx, _ = self._mock_client(
             get_response=None,
             post_response=_graphql_success_response([]),
@@ -120,9 +130,10 @@ class TestRMPToolExecutor(unittest.TestCase):
         self.assertIn("professors", result)
         self.assertEqual(len(result["professors"]), 0)
 
-    def test_execute_returns_error_on_api_failure(self):
+    def test_execute_returns_error_on_api_failure(self, mock_get_settings):
         """When the HTTP request fails, return an error payload instead
         of raising an exception."""
+        mock_get_settings.return_value.tools.get_tool_config = _fake_tool_config
         ctx = MagicMock()
         client_instance = AsyncMock()
         client_instance.get = AsyncMock(side_effect=Exception("connection refused"))
@@ -137,9 +148,10 @@ class TestRMPToolExecutor(unittest.TestCase):
         self.assertEqual(len(result["professors"]), 0)
         self.assertIn("error", result)
 
-    def test_execute_accepts_name_kwarg(self):
+    def test_execute_accepts_name_kwarg(self, mock_get_settings):
         """The dispatcher passes name= as a kwarg; execute must accept
         and ignore it without error."""
+        mock_get_settings.return_value.tools.get_tool_config = _fake_tool_config
         ctx, _ = self._mock_client(
             get_response=None,
             post_response=_graphql_success_response([SAMPLE_NODE]),

@@ -10,6 +10,7 @@ import re
 from typing import Any, Dict, List, Optional
 import httpx
 from app.tools import BROWSER_UA
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +46,6 @@ TOOL_DEFINITION: Dict[str, Any] = {
                 "description": (
                     "Semester name, e.g. 'Spring 2026', 'Fall 2025'. "
                     "Defaults to 'Spring 2026' if not provided."
-                ),
-            },
-            "limit": {
-                "type": "integer",
-                "description": (
-                    "Maximum number of course sections to return. "
-                    "Defaults to 20. Use a smaller value for broad queries."
                 ),
             },
         },
@@ -122,7 +116,6 @@ def _row_to_course(item: Dict[str, Any], term: str) -> Optional[Dict[str, Any]]:
     }
 
 
-MAX_RESULTS = 20
 
 async def execute(
     *,
@@ -130,7 +123,6 @@ async def execute(
     subject: str,
     course_number: str = "",
     semester: str = "Spring 2026",
-    limit: int = MAX_RESULTS,
 ) -> Dict[str, Any]:
     """Query the CU Boulder FOSE API and return matching courses.
 
@@ -178,9 +170,11 @@ async def execute(
         cn = course_number.strip()
         courses = [c for c in courses if cn in c["course_code"]]
 
+    max_results = get_settings().tools.get_tool_config("search_courses").get("max_results", 20)
+
     total = len(courses)
-    truncated = total > limit
-    courses = courses[:limit]
+    truncated = total > max_results
+    courses = courses[:max_results]
 
     return {
         "courses": courses,
