@@ -151,8 +151,12 @@ rag:
   embedding_model: "all-MiniLM-L6-v2"
   chroma_collection: "phd_advisor_documents"
 
-# TODO: For development/testing only. Remove or clear before production.
+# TODO: For development/testing only. PhD Advisor will likely not use these tools.
 tools:
-  enabled:
-    - search_courses
-    - rate_my_professor
+  search_courses:
+    enabled: true
+    max_results: 20   # Limit the number of results returned by the search_courses tool
+  rate_my_professor:
+    enabled: true
+    # Run `python3 scripts/rmp_school_lookup.py "<school name>"` to find this value
+    school_id: "U2Nob29sLTEwODc="   # CU Boulder school ID
