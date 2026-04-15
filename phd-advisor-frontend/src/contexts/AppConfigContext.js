@@ -40,7 +40,11 @@ const buildAdvisors = (personaItems) => {
  */
 const buildGetAdvisorColors = (advisors) => (advisorId, isDark = false) => {
   const advisor = advisors[advisorId];
-  if (!advisor) return { color: '#6B7280', bgColor: '#F3F4F6' };
+  if (!advisor) {
+    return isDark
+      ? { color: '#9CA3AF', bgColor: '#374151', textColor: '#F9FAFB' }
+      : { color: '#6B7280', bgColor: '#F3F4F6', textColor: '#111827' };
+  }
   return {
     color: isDark ? advisor.darkColor : advisor.color,
     bgColor: isDark ? advisor.darkBgColor : advisor.bgColor,
