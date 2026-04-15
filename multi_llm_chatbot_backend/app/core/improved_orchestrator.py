@@ -226,6 +226,7 @@ class ImprovedChatOrchestrator:
                 context=[{"role": "user", "content": user_prompt}],
                 temperature=0.4,
                 max_tokens=1024,
+                response_mime_type="application/json"
             )
 
             cleaned = raw.strip()
