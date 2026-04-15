@@ -20,6 +20,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class MessageResponse(BaseModel):
+    message: str
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
@@ -149,13 +153,13 @@ async def get_current_user_profile(current_user: User = Depends(get_current_acti
     """
     return create_user_response(current_user)
 
-@router.post("/logout")
+@router.post("/logout", response_model=MessageResponse)
 async def logout():
     """
     Log out the current user (client should discard the token).
-    @return: dict with a confirmation message
+    @return: MessageResponse with a confirmation message
     """
-    return {"message": "Successfully logged out"}
+    return MessageResponse(message="Successfully logged out")
 
 @router.post("/verify-token", response_model=UserResponse)
 async def verify_token(current_user: User = Depends(get_current_active_user)):
@@ -166,7 +170,7 @@ async def verify_token(current_user: User = Depends(get_current_active_user)):
     """
     return create_user_response(current_user)
 
-@router.post("/me/password")
+@router.post("/me/password", response_model=MessageResponse)
 async def change_password(
     body: ChangePasswordRequest,
     current_user: User = Depends(get_current_active_user),
@@ -175,7 +179,7 @@ async def change_password(
     Change the authenticated user's password.
     @param body: ChangePasswordRequest with the current and new passwords
     @param current_user: Authenticated user from dependency injection
-    @return: dict with a confirmation message
+    @return: MessageResponse with a confirmation message
     """
     if not verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(
@@ -192,7 +196,7 @@ async def change_password(
         {"_id": current_user.id},
         {"$set": {"hashed_password": get_password_hash(body.new_password)}},
     )
-    return {"message": "Password changed successfully"}
+    return MessageResponse(message="Password changed successfully")
 
 @router.patch("/me", response_model=UserResponse)
 async def update_profile(
@@ -220,7 +224,7 @@ async def update_profile(
     updated_user = await db.users.find_one({"_id": current_user.id})
     return create_user_response(User(**updated_user))
 
-@router.delete("/me")
+@router.delete("/me", response_model=MessageResponse)
 async def delete_account(
     body: DeleteAccountRequest,
     current_user: User = Depends(get_current_active_user),
@@ -229,7 +233,7 @@ async def delete_account(
     Permanently delete the authenticated user's account and all chat sessions.
     @param body: DeleteAccountRequest with the user's password for confirmation
     @param current_user: Authenticated user from dependency injection
-    @return: dict with a confirmation message
+    @return: MessageResponse with a confirmation message
     """
     if not verify_password(body.password, current_user.hashed_password):
         raise HTTPException(
@@ -240,4 +244,4 @@ async def delete_account(
     uid = current_user.id
     await db.chat_sessions.delete_many({"user_id": uid})
     await db.users.delete_one({"_id": uid})
-    return {"message": "Account deleted"}
+    return MessageResponse(message="Account deleted")

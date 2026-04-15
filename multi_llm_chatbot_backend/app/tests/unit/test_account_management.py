@@ -87,7 +87,7 @@ class TestChangePassword(unittest.TestCase):
             {"_id": user.id},
             {"$set": {"hashed_password": "new_hashed"}},
         )
-        self.assertEqual(result["message"], "Password changed successfully")
+        self.assertEqual(result.message, "Password changed successfully")
 
     def test_wrong_current_password(self, mock_verify, mock_hash, mock_get_db):
         mock_verify.return_value = False
@@ -226,7 +226,7 @@ class TestDeleteAccount(unittest.TestCase):
         mock_verify.assert_called_once_with("correct", user.hashed_password)
         db.chat_sessions.delete_many.assert_called_once_with({"user_id": user.id})
         db.users.delete_one.assert_called_once_with({"_id": user.id})
-        self.assertEqual(result["message"], "Account deleted")
+        self.assertEqual(result.message, "Account deleted")
 
     def test_wrong_password(self, mock_verify, mock_get_db):
         mock_verify.return_value = False
