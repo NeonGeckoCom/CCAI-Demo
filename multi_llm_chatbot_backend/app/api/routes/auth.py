@@ -38,7 +38,11 @@ router = APIRouter()
 
 @router.post("/signup", response_model=Token)
 async def signup(user_data: UserCreate):
-    """Create a new user account"""
+    """
+    Register a new user and return an access token.
+    @param user_data: UserCreate with name, email, password, and optional academic fields
+    @return: Token containing a JWT access token and the created UserResponse
+    """
     try:
         db = get_database()
         
@@ -91,7 +95,11 @@ async def signup(user_data: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
-    """Login with email and password"""
+    """
+    Authenticate a user and return an access token.
+    @param user_credentials: UserLogin with email and password
+    @return: Token containing a JWT access token and the authenticated UserResponse
+    """
     try:
         # Authenticate user
         user = await authenticate_user(user_credentials.email, user_credentials.password)
@@ -134,17 +142,28 @@ async def login(user_credentials: UserLogin):
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(current_user: User = Depends(get_current_active_user)):
-    """Get current user profile"""
+    """
+    Retrieve the profile of the currently authenticated user.
+    @param current_user: Authenticated user from dependency injection
+    @return: UserResponse with the user's profile information
+    """
     return create_user_response(current_user)
 
 @router.post("/logout")
 async def logout():
-    """Logout (client should discard token)"""
+    """
+    Log out the current user (client should discard the token).
+    @return: dict with a confirmation message
+    """
     return {"message": "Successfully logged out"}
 
 @router.post("/verify-token", response_model=UserResponse)
 async def verify_token(current_user: User = Depends(get_current_active_user)):
-    """Verify token and return user info"""
+    """
+    Validate the caller's JWT and return their profile.
+    @param current_user: Authenticated user from dependency injection
+    @return: UserResponse with the user's profile information
+    """
     return create_user_response(current_user)
 
 @router.post("/me/password")
@@ -152,6 +171,12 @@ async def change_password(
     body: ChangePasswordRequest,
     current_user: User = Depends(get_current_active_user),
 ):
+    """
+    Change the authenticated user's password.
+    @param body: ChangePasswordRequest with the current and new passwords
+    @param current_user: Authenticated user from dependency injection
+    @return: dict with a confirmation message
+    """
     if not verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -174,6 +199,12 @@ async def update_profile(
     body: UpdateProfileRequest,
     current_user: User = Depends(get_current_active_user),
 ):
+    """
+    Update the authenticated user's profile fields.
+    @param body: UpdateProfileRequest with optional firstName and lastName
+    @param current_user: Authenticated user from dependency injection
+    @return: UserResponse with the updated profile information
+    """
     updates = {}
     if body.firstName is not None:
         updates["firstName"] = body.firstName.strip()
@@ -194,6 +225,12 @@ async def delete_account(
     body: DeleteAccountRequest,
     current_user: User = Depends(get_current_active_user),
 ):
+    """
+    Permanently delete the authenticated user's account and all chat sessions.
+    @param body: DeleteAccountRequest with the user's password for confirmation
+    @param current_user: Authenticated user from dependency injection
+    @return: dict with a confirmation message
+    """
     if not verify_password(body.password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
