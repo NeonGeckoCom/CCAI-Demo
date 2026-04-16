@@ -1,37 +1,41 @@
 import asyncio
-import importlib.util
-import os
 import sys
-import types
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from bson import ObjectId
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 
-from app.models.user import User
+# app.api.routes.__init__ eagerly imports and wires routers from every
+# sibling route module, several of which spin up the LLM stack, NLTK
+# downloads, and ChromaDB at import time. Stub those heavy modules with
+# harmless substitutes so the package imports cleanly and auth.py can
+# be loaded via normal import machinery.
+for _name in ("app.core.bootstrap", "app.core.rag_manager"):
+    sys.modules.setdefault(_name, MagicMock())
 
-# app.api.routes.__init__ imports sibling route modules that run heavy
-# module-level code (LLM bootstrap, etc.).  We only need auth.py, so
-# we register a thin stub for the *package* then load auth.py by file
-# path so the real __init__ is never executed.
-_pkg_name = "app.api.routes"
-if _pkg_name not in sys.modules:
-    _pkg = types.ModuleType(_pkg_name)
-    _pkg.__path__ = [
-        os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "api", "routes")
-    ]
-    _pkg.__package__ = _pkg_name
-    sys.modules[_pkg_name] = _pkg
+_stub_router_module = MagicMock(router=APIRouter())
+for _name in (
+    "app.api.routes.chat",
+    "app.api.routes.documents",
+    "app.api.routes.sessions",
+    "app.api.routes.provider",
+    "app.api.routes.debug",
+    "app.api.routes.root",
+    "app.api.routes.phd_canvas",
+):
+    sys.modules.setdefault(_name, _stub_router_module)
 
-_auth_path = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "api", "routes", "auth.py")
+from app.api.routes.auth import (  # noqa: E402
+    ChangePasswordRequest,
+    DeleteAccountRequest,
+    UpdateProfileRequest,
+    change_password,
+    delete_account,
+    update_profile,
 )
-_spec = importlib.util.spec_from_file_location("app.api.routes.auth", _auth_path)
-_auth_mod = importlib.util.module_from_spec(_spec)
-sys.modules["app.api.routes.auth"] = _auth_mod
-_spec.loader.exec_module(_auth_mod)
+from app.models.user import User  # noqa: E402
 
 FAKE_USER_ID = ObjectId()
 
@@ -75,11 +79,11 @@ class TestChangePassword(unittest.TestCase):
         mock_get_db.return_value = db
 
         user = _make_fake_user()
-        body = _auth_mod.ChangePasswordRequest(
+        body = ChangePasswordRequest(
             current_password="old", new_password="newsecure",
         )
 
-        result = asyncio.run(_auth_mod.change_password(body=body, current_user=user))
+        result = asyncio.run(change_password(body=body, current_user=user))
 
         mock_verify.assert_called_once_with("old", user.hashed_password)
         mock_hash.assert_called_once_with("newsecure")
@@ -93,12 +97,12 @@ class TestChangePassword(unittest.TestCase):
         mock_verify.return_value = False
 
         user = _make_fake_user()
-        body = _auth_mod.ChangePasswordRequest(
+        body = ChangePasswordRequest(
             current_password="wrong", new_password="newsecure",
         )
 
         with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(_auth_mod.change_password(body=body, current_user=user))
+            asyncio.run(change_password(body=body, current_user=user))
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("incorrect", ctx.exception.detail.lower())
@@ -107,12 +111,12 @@ class TestChangePassword(unittest.TestCase):
         mock_verify.return_value = True
 
         user = _make_fake_user()
-        body = _auth_mod.ChangePasswordRequest(
+        body = ChangePasswordRequest(
             current_password="old", new_password="short",
         )
 
         with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(_auth_mod.change_password(body=body, current_user=user))
+            asyncio.run(change_password(body=body, current_user=user))
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("6 characters", ctx.exception.detail)
@@ -123,12 +127,12 @@ class TestChangePassword(unittest.TestCase):
         mock_get_db.return_value = db
 
         user = _make_fake_user()
-        body = _auth_mod.ChangePasswordRequest(
+        body = ChangePasswordRequest(
             current_password="wrong", new_password="newsecure",
         )
 
         with self.assertRaises(HTTPException):
-            asyncio.run(_auth_mod.change_password(body=body, current_user=user))
+            asyncio.run(change_password(body=body, current_user=user))
 
         db.users.update_one.assert_not_called()
 
@@ -148,8 +152,8 @@ class TestUpdateProfile(unittest.TestCase):
         db.users.find_one = AsyncMock(return_value=updated_doc)
         mock_get_db.return_value = db
 
-        body = _auth_mod.UpdateProfileRequest(firstName="Alice")
-        result = asyncio.run(_auth_mod.update_profile(body=body, current_user=user))
+        body = UpdateProfileRequest(firstName="Alice")
+        result = asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(
             {"_id": user.id},
@@ -168,8 +172,8 @@ class TestUpdateProfile(unittest.TestCase):
         db.users.find_one = AsyncMock(return_value=updated_doc)
         mock_get_db.return_value = db
 
-        body = _auth_mod.UpdateProfileRequest(firstName="Alice", lastName="Smith")
-        result = asyncio.run(_auth_mod.update_profile(body=body, current_user=user))
+        body = UpdateProfileRequest(firstName="Alice", lastName="Smith")
+        result = asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(
             {"_id": user.id},
@@ -180,10 +184,10 @@ class TestUpdateProfile(unittest.TestCase):
 
     def test_empty_body_rejected(self, mock_get_db):
         user = _make_fake_user()
-        body = _auth_mod.UpdateProfileRequest()
+        body = UpdateProfileRequest()
 
         with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(_auth_mod.update_profile(body=body, current_user=user))
+            asyncio.run(update_profile(body=body, current_user=user))
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("No fields to update", ctx.exception.detail)
@@ -195,8 +199,8 @@ class TestUpdateProfile(unittest.TestCase):
         db.users.find_one = AsyncMock(return_value=updated_doc)
         mock_get_db.return_value = db
 
-        body = _auth_mod.UpdateProfileRequest(firstName="  Alice  ")
-        asyncio.run(_auth_mod.update_profile(body=body, current_user=user))
+        body = UpdateProfileRequest(firstName="  Alice  ")
+        asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(
             {"_id": user.id},
@@ -219,9 +223,9 @@ class TestDeleteAccount(unittest.TestCase):
         mock_get_db.return_value = db
 
         user = _make_fake_user()
-        body = _auth_mod.DeleteAccountRequest(password="correct")
+        body = DeleteAccountRequest(password="correct")
 
-        result = asyncio.run(_auth_mod.delete_account(body=body, current_user=user))
+        result = asyncio.run(delete_account(body=body, current_user=user))
 
         mock_verify.assert_called_once_with("correct", user.hashed_password)
         db.chat_sessions.delete_many.assert_called_once_with({"user_id": user.id})
@@ -234,10 +238,10 @@ class TestDeleteAccount(unittest.TestCase):
         mock_get_db.return_value = db
 
         user = _make_fake_user()
-        body = _auth_mod.DeleteAccountRequest(password="wrong")
+        body = DeleteAccountRequest(password="wrong")
 
         with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(_auth_mod.delete_account(body=body, current_user=user))
+            asyncio.run(delete_account(body=body, current_user=user))
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("Incorrect password", ctx.exception.detail)
@@ -248,10 +252,10 @@ class TestDeleteAccount(unittest.TestCase):
         mock_get_db.return_value = db
 
         user = _make_fake_user()
-        body = _auth_mod.DeleteAccountRequest(password="wrong")
+        body = DeleteAccountRequest(password="wrong")
 
         with self.assertRaises(HTTPException):
-            asyncio.run(_auth_mod.delete_account(body=body, current_user=user))
+            asyncio.run(delete_account(body=body, current_user=user))
 
         db.users.delete_one.assert_not_called()
         db.chat_sessions.delete_many.assert_not_called()
