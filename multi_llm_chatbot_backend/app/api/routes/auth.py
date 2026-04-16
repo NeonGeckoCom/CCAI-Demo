@@ -181,22 +181,32 @@ async def change_password(
     @param current_user: Authenticated user from dependency injection
     @return: MessageResponse with a confirmation message
     """
-    if not verify_password(body.current_password, current_user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect",
+    try:
+        if not verify_password(body.current_password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect",
+            )
+        if len(body.new_password) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be at least 6 characters",
+            )
+        db = get_database()
+        await db.users.update_one(
+            {"_id": current_user.id},
+            {"$set": {"hashed_password": get_password_hash(body.new_password)}},
         )
-    if len(body.new_password) < 6:
+        return MessageResponse(message="Password changed successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during password change: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must be at least 6 characters",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not change password"
         )
-    db = get_database()
-    await db.users.update_one(
-        {"_id": current_user.id},
-        {"$set": {"hashed_password": get_password_hash(body.new_password)}},
-    )
-    return MessageResponse(message="Password changed successfully")
 
 @router.patch("/me", response_model=UserResponse)
 async def update_profile(
@@ -209,20 +219,30 @@ async def update_profile(
     @param current_user: Authenticated user from dependency injection
     @return: UserResponse with the updated profile information
     """
-    updates = {}
-    if body.firstName is not None:
-        updates["firstName"] = body.firstName.strip()
-    if body.lastName is not None:
-        updates["lastName"] = body.lastName.strip()
-    if not updates:
+    try:
+        updates = {}
+        if body.firstName is not None:
+            updates["firstName"] = body.firstName.strip()
+        if body.lastName is not None:
+            updates["lastName"] = body.lastName.strip()
+        if not updates:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No fields to update",
+            )
+        db = get_database()
+        await db.users.update_one({"_id": current_user.id}, {"$set": updates})
+        updated_user = await db.users.find_one({"_id": current_user.id})
+        return create_user_response(User(**updated_user))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during profile update: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields to update",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not update profile"
         )
-    db = get_database()
-    await db.users.update_one({"_id": current_user.id}, {"$set": updates})
-    updated_user = await db.users.find_one({"_id": current_user.id})
-    return create_user_response(User(**updated_user))
 
 @router.delete("/me", response_model=MessageResponse)
 async def delete_account(
@@ -235,13 +255,23 @@ async def delete_account(
     @param current_user: Authenticated user from dependency injection
     @return: MessageResponse with a confirmation message
     """
-    if not verify_password(body.password, current_user.hashed_password):
+    try:
+        if not verify_password(body.password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Incorrect password",
+            )
+        db = get_database()
+        uid = current_user.id
+        await db.chat_sessions.delete_many({"user_id": uid})
+        await db.users.delete_one({"_id": uid})
+        return MessageResponse(message="Account deleted")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during account deletion: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect password",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not delete account"
         )
-    db = get_database()
-    uid = current_user.id
-    await db.chat_sessions.delete_many({"user_id": uid})
-    await db.users.delete_one({"_id": uid})
-    return MessageResponse(message="Account deleted")
