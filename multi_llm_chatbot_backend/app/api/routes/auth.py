@@ -249,7 +249,7 @@ async def delete_account(
     current_user: User = Depends(get_current_active_user),
 ):
     """
-    Permanently delete the authenticated user's account and all chat sessions.
+    Permanently delete the authenticated user's account, all chat sessions, and all PhD Canvas data.
     @param body: DeleteAccountRequest with the user's password for confirmation
     @param current_user: Authenticated user from dependency injection
     @return: MessageResponse with a confirmation message
