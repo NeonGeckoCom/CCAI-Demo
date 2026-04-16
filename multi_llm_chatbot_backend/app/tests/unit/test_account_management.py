@@ -60,6 +60,7 @@ def _mock_db():
     db.users.delete_one = AsyncMock()
     db.users.find_one = AsyncMock()
     db.chat_sessions.delete_many = AsyncMock()
+    db.phd_canvases.delete_many = AsyncMock()
     return db
 
 
@@ -229,6 +230,7 @@ class TestDeleteAccount(unittest.TestCase):
 
         mock_verify.assert_called_once_with("correct", user.hashed_password)
         db.chat_sessions.delete_many.assert_called_once_with({"user_id": user.id})
+        db.phd_canvases.delete_many.assert_called_once_with({"user_id": user.id})
         db.users.delete_one.assert_called_once_with({"_id": user.id})
         self.assertEqual(result.message, "Account deleted")
 
@@ -259,3 +261,4 @@ class TestDeleteAccount(unittest.TestCase):
 
         db.users.delete_one.assert_not_called()
         db.chat_sessions.delete_many.assert_not_called()
+        db.phd_canvases.delete_many.assert_not_called()

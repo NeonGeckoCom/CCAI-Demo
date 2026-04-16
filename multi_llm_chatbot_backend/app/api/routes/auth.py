@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from datetime import datetime, timedelta
-from bson import ObjectId
 from app.models.user import UserCreate, UserLogin, User, Token, UserResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -264,6 +263,7 @@ async def delete_account(
         db = get_database()
         uid = current_user.id
         await db.chat_sessions.delete_many({"user_id": uid})
+        await db.phd_canvases.delete_many({"user_id": uid})
         await db.users.delete_one({"_id": uid})
         return MessageResponse(message="Account deleted")
 
