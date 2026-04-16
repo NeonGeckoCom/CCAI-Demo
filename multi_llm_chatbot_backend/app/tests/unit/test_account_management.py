@@ -119,7 +119,7 @@ class TestChangePassword(unittest.TestCase):
             asyncio.run(change_password(body=body, current_user=user))
 
         self.assertEqual(ctx.exception.status_code, 400)
-        self.assertIn("6 characters", ctx.exception.detail)
+        self.assertIn("8 characters", ctx.exception.detail)
 
     def test_db_not_called_on_wrong_password(self, mock_verify, mock_hash, mock_get_db):
         mock_verify.return_value = False
