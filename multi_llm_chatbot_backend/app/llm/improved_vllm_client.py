@@ -42,12 +42,17 @@ class ImprovedVllmClient(LLMClient):
             if not self.model_name:
                 await self.refresh_model()
 
-            response = await self.client.chat.completions.create(
+            create_kwargs = dict(
                 model=self.model_name,
                 messages=context_window.messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+
+            if response_mime_type == "application/json":
+                create_kwargs["response_format"] = {"type": "json_object"}
+
+            response = await self.client.chat.completions.create(**create_kwargs)
 
             text = response.choices[0].message.content.strip()
             return self._clean_response(text)

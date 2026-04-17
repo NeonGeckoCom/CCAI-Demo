@@ -161,6 +161,47 @@ class TestImprovedVllmClient(unittest.TestCase):
         self.assertIsNone(client.model_name)
 
     # ------------------------------------------------------------------
+    # generate – response_format for JSON
+    # ------------------------------------------------------------------
+
+    def test_generate_passes_response_format_for_json(self, MockAsyncOpenAI, mock_get_ctx):
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(
+            return_value=_make_completion_mock('{"key": "value"}')
+        )
+
+        asyncio.run(client.generate(
+            system_prompt="Return JSON",
+            context=[{"role": "user", "content": "Hi"}],
+            temperature=0.3,
+            max_tokens=100,
+            response_mime_type="application/json",
+        ))
+
+        call_kwargs = client.client.chat.completions.create.call_args.kwargs
+        self.assertEqual(call_kwargs["response_format"], {"type": "json_object"})
+
+    def test_generate_omits_response_format_when_no_mime_type(self, MockAsyncOpenAI, mock_get_ctx):
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(
+            return_value=_make_completion_mock("plain text response")
+        )
+
+        asyncio.run(client.generate(
+            system_prompt="You are helpful.",
+            context=[{"role": "user", "content": "Hello"}],
+            temperature=0.7,
+            max_tokens=100,
+        ))
+
+        call_kwargs = client.client.chat.completions.create.call_args.kwargs
+        self.assertNotIn("response_format", call_kwargs)
+
+    # ------------------------------------------------------------------
     # _clean_response
     # ------------------------------------------------------------------
 

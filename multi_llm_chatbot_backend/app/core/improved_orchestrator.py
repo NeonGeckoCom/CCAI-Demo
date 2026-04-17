@@ -226,6 +226,7 @@ class ImprovedChatOrchestrator:
                 context=[{"role": "user", "content": user_prompt}],
                 temperature=0.4,
                 max_tokens=1024,
+                response_mime_type="application/json"
             )
 
             cleaned = raw.strip()
@@ -793,7 +794,8 @@ When analyzing the document context:
                 system_prompt=f"You are an assistant that selects the best advisors for a user of {app_title}.",
                 context=[{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=150
+                max_tokens=150,
+                response_mime_type="application/json"
             )
 
             # Step 1: Try direct JSON load
@@ -803,6 +805,10 @@ When analyzing the document context:
                 # Step 2: Fallback: try extracting list of quoted strings
                 top_ids = re.findall(r'"(.*?)"', llm_response)
                 logger.warning(f"Fallback JSON extraction used: {top_ids}")
+
+            # Handle models that wrap the list in an object (e.g. {"advisor_ids": [...]})
+            if isinstance(top_ids, dict):
+                top_ids = next(iter(top_ids.values()), [])
 
             # Step 3: Filter valid persona IDs
             valid_ids = [pid for pid in top_ids if pid in self.personas]
