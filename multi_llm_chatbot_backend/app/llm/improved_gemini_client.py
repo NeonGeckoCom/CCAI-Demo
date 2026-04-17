@@ -2,7 +2,7 @@ import httpx
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
-from app.llm.llm_client import LLMClient, ToolCallResult
+from app.llm.llm_client import LLMClient, ToolCallInfo, ToolCallResult
 
 from app.core.context_manager import get_context_manager
 from app.config import get_settings
@@ -128,6 +128,8 @@ class ImprovedGeminiClient(LLMClient):
     # Tool-calling support
     # ------------------------------------------------------------------
 
+    _MAX_TOOL_ROUNDS = 5
+
     async def generate_with_tools(
         self,
         system_prompt: str,
@@ -139,89 +141,86 @@ class ImprovedGeminiClient(LLMClient):
     ) -> ToolCallResult:
         """Gemini-native tool-calling loop.
 
-        Sends a generateContent request with function declarations.  If
-        the model responds with a ``functionCall``, executes the tool via
-        *tool_executor*, feeds the result back, and returns the final
-        text response.
+        Sends a generateContent request with function declarations, then
+        loops through the tool-call protocol until the model produces a
+        plain text response:
+
+            request → detect functionCalls → execute all → feed results
+            back → repeat (up to ``_MAX_TOOL_ROUNDS`` rounds).
+
+        All function calls in a single response are executed before the
+        next round, so multi-tool queries (e.g. "compare professor A vs B")
+        work correctly.
         """
         contents: List[Dict[str, Any]] = [
             {"role": "user", "parts": [{"text": user_message}]},
         ]
         tool_defs = tool_definitions or []
-
-        payload = self._build_tool_payload(
-            system_prompt, contents, tool_defs, temperature, max_tokens,
-        )
+        all_tool_calls: List[ToolCallInfo] = []
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/{self.model_name}:generateContent",
-                    json=payload,
-                    headers={"x-goog-api-key": self.api_key},
-                )
-                resp.raise_for_status()
-                body = resp.json()
-
-                text = self._extract_text(body)
-                if text is not None:
-                    return ToolCallResult(text=text, used_tool=False)
-
-                func_call = self._extract_function_call(body)
-                if func_call is None:
-                    return ToolCallResult(
-                        text="I'm unable to generate a response right now. Please try again.",
-                        used_tool=False,
+                for _round in range(self._MAX_TOOL_ROUNDS):
+                    payload = self._build_tool_payload(
+                        system_prompt, contents, tool_defs, temperature, max_tokens,
                     )
-
-                fn_name = func_call["name"]
-                fn_args = func_call.get("args", {})
-                logger.info("Gemini requested tool call: %s(%s)", fn_name, fn_args)
-
-                try:
-                    tool_result = await tool_executor(name=fn_name, **fn_args)
-                except Exception as exc:
-                    logger.error("Tool %s failed: %s", fn_name, exc)
-                    return ToolCallResult(
-                        text="I tried to look that up but the data source is unavailable right now.",
-                        used_tool=True, tool_name=fn_name, tool_args=fn_args,
+                    resp = await client.post(
+                        f"{self.base_url}/{self.model_name}:generateContent",
+                        json=payload,
+                        headers={"x-goog-api-key": self.api_key},
                     )
+                    resp.raise_for_status()
+                    body = resp.json()
 
-                contents.append({
-                    "role": "model",
-                    "parts": [{"functionCall": func_call}],
-                })
-                fn_response: Dict[str, Any] = {
-                    "name": fn_name,
-                    "response": tool_result,
-                }
-                if func_call.get("id"):
-                    fn_response["id"] = func_call["id"]
-                contents.append({
-                    "role": "user",
-                    "parts": [{"functionResponse": fn_response}],
-                })
+                    func_calls = self._extract_function_calls(body)
 
-                followup_payload = self._build_tool_payload(
-                    system_prompt, contents, tool_defs, temperature, max_tokens,
+                    if not func_calls:
+                        text = self._extract_text(body)
+                        return ToolCallResult(
+                            text=text or "I'm unable to generate a response right now. Please try again.",
+                            used_tool=bool(all_tool_calls),
+                            tool_name=all_tool_calls[0].name if all_tool_calls else None,
+                            tool_args=all_tool_calls[0].args if all_tool_calls else {},
+                            tool_calls_made=all_tool_calls,
+                        )
+
+                    contents.append({
+                        "role": "model",
+                        "parts": [{"functionCall": fc} for fc in func_calls],
+                    })
+
+                    fn_response_parts: List[Dict[str, Any]] = []
+                    for fc in func_calls:
+                        fn_name = fc["name"]
+                        fn_args = fc.get("args", {})
+                        logger.info("Gemini requested tool call: %s(%s)", fn_name, fn_args)
+                        all_tool_calls.append(ToolCallInfo(name=fn_name, args=fn_args))
+
+                        try:
+                            tool_result = await tool_executor(name=fn_name, **fn_args)
+                        except Exception as exc:
+                            logger.error("Tool %s failed: %s", fn_name, exc)
+                            tool_result = {"error": str(exc)}
+
+                        fn_response: Dict[str, Any] = {
+                            "name": fn_name,
+                            "response": tool_result,
+                        }
+                        if fc.get("id"):
+                            fn_response["id"] = fc["id"]
+                        fn_response_parts.append({"functionResponse": fn_response})
+
+                    contents.append({"role": "user", "parts": fn_response_parts})
+
+                logger.warning(
+                    "Tool-calling loop exhausted after %d rounds", self._MAX_TOOL_ROUNDS,
                 )
-                followup = await client.post(
-                    f"{self.base_url}/{self.model_name}:generateContent",
-                    json=followup_payload,
-                    headers={"x-goog-api-key": self.api_key},
-                )
-                followup.raise_for_status()
-
-                text = self._extract_text(followup.json())
-                if text is not None:
-                    return ToolCallResult(
-                        text=text, used_tool=True,
-                        tool_name=fn_name, tool_args=fn_args,
-                    )
-
                 return ToolCallResult(
-                    text="I'm unable to generate a response right now. Please try again.",
-                    used_tool=True, tool_name=fn_name, tool_args=fn_args,
+                    text="I was unable to finish looking that up. Please try again.",
+                    used_tool=bool(all_tool_calls),
+                    tool_name=all_tool_calls[0].name if all_tool_calls else None,
+                    tool_args=all_tool_calls[0].args if all_tool_calls else {},
+                    tool_calls_made=all_tool_calls,
                 )
 
         except httpx.HTTPStatusError as e:
@@ -281,7 +280,7 @@ class ImprovedGeminiClient(LLMClient):
 
     @staticmethod
     def _extract_function_call(response_body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Return the ``functionCall`` dict from a Gemini response, or ``None``."""
+        """Return the first ``functionCall`` dict from a Gemini response, or ``None``."""
         candidates = response_body.get("candidates", [])
         if not candidates:
             return None
@@ -290,3 +289,12 @@ class ImprovedGeminiClient(LLMClient):
             if "functionCall" in part:
                 return part["functionCall"]
         return None
+
+    @staticmethod
+    def _extract_function_calls(response_body: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Return all ``functionCall`` dicts from a Gemini response."""
+        candidates = response_body.get("candidates", [])
+        if not candidates:
+            return []
+        parts = candidates[0].get("content", {}).get("parts", [])
+        return [p["functionCall"] for p in parts if "functionCall" in p]

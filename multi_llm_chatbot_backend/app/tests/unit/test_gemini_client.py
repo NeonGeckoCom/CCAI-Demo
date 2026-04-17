@@ -19,11 +19,28 @@ FAKE_TOOL = {
 
 
 def _gemini_function_call_response(name, args):
-    """Simulate a Gemini response that requests a function call."""
+    """Simulate a Gemini response that requests a single function call."""
     return {
         "candidates": [{
             "content": {
                 "parts": [{"functionCall": {"name": name, "args": args}}],
+                "role": "model",
+            }
+        }]
+    }
+
+
+def _gemini_multi_function_call_response(*calls):
+    """Simulate a Gemini response with multiple parallel function calls.
+
+    Each *call* is a ``(name, args)`` tuple.
+    """
+    return {
+        "candidates": [{
+            "content": {
+                "parts": [
+                    {"functionCall": {"name": n, "args": a}} for n, a in calls
+                ],
                 "role": "model",
             }
         }]
@@ -205,12 +222,13 @@ class TestGeminiGenerateWithTools(unittest.TestCase):
         self.assertIn("unable", result.text.lower())
         self.assertFalse(result.used_tool)
 
-    def test_tool_executor_failure_returns_error_result(self, MockSettings, MockCtxMgr):
-        """If the tool executor raises, return a ToolCallResult with
-        used_tool=True and an error message."""
+    def test_tool_executor_failure_serialises_error_and_continues(self, MockSettings, MockCtxMgr):
+        """If the tool executor raises, the error is serialised as the
+        tool result and the loop continues to the follow-up."""
         gemini = _make_gemini_client(MockSettings, MockCtxMgr)
         ctx, http = _mock_httpx_client([
             _gemini_function_call_response("search_courses", {"subject": "CSCI"}),
+            _gemini_text_response("Sorry, I couldn't look that up."),
         ])
         mock_executor = AsyncMock(side_effect=RuntimeError("network down"))
 
@@ -224,4 +242,144 @@ class TestGeminiGenerateWithTools(unittest.TestCase):
 
         self.assertTrue(result.used_tool)
         self.assertEqual(result.tool_name, "search_courses")
-        self.assertIn("unavailable", result.text.lower())
+        self.assertEqual(len(result.tool_calls_made), 1)
+        self.assertEqual(http.post.call_count, 2)
+
+    # ------------------------------------------------------------------
+    # Multi-tool call in a single response
+    # ------------------------------------------------------------------
+
+    def test_parallel_tool_calls_all_executed(self, MockSettings, MockCtxMgr):
+        """When Gemini requests multiple function calls in one response,
+        all of them are executed and their results fed back."""
+        gemini = _make_gemini_client(MockSettings, MockCtxMgr)
+        ctx, http = _mock_httpx_client([
+            _gemini_multi_function_call_response(
+                ("rate_my_professor", {"professor_name": "Dubson"}),
+                ("rate_my_professor", {"professor_name": "West"}),
+            ),
+            _gemini_text_response("Dubson has a 4.5 rating. West has a 3.8 rating."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson", "rating": 4.5}]},
+            {"professors": [{"name": "West", "rating": 3.8}]},
+        ])
+
+        with patch("httpx.AsyncClient", return_value=ctx):
+            result = asyncio.run(gemini.generate_with_tools(
+                system_prompt="You are helpful.",
+                user_message="Is professor Dubson or West rated better?",
+                tool_definitions=[FAKE_TOOL],
+                tool_executor=mock_executor,
+            ))
+
+        self.assertEqual(mock_executor.call_count, 2)
+        self.assertTrue(result.used_tool)
+        self.assertIn("Dubson", result.text)
+        self.assertEqual(len(result.tool_calls_made), 2)
+        self.assertEqual(result.tool_calls_made[0].name, "rate_my_professor")
+        self.assertEqual(result.tool_calls_made[1].args, {"professor_name": "West"})
+        self.assertEqual(http.post.call_count, 2)
+
+    def test_parallel_tool_results_in_single_user_message(self, MockSettings, MockCtxMgr):
+        """All tool results must appear as functionResponse parts in a
+        single role:user message in the follow-up request."""
+        gemini = _make_gemini_client(MockSettings, MockCtxMgr)
+        ctx, http = _mock_httpx_client([
+            _gemini_multi_function_call_response(
+                ("rate_my_professor", {"professor_name": "Dubson"}),
+                ("rate_my_professor", {"professor_name": "West"}),
+            ),
+            _gemini_text_response("Comparison complete."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson"}]},
+            {"professors": [{"name": "West"}]},
+        ])
+
+        with patch("httpx.AsyncClient", return_value=ctx):
+            asyncio.run(gemini.generate_with_tools(
+                system_prompt="You are helpful.",
+                user_message="Compare",
+                tool_definitions=[FAKE_TOOL],
+                tool_executor=mock_executor,
+            ))
+
+        second_payload = http.post.call_args_list[1][1]["json"]
+        contents = second_payload["contents"]
+
+        model_msg = contents[-2]
+        self.assertEqual(model_msg["role"], "model")
+        self.assertEqual(len(model_msg["parts"]), 2)
+        self.assertIn("functionCall", model_msg["parts"][0])
+        self.assertIn("functionCall", model_msg["parts"][1])
+
+        user_msg = contents[-1]
+        self.assertEqual(user_msg["role"], "user")
+        self.assertEqual(len(user_msg["parts"]), 2)
+        self.assertEqual(user_msg["parts"][0]["functionResponse"]["name"], "rate_my_professor")
+        self.assertEqual(user_msg["parts"][1]["functionResponse"]["name"], "rate_my_professor")
+
+    # ------------------------------------------------------------------
+    # Multi-round tool calling
+    # ------------------------------------------------------------------
+
+    def test_sequential_tool_rounds(self, MockSettings, MockCtxMgr):
+        """The loop handles a second round of tool calls after the first
+        results are fed back."""
+        gemini = _make_gemini_client(MockSettings, MockCtxMgr)
+        ctx, http = _mock_httpx_client([
+            _gemini_function_call_response("rate_my_professor", {"professor_name": "Dubson"}),
+            _gemini_function_call_response("rate_my_professor", {"professor_name": "West"}),
+            _gemini_text_response("Dubson is rated higher than West."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson", "rating": 4.5}]},
+            {"professors": [{"name": "West", "rating": 3.8}]},
+        ])
+
+        with patch("httpx.AsyncClient", return_value=ctx):
+            result = asyncio.run(gemini.generate_with_tools(
+                system_prompt="You are helpful.",
+                user_message="Compare Dubson and West",
+                tool_definitions=[FAKE_TOOL],
+                tool_executor=mock_executor,
+            ))
+
+        self.assertEqual(mock_executor.call_count, 2)
+        self.assertTrue(result.used_tool)
+        self.assertEqual(len(result.tool_calls_made), 2)
+        self.assertEqual(result.tool_name, "rate_my_professor")
+        self.assertEqual(http.post.call_count, 3)
+
+    # ------------------------------------------------------------------
+    # Partial failure in multi-tool context
+    # ------------------------------------------------------------------
+
+    def test_partial_tool_failure_continues(self, MockSettings, MockCtxMgr):
+        """If one tool call in a batch fails, the error is serialised
+        and the loop continues to the follow-up."""
+        gemini = _make_gemini_client(MockSettings, MockCtxMgr)
+        ctx, http = _mock_httpx_client([
+            _gemini_multi_function_call_response(
+                ("rate_my_professor", {"professor_name": "Dubson"}),
+                ("rate_my_professor", {"professor_name": "West"}),
+            ),
+            _gemini_text_response("Only Dubson data available."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson", "rating": 4.5}]},
+            RuntimeError("network down"),
+        ])
+
+        with patch("httpx.AsyncClient", return_value=ctx):
+            result = asyncio.run(gemini.generate_with_tools(
+                system_prompt="You are helpful.",
+                user_message="Compare",
+                tool_definitions=[FAKE_TOOL],
+                tool_executor=mock_executor,
+            ))
+
+        self.assertTrue(result.used_tool)
+        self.assertEqual(len(result.tool_calls_made), 2)
+        self.assertEqual(http.post.call_count, 2)
