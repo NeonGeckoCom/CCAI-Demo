@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from datetime import datetime, timedelta
 from app.models.user import UserCreate, UserLogin, User, Token, UserResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional
 from app.core.auth import (
     get_password_hash, 
@@ -27,10 +27,26 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+    @model_validator(mode="after")
+    def passwords_must_differ(self):
+        if self.current_password == self.new_password:
+            raise ValueError("New password must be different from the current password")
+        return self
+
 
 class UpdateProfileRequest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self):
+        if self.first_name is not None:
+            self.first_name = self.first_name.strip() or None
+        if self.last_name is not None:
+            self.last_name = self.last_name.strip() or None
+        if self.first_name is None and self.last_name is None:
+            raise ValueError("At least one field must be provided")
+        return self
 
 
 class DeleteAccountRequest(BaseModel):
@@ -221,14 +237,9 @@ async def update_profile(
     try:
         updates = {}
         if body.first_name is not None:
-            updates["firstName"] = body.first_name.strip()
+            updates["firstName"] = body.first_name
         if body.last_name is not None:
-            updates["lastName"] = body.last_name.strip()
-        if not updates:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No fields to update",
-            )
+            updates["lastName"] = body.last_name
         db = get_database()
         await db.users.update_one({"_id": current_user.id}, {"$set": updates})
         updated_user = await db.users.find_one({"_id": current_user.id})

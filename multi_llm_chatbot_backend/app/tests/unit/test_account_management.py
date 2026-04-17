@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
 
 # app.api.routes.__init__ eagerly imports and wires routers from every
 # sibling route module, several of which spin up the LLM stack, NLTK
@@ -137,6 +138,14 @@ class TestChangePassword(unittest.TestCase):
 
         db.users.update_one.assert_not_called()
 
+    def test_same_password_rejected(self, mock_verify, mock_hash, mock_get_db):
+        with self.assertRaises(ValidationError) as ctx:
+            ChangePasswordRequest(
+                current_password="samepass", new_password="samepass",
+            )
+
+        self.assertIn("different", str(ctx.exception).lower())
+
 
 # ------------------------------------------------------------------
 # PATCH /auth/me
@@ -184,14 +193,10 @@ class TestUpdateProfile(unittest.TestCase):
         self.assertEqual(result.lastName, "Smith")
 
     def test_empty_body_rejected(self, mock_get_db):
-        user = _make_fake_user()
-        body = UpdateProfileRequest()
+        with self.assertRaises(ValidationError) as ctx:
+            UpdateProfileRequest()
 
-        with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(update_profile(body=body, current_user=user))
-
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertIn("No fields to update", ctx.exception.detail)
+        self.assertIn("at least one field", str(ctx.exception).lower())
 
     def test_strips_whitespace(self, mock_get_db):
         user = _make_fake_user()
@@ -201,12 +206,20 @@ class TestUpdateProfile(unittest.TestCase):
         mock_get_db.return_value = db
 
         body = UpdateProfileRequest(first_name="  Alice  ")
+        self.assertEqual(body.first_name, "Alice")
+
         asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(
             {"_id": user.id},
             {"$set": {"firstName": "Alice"}},
         )
+
+    def test_whitespace_only_body_rejected(self, mock_get_db):
+        with self.assertRaises(ValidationError) as ctx:
+            UpdateProfileRequest(first_name="   ")
+
+        self.assertIn("at least one field", str(ctx.exception).lower())
 
 
 # ------------------------------------------------------------------
