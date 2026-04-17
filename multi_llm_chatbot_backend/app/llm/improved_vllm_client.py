@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 
-from app.llm.llm_client import LLMClient, ToolCallResult
+from app.llm.llm_client import LLMClient, ToolCallInfo, ToolCallResult
 from app.core.context_manager import get_context_manager
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,8 @@ class ImprovedVllmClient(LLMClient):
     # Tool-calling support (OpenAI-compatible format)
     # ------------------------------------------------------------------
 
+    _MAX_TOOL_ROUNDS = 5
+
     async def generate_with_tools(
         self,
         system_prompt: str,
@@ -89,9 +91,15 @@ class ImprovedVllmClient(LLMClient):
         """OpenAI-compatible tool-calling loop for vLLM.
 
         Converts tool definitions from the registry's Gemini format to
-        OpenAI format, then follows the standard tool-call protocol:
-        request → detect tool_call → execute → feed result back → return
-        final text.
+        OpenAI format, then loops through the standard tool-call protocol
+        until the model produces a plain text response:
+
+            request → detect tool_calls → execute all → feed results
+            back → repeat (up to ``_MAX_TOOL_ROUNDS`` rounds).
+
+        All tool calls in a single response are executed before the next
+        round, so multi-tool queries (e.g. "compare professor A vs B")
+        work correctly.
         """
         if not self.model_name:
             await self.refresh_model()
@@ -105,52 +113,59 @@ class ImprovedVllmClient(LLMClient):
             self._gemini_to_openai_tool(d) for d in (tool_definitions or [])
         ]
 
+        all_tool_calls: List[ToolCallInfo] = []
+
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                tools=openai_tools or None,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-
-            choice = response.choices[0].message
-
-            if not choice.tool_calls:
-                return ToolCallResult(text=choice.content or "", used_tool=False)
-
-            tool_call = choice.tool_calls[0]
-            fn_name = tool_call.function.name
-            fn_args = json.loads(tool_call.function.arguments)
-            logger.info("vLLM requested tool call: %s(%s)", fn_name, fn_args)
-
-            try:
-                tool_result = await tool_executor(name=fn_name, **fn_args)
-            except Exception as exc:
-                logger.error("Tool %s failed: %s", fn_name, exc)
-                return ToolCallResult(
-                    text="I tried to look that up but the data source is unavailable right now.",
-                    used_tool=True, tool_name=fn_name, tool_args=fn_args,
+            for _round in range(self._MAX_TOOL_ROUNDS):
+                response = await self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=openai_tools or None,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                 )
 
-            messages.append(choice.model_dump())
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": json.dumps(tool_result),
-            })
+                choice = response.choices[0].message
 
-            followup = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+                if not choice.tool_calls:
+                    return ToolCallResult(
+                        text=choice.content or "",
+                        used_tool=bool(all_tool_calls),
+                        tool_name=all_tool_calls[0].name if all_tool_calls else None,
+                        tool_args=all_tool_calls[0].args if all_tool_calls else {},
+                        tool_calls_made=all_tool_calls,
+                    )
+
+                messages.append(choice.model_dump())
+
+                for tc in choice.tool_calls:
+                    fn_name = tc.function.name
+                    fn_args = json.loads(tc.function.arguments)
+                    logger.info("vLLM requested tool call: %s(%s)", fn_name, fn_args)
+                    all_tool_calls.append(ToolCallInfo(name=fn_name, args=fn_args))
+
+                    try:
+                        tool_result = await tool_executor(name=fn_name, **fn_args)
+                    except Exception as exc:
+                        logger.error("Tool %s failed: %s", fn_name, exc)
+                        tool_result = {"error": str(exc)}
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(tool_result),
+                    })
+
+            logger.warning(
+                "Tool-calling loop exhausted after %d rounds", self._MAX_TOOL_ROUNDS,
             )
-
-            text = followup.choices[0].message.content or ""
+            last_content = response.choices[0].message.content or ""
             return ToolCallResult(
-                text=text, used_tool=True,
-                tool_name=fn_name, tool_args=fn_args,
+                text=last_content or "I was unable to finish looking that up. Please try again.",
+                used_tool=bool(all_tool_calls),
+                tool_name=all_tool_calls[0].name if all_tool_calls else None,
+                tool_args=all_tool_calls[0].args if all_tool_calls else {},
+                tool_calls_made=all_tool_calls,
             )
 
         except APIConnectionError:

@@ -5,6 +5,14 @@ import re
 
 
 @dataclass
+class ToolCallInfo:
+    """Record of a single tool invocation."""
+
+    name: str
+    args: dict = field(default_factory=dict)
+
+
+@dataclass
 class ToolCallResult:
     """Structured return value from ``generate_with_tools``."""
 
@@ -12,6 +20,7 @@ class ToolCallResult:
     used_tool: bool
     tool_name: Optional[str] = None
     tool_args: dict = field(default_factory=dict)
+    tool_calls_made: List["ToolCallInfo"] = field(default_factory=list)
 
 
 class LLMClient(ABC):

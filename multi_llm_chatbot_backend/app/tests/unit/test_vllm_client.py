@@ -70,6 +70,40 @@ def _make_tool_call_mock(fn_name, fn_args_dict, tool_call_id="call_123"):
     return MagicMock(choices=[mock_choice])
 
 
+def _make_multi_tool_call_mock(calls):
+    """Build a ChatCompletion mock with multiple parallel tool calls.
+
+    *calls* is a list of (fn_name, fn_args_dict, tool_call_id) tuples.
+    """
+    tool_calls = []
+    dump_calls = []
+    for fn_name, fn_args_dict, tool_call_id in calls:
+        fn_args_json = json.dumps(fn_args_dict)
+        tc = MagicMock()
+        tc.id = tool_call_id
+        tc.function.name = fn_name
+        tc.function.arguments = fn_args_json
+        tool_calls.append(tc)
+        dump_calls.append({
+            "id": tool_call_id,
+            "type": "function",
+            "function": {"name": fn_name, "arguments": fn_args_json},
+        })
+
+    mock_message = MagicMock()
+    mock_message.content = None
+    mock_message.tool_calls = tool_calls
+    mock_message.model_dump.return_value = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": dump_calls,
+    }
+
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    return MagicMock(choices=[mock_choice])
+
+
 @patch("app.llm.improved_vllm_client.get_context_manager")
 @patch("app.llm.improved_vllm_client.AsyncOpenAI")
 class TestImprovedVllmClient(unittest.TestCase):
@@ -328,6 +362,8 @@ class TestVllmGenerateWithTools(unittest.TestCase):
         self.assertTrue(result.used_tool)
         self.assertEqual(result.tool_name, "search_courses")
         self.assertEqual(result.tool_args, {"subject": "CSCI"})
+        self.assertEqual(len(result.tool_calls_made), 1)
+        self.assertEqual(result.tool_calls_made[0].name, "search_courses")
         self.assertEqual(client.client.chat.completions.create.call_count, 2)
 
     # ------------------------------------------------------------------
@@ -360,7 +396,7 @@ class TestVllmGenerateWithTools(unittest.TestCase):
 
     def test_tool_result_appended_to_followup(self, MockAsyncOpenAI, mock_get_ctx):
         """After executing a tool, the follow-up call must include
-        the assistant message and a ``role: tool`` message."""
+        the assistant message, a ``role: tool`` message, and ``tools=``."""
         tool_output = {"courses": [{"title": "Algorithms"}]}
         client = ImprovedVllmClient(
             api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
@@ -389,19 +425,24 @@ class TestVllmGenerateWithTools(unittest.TestCase):
         self.assertEqual(tool_msg["tool_call_id"], "call_123")
         self.assertEqual(json.loads(tool_msg["content"]), tool_output)
 
+        self.assertIn("tools", second_call_kwargs,
+                       "Follow-up call must include tools= so the model can "
+                       "request additional tool calls if needed")
+
     # ------------------------------------------------------------------
     # Error handling
     # ------------------------------------------------------------------
 
-    def test_tool_executor_failure_returns_error_result(self, MockAsyncOpenAI, mock_get_ctx):
-        """If the tool executor raises, return used_tool=True with an
-        error message."""
+    def test_tool_executor_failure_serialises_error_and_continues(self, MockAsyncOpenAI, mock_get_ctx):
+        """If the tool executor raises, the error is serialised as the
+        tool result and the loop continues to the follow-up completion."""
         client = ImprovedVllmClient(
             api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
         )
-        client.client.chat.completions.create = AsyncMock(
-            return_value=_make_tool_call_mock("search_courses", {"subject": "CSCI"}),
-        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_tool_call_mock("search_courses", {"subject": "CSCI"}),
+            _make_text_completion_mock("Sorry, I couldn't look that up."),
+        ])
         mock_executor = AsyncMock(side_effect=RuntimeError("network down"))
 
         result = asyncio.run(client.generate_with_tools(
@@ -413,7 +454,11 @@ class TestVllmGenerateWithTools(unittest.TestCase):
 
         self.assertTrue(result.used_tool)
         self.assertEqual(result.tool_name, "search_courses")
-        self.assertIn("unavailable", result.text.lower())
+        self.assertEqual(len(result.tool_calls_made), 1)
+
+        second_call_msgs = client.client.chat.completions.create.call_args_list[1][1]["messages"]
+        tool_msg = [m for m in second_call_msgs if m.get("role") == "tool"][0]
+        self.assertIn("network down", json.loads(tool_msg["content"])["error"])
 
     def test_connection_error_returns_not_used(self, MockAsyncOpenAI, mock_get_ctx):
         """APIConnectionError during tool calling returns used_tool=False."""
@@ -434,6 +479,149 @@ class TestVllmGenerateWithTools(unittest.TestCase):
         self.assertIsInstance(result, ToolCallResult)
         self.assertFalse(result.used_tool)
         self.assertIn("unable to connect", result.text.lower())
+
+    # ------------------------------------------------------------------
+    # Multi-tool call in a single response
+    # ------------------------------------------------------------------
+
+    def test_parallel_tool_calls_all_executed(self, MockAsyncOpenAI, mock_get_ctx):
+        """When the model requests multiple tool calls in one response,
+        all of them are executed and their results fed back."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_multi_tool_call_mock([
+                ("rate_my_professor", {"professor_name": "Dubson"}, "call_a"),
+                ("rate_my_professor", {"professor_name": "West"}, "call_b"),
+            ]),
+            _make_text_completion_mock("Dubson has a 4.5 rating. West has a 3.8 rating."),
+        ])
+        mock_executor = AsyncMock(
+            side_effect=[
+                {"professors": [{"name": "Dubson", "rating": 4.5}]},
+                {"professors": [{"name": "West", "rating": 3.8}]},
+            ],
+        )
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Is professor Dubson or West rated better?",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        self.assertEqual(mock_executor.call_count, 2)
+        self.assertTrue(result.used_tool)
+        self.assertIn("Dubson", result.text)
+        self.assertIn("West", result.text)
+        self.assertEqual(len(result.tool_calls_made), 2)
+        self.assertEqual(result.tool_calls_made[0].name, "rate_my_professor")
+        self.assertEqual(result.tool_calls_made[1].args, {"professor_name": "West"})
+        self.assertEqual(client.client.chat.completions.create.call_count, 2)
+
+    def test_parallel_tool_results_all_in_followup_messages(self, MockAsyncOpenAI, mock_get_ctx):
+        """All tool results must appear as separate role:tool messages
+        in the follow-up request."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_multi_tool_call_mock([
+                ("rate_my_professor", {"professor_name": "Dubson"}, "call_a"),
+                ("rate_my_professor", {"professor_name": "West"}, "call_b"),
+            ]),
+            _make_text_completion_mock("Comparison complete."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson"}]},
+            {"professors": [{"name": "West"}]},
+        ])
+
+        asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Compare",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        second_call_msgs = client.client.chat.completions.create.call_args_list[1][1]["messages"]
+        tool_msgs = [m for m in second_call_msgs if m.get("role") == "tool"]
+        self.assertEqual(len(tool_msgs), 2)
+        self.assertEqual(tool_msgs[0]["tool_call_id"], "call_a")
+        self.assertEqual(tool_msgs[1]["tool_call_id"], "call_b")
+
+    # ------------------------------------------------------------------
+    # Multi-round tool calling
+    # ------------------------------------------------------------------
+
+    def test_sequential_tool_rounds(self, MockAsyncOpenAI, mock_get_ctx):
+        """The loop handles a second round of tool calls after the first
+        results are fed back."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_tool_call_mock("rate_my_professor", {"professor_name": "Dubson"}, "call_1"),
+            _make_tool_call_mock("rate_my_professor", {"professor_name": "West"}, "call_2"),
+            _make_text_completion_mock("Dubson is rated higher than West."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson", "rating": 4.5}]},
+            {"professors": [{"name": "West", "rating": 3.8}]},
+        ])
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Compare Dubson and West",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        self.assertEqual(mock_executor.call_count, 2)
+        self.assertTrue(result.used_tool)
+        self.assertEqual(len(result.tool_calls_made), 2)
+        self.assertEqual(result.tool_name, "rate_my_professor")
+        self.assertEqual(client.client.chat.completions.create.call_count, 3)
+
+    # ------------------------------------------------------------------
+    # Tool executor failure in multi-tool context
+    # ------------------------------------------------------------------
+
+    def test_partial_tool_failure_continues(self, MockAsyncOpenAI, mock_get_ctx):
+        """If one tool call in a batch fails, the error is serialised
+        and the loop continues to the follow-up."""
+        client = ImprovedVllmClient(
+            api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
+        )
+        client.client.chat.completions.create = AsyncMock(side_effect=[
+            _make_multi_tool_call_mock([
+                ("rate_my_professor", {"professor_name": "Dubson"}, "call_a"),
+                ("rate_my_professor", {"professor_name": "West"}, "call_b"),
+            ]),
+            _make_text_completion_mock("Only Dubson data available."),
+        ])
+        mock_executor = AsyncMock(side_effect=[
+            {"professors": [{"name": "Dubson", "rating": 4.5}]},
+            RuntimeError("network down"),
+        ])
+
+        result = asyncio.run(client.generate_with_tools(
+            system_prompt="You are helpful.",
+            user_message="Compare",
+            tool_definitions=[FAKE_TOOL],
+            tool_executor=mock_executor,
+        ))
+
+        self.assertTrue(result.used_tool)
+        self.assertEqual(len(result.tool_calls_made), 2)
+        self.assertEqual(client.client.chat.completions.create.call_count, 2)
+
+        second_call_msgs = client.client.chat.completions.create.call_args_list[1][1]["messages"]
+        tool_msgs = [m for m in second_call_msgs if m.get("role") == "tool"]
+        self.assertEqual(len(tool_msgs), 2)
+        error_content = json.loads(tool_msgs[1]["content"])
+        self.assertIn("error", error_content)
 
     # ------------------------------------------------------------------
     # _gemini_to_openai_tool helper
