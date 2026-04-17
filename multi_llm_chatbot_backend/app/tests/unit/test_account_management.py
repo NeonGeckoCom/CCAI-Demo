@@ -153,7 +153,7 @@ class TestUpdateProfile(unittest.TestCase):
         db.users.find_one = AsyncMock(return_value=updated_doc)
         mock_get_db.return_value = db
 
-        body = UpdateProfileRequest(firstName="Alice")
+        body = UpdateProfileRequest(first_name="Alice")
         result = asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(
@@ -173,7 +173,7 @@ class TestUpdateProfile(unittest.TestCase):
         db.users.find_one = AsyncMock(return_value=updated_doc)
         mock_get_db.return_value = db
 
-        body = UpdateProfileRequest(firstName="Alice", lastName="Smith")
+        body = UpdateProfileRequest(first_name="Alice", last_name="Smith")
         result = asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(
@@ -200,7 +200,7 @@ class TestUpdateProfile(unittest.TestCase):
         db.users.find_one = AsyncMock(return_value=updated_doc)
         mock_get_db.return_value = db
 
-        body = UpdateProfileRequest(firstName="  Alice  ")
+        body = UpdateProfileRequest(first_name="  Alice  ")
         asyncio.run(update_profile(body=body, current_user=user))
 
         db.users.update_one.assert_called_once_with(

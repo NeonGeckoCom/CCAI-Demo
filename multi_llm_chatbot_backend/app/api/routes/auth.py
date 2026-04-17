@@ -220,10 +220,10 @@ async def update_profile(
     """
     try:
         updates = {}
-        if body.firstName is not None:
-            updates["firstName"] = body.firstName.strip()
-        if body.lastName is not None:
-            updates["lastName"] = body.lastName.strip()
+        if body.first_name is not None:
+            updates["firstName"] = body.first_name.strip()
+        if body.last_name is not None:
+            updates["lastName"] = body.last_name.strip()
         if not updates:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
