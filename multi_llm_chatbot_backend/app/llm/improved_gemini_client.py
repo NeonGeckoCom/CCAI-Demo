@@ -9,8 +9,6 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-
 class ImprovedGeminiClient(LLMClient):
     def __init__(self, model_name: str = None):
         settings = get_settings()
@@ -23,7 +21,7 @@ class ImprovedGeminiClient(LLMClient):
         if not self.api_key:
             raise ValueError("Gemini API key not set. Provide it in config.yaml (llm.gemini.api_key).")
         
-        self.base_url = GEMINI_BASE_URL
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.context_manager = get_context_manager()
     
     async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int, response_mime_type: str = None) -> str:
