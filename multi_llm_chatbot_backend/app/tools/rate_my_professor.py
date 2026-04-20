@@ -1,8 +1,8 @@
 """
 rate_my_professor tool — live query against RateMyProfessors' GraphQL API.
 
-Exposes TOOL_DEFINITION (Gemini function-declaration schema) and an
-execute() coroutine that the tool-calling loop dispatches to.
+Exposes TOOL_DEFINITION (OpenAI tool format) and an execute() coroutine
+that the tool-calling loop dispatches to.
 
 Requires ``school_id`` in the tool config (see phd_config.yaml).
 Use ``scripts/rmp_school_lookup.py`` to find the ID for a given school.
@@ -56,24 +56,27 @@ query TeacherSearchPaginationQuery(
 """
 
 TOOL_DEFINITION: Dict[str, Any] = {
-    "name": "rate_my_professor",
-    "description": (
-        "Look up RateMyProfessors ratings for a CU Boulder professor. "
-        "Returns rating, difficulty, percentage of students who would "
-        "take the professor again, and number of ratings."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "professor_name": {
-                "type": "string",
-                "description": (
-                    "Full or partial name of the professor to search for, "
-                    "e.g. 'Hoenigman', 'Jane Smith'."
-                ),
+    "type": "function",
+    "function": {
+        "name": "rate_my_professor",
+        "description": (
+            "Look up RateMyProfessors ratings for a CU Boulder professor. "
+            "Returns rating, difficulty, percentage of students who would "
+            "take the professor again, and number of ratings."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "professor_name": {
+                    "type": "string",
+                    "description": (
+                        "Full or partial name of the professor to search for, "
+                        "e.g. 'Hoenigman', 'Jane Smith'."
+                    ),
+                },
             },
+            "required": ["professor_name"],
         },
-        "required": ["professor_name"],
     },
 }
 

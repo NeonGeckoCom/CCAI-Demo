@@ -67,7 +67,9 @@ class ImprovedChatOrchestrator:
             "text answer. "
             "If a tool response includes 'truncated': true, let the user know "
             "how many total results were found and suggest they narrow their "
-            "search for more specific results."
+            "search for more specific results. "
+            "Format your responses using markdown. Use bullet points "
+            "to present structured data like course listings or professor ratings."
         )
 
         return await self.llm_client.generate_with_tools(

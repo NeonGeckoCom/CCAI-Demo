@@ -30,10 +30,13 @@ class TestToolDiscovery(unittest.TestCase):
     def test_definitions_have_required_fields(self):
         for name, entry in _REGISTRY.items():
             defn = entry["definition"]
-            self.assertIn("name", defn)
-            self.assertIn("description", defn)
-            self.assertIn("parameters", defn)
-            self.assertEqual(defn["name"], name)
+            self.assertEqual(defn["type"], "function")
+            self.assertIn("function", defn)
+            fn = defn["function"]
+            self.assertIn("name", fn)
+            self.assertIn("description", fn)
+            self.assertIn("parameters", fn)
+            self.assertEqual(fn["name"], name)
 
     def test_executors_are_async_callables(self):
         for name, entry in _REGISTRY.items():
@@ -44,22 +47,22 @@ class TestToolDiscovery(unittest.TestCase):
 
 
 class TestGetToolDefinitions(unittest.TestCase):
-    """get_tool_definitions() returns Gemini function-declaration dicts,
+    """get_tool_definitions() returns OpenAI-format tool dicts,
     optionally filtered."""
 
     def test_returns_all_when_no_filter(self):
         defs = get_tool_definitions()
-        names = {d["name"] for d in defs}
+        names = {d["function"]["name"] for d in defs}
         self.assertTrue(KNOWN_TOOLS.issubset(names))
 
     def test_filter_to_single_tool(self):
         defs = get_tool_definitions(enabled=["search_courses"])
         self.assertEqual(len(defs), 1)
-        self.assertEqual(defs[0]["name"], "search_courses")
+        self.assertEqual(defs[0]["function"]["name"], "search_courses")
 
     def test_filter_to_multiple_tools(self):
         defs = get_tool_definitions(enabled=["search_courses", "rate_my_professor"])
-        names = {d["name"] for d in defs}
+        names = {d["function"]["name"] for d in defs}
         self.assertEqual(names, KNOWN_TOOLS)
 
     def test_filter_with_unknown_name_returns_empty(self):
@@ -73,7 +76,7 @@ class TestGetToolDefinitions(unittest.TestCase):
     def test_filter_ignores_unknown_names_keeps_valid(self):
         defs = get_tool_definitions(enabled=["search_courses", "bogus"])
         self.assertEqual(len(defs), 1)
-        self.assertEqual(defs[0]["name"], "search_courses")
+        self.assertEqual(defs[0]["function"]["name"], "search_courses")
 
 
 class TestGetToolExecutor(unittest.TestCase):

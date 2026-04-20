@@ -3,8 +3,8 @@ Tool registry — auto-discovers tool modules in app.tools and provides
 a central API for retrieving definitions and dispatching calls.
 
 Every tool module in this package must export:
-    TOOL_DEFINITION : Dict[str, Any]   — Gemini function-declaration schema
-                                         (must contain a "name" key)
+    TOOL_DEFINITION : Dict[str, Any]   — OpenAI tool format
+                                         {"type": "function", "function": {"name": ..., ...}}
     execute         : async (**kwargs)  — returns Dict[str, Any]
 
 Modules that don't export both are silently skipped.
@@ -52,15 +52,18 @@ def _discover_tools() -> None:
         if defn is None or executor is None:
             continue
 
-        if not isinstance(defn, dict) or "name" not in defn:
-            logger.warning("Skipping %s: TOOL_DEFINITION missing 'name'", qualified)
+        if (not isinstance(defn, dict)
+                or defn.get("type") != "function"
+                or not isinstance(defn.get("function"), dict)
+                or "name" not in defn["function"]):
+            logger.warning("Skipping %s: TOOL_DEFINITION not in OpenAI tool format", qualified)
             continue
 
         if not callable(executor) or not inspect.iscoroutinefunction(executor):
             logger.warning("Skipping %s: execute is not an async callable", qualified)
             continue
 
-        tool_name = defn["name"]
+        tool_name = defn["function"]["name"]
         if tool_name in _REGISTRY:
             logger.warning(
                 "Duplicate tool name '%s' from %s — skipping", tool_name, qualified,
@@ -72,7 +75,7 @@ def _discover_tools() -> None:
 
 
 def get_tool_definitions(enabled: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Return Gemini function-declaration dicts for registered tools.
+    """Return OpenAI-format tool dicts for registered tools.
 
     If *enabled* is provided, only return tools whose names are in that list.
     If None, return all registered tools.

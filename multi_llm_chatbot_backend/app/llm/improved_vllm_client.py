@@ -90,8 +90,8 @@ class ImprovedVllmClient(LLMClient):
     ) -> ToolCallResult:
         """OpenAI-compatible tool-calling loop for vLLM.
 
-        Converts tool definitions from the registry's Gemini format to
-        OpenAI format, then loops through the standard tool-call protocol
+        Tool definitions are expected in OpenAI format (as returned by the
+        tool registry).  Loops through the standard tool-call protocol
         until the model produces a plain text response:
 
             request → detect tool_calls → execute all → feed results
@@ -109,9 +109,7 @@ class ImprovedVllmClient(LLMClient):
             {"role": "user", "content": user_message},
         ]
 
-        openai_tools = [
-            self._gemini_to_openai_tool(d) for d in (tool_definitions or [])
-        ]
+        openai_tools = tool_definitions or []
 
         all_tool_calls: List[ToolCallInfo] = []
 
@@ -189,15 +187,4 @@ class ImprovedVllmClient(LLMClient):
                 used_tool=False,
             )
 
-    @staticmethod
-    def _gemini_to_openai_tool(defn: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert a Gemini function-declaration dict to OpenAI tool format."""
-        return {
-            "type": "function",
-            "function": {
-                "name": defn["name"],
-                "description": defn.get("description", ""),
-                "parameters": defn.get("parameters", {}),
-            },
-        }
 

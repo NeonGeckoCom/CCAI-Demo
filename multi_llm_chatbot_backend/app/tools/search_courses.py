@@ -1,8 +1,8 @@
 """
 search_courses tool — live query against CU Boulder's FOSE class-search API.
 
-Exposes TOOL_DEFINITION (Gemini function-declaration schema) and an
-execute() coroutine that the tool-calling loop dispatches to.
+Exposes TOOL_DEFINITION (OpenAI tool format) and an execute() coroutine
+that the tool-calling loop dispatches to.
 """
 
 import logging
@@ -18,38 +18,41 @@ FOSE_SEARCH_URL = "https://classes.colorado.edu/api/?page=fose&route=search"
 CLASSES_BASE_URL = "https://classes.colorado.edu"
 
 TOOL_DEFINITION: Dict[str, Any] = {
-    "name": "search_courses",
-    "description": (
-        "Search the CU Boulder course catalog for classes in a given "
-        "subject, optionally filtered by course number and semester. "
-        "Returns a list of matching sections with title, instructor, "
-        "schedule, and location."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "subject": {
-                "type": "string",
-                "description": (
-                    "Department / subject code, e.g. 'CSCI', 'MATH', 'PHYS'."
-                ),
+    "type": "function",
+    "function": {
+        "name": "search_courses",
+        "description": (
+            "Search the CU Boulder course catalog for classes in a given "
+            "subject, optionally filtered by course number and semester. "
+            "Returns a list of matching sections with title, instructor, "
+            "schedule, and location."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": (
+                        "Department / subject code, e.g. 'CSCI', 'MATH', 'PHYS'."
+                    ),
+                },
+                "course_number": {
+                    "type": "string",
+                    "description": (
+                        "Catalog number to filter on, e.g. '1300'. "
+                        "Omit to return all courses in the subject."
+                    ),
+                },
+                "semester": {
+                    "type": "string",
+                    "description": (
+                        "Semester name, e.g. 'Spring 2026', 'Fall 2025'. "
+                        "Defaults to 'Spring 2026' if not provided."
+                    ),
+                },
             },
-            "course_number": {
-                "type": "string",
-                "description": (
-                    "Catalog number to filter on, e.g. '1300'. "
-                    "Omit to return all courses in the subject."
-                ),
-            },
-            "semester": {
-                "type": "string",
-                "description": (
-                    "Semester name, e.g. 'Spring 2026', 'Fall 2025'. "
-                    "Defaults to 'Spring 2026' if not provided."
-                ),
-            },
+            "required": ["subject"],
         },
-        "required": ["subject"],
     },
 }
 

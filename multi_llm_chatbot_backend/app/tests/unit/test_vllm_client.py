@@ -13,12 +13,15 @@ FAKE_URL = "https://fake.example.com/vllm0"
 FAKE_KEY = "test-key"
 
 FAKE_TOOL = {
-    "name": "search_courses",
-    "description": "Search courses",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "subject": {"type": "string", "description": "Subject code"},
+    "type": "function",
+    "function": {
+        "name": "search_courses",
+        "description": "Search courses",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Subject code"},
+            },
         },
     },
 }
@@ -370,9 +373,9 @@ class TestVllmGenerateWithTools(unittest.TestCase):
     # Payload format
     # ------------------------------------------------------------------
 
-    def test_tool_definitions_converted_to_openai_format(self, MockAsyncOpenAI, mock_get_ctx):
-        """Tool definitions must be wrapped in OpenAI's
-        ``{"type": "function", "function": {...}}`` format."""
+    def test_tool_definitions_passed_through_in_openai_format(self, MockAsyncOpenAI, mock_get_ctx):
+        """Tool definitions (already in OpenAI format) are passed through
+        directly to the completions API."""
         client = ImprovedVllmClient(
             api_url=FAKE_URL, api_key=FAKE_KEY, model_name="test-model",
         )
@@ -623,16 +626,3 @@ class TestVllmGenerateWithTools(unittest.TestCase):
         error_content = json.loads(tool_msgs[1]["content"])
         self.assertIn("error", error_content)
 
-    # ------------------------------------------------------------------
-    # _gemini_to_openai_tool helper
-    # ------------------------------------------------------------------
-
-    def test_gemini_to_openai_tool_conversion(self, MockAsyncOpenAI, mock_get_ctx):
-        converted = ImprovedVllmClient._gemini_to_openai_tool(FAKE_TOOL)
-        self.assertEqual(converted["type"], "function")
-        self.assertEqual(converted["function"]["name"], "search_courses")
-        self.assertEqual(converted["function"]["description"], "Search courses")
-        self.assertEqual(
-            converted["function"]["parameters"],
-            FAKE_TOOL["parameters"],
-        )

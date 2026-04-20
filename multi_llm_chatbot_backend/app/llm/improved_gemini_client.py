@@ -1,6 +1,9 @@
 import httpx
+import json
 import logging
 from typing import Any, Callable, Dict, List, Optional
+
+from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 
 from app.llm.llm_client import LLMClient, ToolCallInfo, ToolCallResult
 
@@ -21,8 +24,16 @@ class ImprovedGeminiClient(LLMClient):
         if not self.api_key:
             raise ValueError("Gemini API key not set. Provide it in config.yaml (llm.gemini.api_key).")
         
+        # Native Gemini REST API
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.context_manager = get_context_manager()
+
+        # OpenAI-compatible endpoint (for tool calling)
+        self.openai_client = AsyncOpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=self.api_key,
+            timeout=90.0,
+        )
     
     async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int, response_mime_type: str = None) -> str:
         """
@@ -123,7 +134,7 @@ class ImprovedGeminiClient(LLMClient):
             return "I encountered an unexpected error. Please try again."
 
     # ------------------------------------------------------------------
-    # Tool-calling support
+    # Tool-calling support (via Gemini OpenAI-compatible endpoint)
     # ------------------------------------------------------------------
 
     _MAX_TOOL_ROUNDS = 5
@@ -137,100 +148,90 @@ class ImprovedGeminiClient(LLMClient):
         temperature: float = 0.7,
         max_tokens: int = 2048,
     ) -> ToolCallResult:
-        """Gemini-native tool-calling loop.
+        """OpenAI-compatible tool-calling loop via Gemini's /openai/ endpoint.
 
-        Sends a generateContent request with function declarations, then
-        loops through the tool-call protocol until the model produces a
-        plain text response:
+        Tool definitions are expected in OpenAI format (as returned by the
+        tool registry).  Loops through the standard tool-call protocol
+        until the model produces a plain text response:
 
-            request → detect functionCalls → execute all → feed results
+            request → detect tool_calls → execute all → feed results
             back → repeat (up to ``_MAX_TOOL_ROUNDS`` rounds).
 
-        All function calls in a single response are executed before the
-        next round, so multi-tool queries (e.g. "compare professor A vs B")
+        All tool calls in a single response are executed before the next
+        round, so multi-tool queries (e.g. "compare professor A vs B")
         work correctly.
         """
-        contents: List[Dict[str, Any]] = [
-            {"role": "user", "parts": [{"text": user_message}]},
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
         ]
-        tool_defs = tool_definitions or []
+
+        openai_tools = tool_definitions or []
         all_tool_calls: List[ToolCallInfo] = []
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                for _round in range(self._MAX_TOOL_ROUNDS):
-                    payload = self._build_tool_payload(
-                        system_prompt, contents, tool_defs, temperature, max_tokens,
+            for _round in range(self._MAX_TOOL_ROUNDS):
+                response = await self.openai_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=openai_tools or None,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+
+                choice = response.choices[0].message
+
+                if not choice.tool_calls:
+                    return ToolCallResult(
+                        text=choice.content or "",
+                        used_tool=bool(all_tool_calls),
+                        tool_name=all_tool_calls[0].name if all_tool_calls else None,
+                        tool_args=all_tool_calls[0].args if all_tool_calls else {},
+                        tool_calls_made=all_tool_calls,
                     )
-                    resp = await client.post(
-                        f"{self.base_url}/{self.model_name}:generateContent",
-                        json=payload,
-                        headers={"x-goog-api-key": self.api_key},
-                    )
-                    resp.raise_for_status()
-                    body = resp.json()
 
-                    func_calls = self._extract_function_calls(body)
+                messages.append(choice.model_dump(exclude_none=True))
 
-                    if not func_calls:
-                        text = self._extract_text(body)
-                        return ToolCallResult(
-                            text=text or "I'm unable to generate a response right now. Please try again.",
-                            used_tool=bool(all_tool_calls),
-                            tool_name=all_tool_calls[0].name if all_tool_calls else None,
-                            tool_args=all_tool_calls[0].args if all_tool_calls else {},
-                            tool_calls_made=all_tool_calls,
-                        )
+                for tc in choice.tool_calls:
+                    fn_name = tc.function.name
+                    fn_args = json.loads(tc.function.arguments)
+                    logger.info("Gemini requested tool call: %s(%s)", fn_name, fn_args)
+                    all_tool_calls.append(ToolCallInfo(name=fn_name, args=fn_args))
 
-                    contents.append({
-                        "role": "model",
-                        "parts": [{"functionCall": fc} for fc in func_calls],
+                    try:
+                        tool_result = await tool_executor(name=fn_name, **fn_args)
+                    except Exception as exc:
+                        logger.error("Tool %s failed: %s", fn_name, exc)
+                        tool_result = {"error": str(exc)}
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(tool_result),
                     })
 
-                    fn_response_parts: List[Dict[str, Any]] = []
-                    for fc in func_calls:
-                        fn_name = fc["name"]
-                        fn_args = fc.get("args", {})
-                        logger.info("Gemini requested tool call: %s(%s)", fn_name, fn_args)
-                        all_tool_calls.append(ToolCallInfo(name=fn_name, args=fn_args))
-
-                        try:
-                            tool_result = await tool_executor(name=fn_name, **fn_args)
-                        except Exception as exc:
-                            logger.error("Tool %s failed: %s", fn_name, exc)
-                            tool_result = {"error": str(exc)}
-
-                        fn_response: Dict[str, Any] = {
-                            "name": fn_name,
-                            "response": tool_result,
-                        }
-                        if fc.get("id"):
-                            fn_response["id"] = fc["id"]
-                        fn_response_parts.append({"functionResponse": fn_response})
-
-                    contents.append({"role": "user", "parts": fn_response_parts})
-
-                logger.warning(
-                    "Tool-calling loop exhausted after %d rounds", self._MAX_TOOL_ROUNDS,
-                )
-                return ToolCallResult(
-                    text="I was unable to finish looking that up. Please try again.",
-                    used_tool=bool(all_tool_calls),
-                    tool_name=all_tool_calls[0].name if all_tool_calls else None,
-                    tool_args=all_tool_calls[0].args if all_tool_calls else {},
-                    tool_calls_made=all_tool_calls,
-                )
-
-        except httpx.HTTPStatusError as e:
-            logger.error("Gemini tool-call HTTP error: %s - %s", e.response.status_code, e.response.text)
+            logger.warning(
+                "Tool-calling loop exhausted after %d rounds", self._MAX_TOOL_ROUNDS,
+            )
+            last_content = response.choices[0].message.content or ""
             return ToolCallResult(
-                text="I'm experiencing issues connecting to the AI service. Please try again.",
+                text=last_content or "I was unable to finish looking that up. Please try again.",
+                used_tool=bool(all_tool_calls),
+                tool_name=all_tool_calls[0].name if all_tool_calls else None,
+                tool_args=all_tool_calls[0].args if all_tool_calls else {},
+                tool_calls_made=all_tool_calls,
+            )
+
+        except APIConnectionError:
+            logger.error("Unable to connect to Gemini OpenAI-compat endpoint")
+            return ToolCallResult(
+                text="I'm unable to connect to the AI service. Please try again.",
                 used_tool=False,
             )
-        except httpx.TimeoutException:
-            logger.error("Gemini tool-call timeout")
+        except APIStatusError as e:
+            logger.error("Gemini tool-call API error: %s - %s", e.status_code, e.message)
             return ToolCallResult(
-                text="The AI service is taking too long to respond. Please try again.",
+                text="The AI service encountered an error. Please try again.",
                 used_tool=False,
             )
         except Exception as e:
@@ -239,60 +240,3 @@ class ImprovedGeminiClient(LLMClient):
                 text="I encountered an unexpected error. Please try again.",
                 used_tool=False,
             )
-
-    # ------------------------------------------------------------------
-    # Private helpers for tool-calling payloads / response parsing
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_tool_payload(
-        system_prompt: str,
-        contents: List[Dict[str, Any]],
-        tool_definitions: List[Dict[str, Any]],
-        temperature: float,
-        max_tokens: int,
-    ) -> Dict[str, Any]:
-        """Assemble a Gemini generateContent payload with tool declarations."""
-        payload: Dict[str, Any] = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
-        }
-        if system_prompt:
-            payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
-        if tool_definitions:
-            payload["tools"] = [{"function_declarations": tool_definitions}]
-        return payload
-
-    @staticmethod
-    def _extract_text(response_body: Dict[str, Any]) -> Optional[str]:
-        """Return the first text part from a Gemini response, or ``None``."""
-        candidates = response_body.get("candidates", [])
-        if not candidates:
-            return None
-        parts = candidates[0].get("content", {}).get("parts", [])
-        texts = [p["text"] for p in parts if "text" in p]
-        return texts[0] if texts else None
-
-    @staticmethod
-    def _extract_function_call(response_body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Return the first ``functionCall`` dict from a Gemini response, or ``None``."""
-        candidates = response_body.get("candidates", [])
-        if not candidates:
-            return None
-        parts = candidates[0].get("content", {}).get("parts", [])
-        for part in parts:
-            if "functionCall" in part:
-                return part["functionCall"]
-        return None
-
-    @staticmethod
-    def _extract_function_calls(response_body: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Return all ``functionCall`` dicts from a Gemini response."""
-        candidates = response_body.get("candidates", [])
-        if not candidates:
-            return []
-        parts = candidates[0].get("content", {}).get("parts", [])
-        return [p["functionCall"] for p in parts if "functionCall" in p]
