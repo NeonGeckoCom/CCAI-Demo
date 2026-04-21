@@ -90,15 +90,15 @@ async def chat_stream(
 
             session = session_manager.get_session(sid)
 
-            if (
+            already_loaded = (
                 len(session.messages) > 0 and
                 session.messages[-1].get("role") == "user" and
                 session.messages[-1].get("content") == message.user_input
-            ):
-                # TODO: This should be handled in the front-end input
-                logger.warning(f"Repeated user input: {message.user_input}")
-
-            session.append_message("user", message.user_input)
+            )
+            if not already_loaded:
+                session.append_message("user", message.user_input)
+            else:
+                logger.debug(f"User message already in session, skipping append: {message.user_input}")
 
             if chat_orchestrator.needs_clarification(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
@@ -359,15 +359,15 @@ async def chat_sequential_enhanced(
         rag_stats = session.get_rag_stats()
         logger.info(f"Session {session_id} has {rag_stats.get('total_documents', 0)} documents available")
         
-        # Warn if a repeated input message is received
-        if (
+        already_loaded = (
             session.messages and
             session.messages[-1].get('role') == 'user' and
             session.messages[-1].get('content') == message.user_input
-            ):
-            # TODO: This should be handled in the front-end input
-            logger.warning(f"Repeated user input: {message.user_input}")
-        session.append_message("user", message.user_input)
+        )
+        if not already_loaded:
+            session.append_message("user", message.user_input)
+        else:
+            logger.debug(f"User message already in session, skipping append: {message.user_input}")
         
         # Check if the user's message is vague and needs clarification
         if chat_orchestrator.needs_clarification(session, message.user_input):
