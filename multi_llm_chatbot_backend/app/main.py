@@ -3,8 +3,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 # Load configuration FIRST so every module can use it
@@ -57,6 +60,15 @@ app.include_router(main_router)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
+
+# Serve bundled avatar images
+_avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"
+if _avatars_dir.is_dir():
+    app.mount(
+        "/api/avatars/bundled",
+        StaticFiles(directory=_avatars_dir),
+        name="bundled-avatars",
+    )
 
 
 # ---------------------------------------------------------------------------

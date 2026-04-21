@@ -95,6 +95,7 @@ class PersonaItemConfig(_IconValidatorMixin):
     dark_color: Optional[str] = None
     dark_bg_color: Optional[str] = None
     icon: str = "HelpCircle"
+    avatar: Optional[str] = None
     temperature: int = 5
     persona_prompt: str = ""
 
@@ -108,6 +109,28 @@ class PersonaItemConfig(_IconValidatorMixin):
             self.dark_bg_color = generated["dark_bg_color"]
         return self
 
+    def _resolve_image(self) -> dict:
+        """Resolve the persona's visual representation into a unified image
+        descriptor for the frontend.
+
+        Returns ``{"type": "url", "value": "<url>"}`` when an avatar is
+        configured, otherwise ``{"type": "icon", "value": "<LucideIconName>"}``.
+        Falls back to the icon when a bundled avatar name doesn't match a
+        file on disk.
+        """
+        if self.avatar is None:
+            return {"type": "icon", "value": self.icon}
+        if self.avatar.startswith(("http://", "https://")):
+            return {"type": "url", "value": self.avatar}
+        from app.utils.avatar_helpers import get_bundled_avatar_path
+        if get_bundled_avatar_path(self.avatar) is None:
+            logger.warning(
+                "Bundled avatar %r not found for persona %r, falling back to icon.",
+                self.avatar, self.id,
+            )
+            return {"type": "icon", "value": self.icon}
+        return {"type": "url", "value": f"/api/avatars/bundled/{self.avatar}"}
+
     def to_frontend_config(self) -> dict:
         return {
             "id": self.id,
@@ -118,7 +141,7 @@ class PersonaItemConfig(_IconValidatorMixin):
             "bg_color": self.bg_color,
             "dark_color": self.dark_color,
             "dark_bg_color": self.dark_bg_color,
-            "icon": self.icon
+            "image": self._resolve_image(),
             }
 
 
