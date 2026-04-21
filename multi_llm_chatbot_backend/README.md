@@ -15,7 +15,7 @@ A modular, extensible FastAPI backend for building an AI-powered research adviso
 ```text
 User Input
    ↓
-/chat-sequential → Orchestrator
+/chat-stream → Orchestrator
      ↓            ↙         ↘
   SessionManager   ContextManager   RAGManager
          ↓              ↓             ↓
