@@ -36,6 +36,7 @@ const Sidebar = ({
 }) => {
   const { config } = useAppConfig();
   const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
+  const appVersion = config?.version;
   const [chatSessions, setChatSessions] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -398,6 +399,14 @@ const Sidebar = ({
           )}
         </div>
 
+        {appVersion && (
+          <div
+            className="sidebar-version"
+            title={`Version ${appVersion}`}
+          >
+            {isCollapsed ? `v${appVersion}` : `Version ${appVersion}`}
+          </div>
+        )}
         {/* Footer */}
         <div className={`sidebar-footer ${isCollapsed ? 'collapsed' : ''}`}>
           <a 

@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, validator, Field, model_validator
 
 from app.utils.avatar_helpers import get_bundled_avatar_path
+from app.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +329,7 @@ class AppSettings(BaseModel):
             "personas": {
                 "items": [p.to_frontend_config() for p in self.personas.items],
             },
+            "version": __version__,
         }
 
 

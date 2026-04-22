@@ -21,6 +21,7 @@ from app.utils.file_export import export_chat_as_file
 
 from app.utils.chat_summary import generate_summary_from_messages, parse_summary_to_blocks
 from app.utils.file_export import prepare_export_response, generate_pdf_file_from_blocks
+from app.version import __version__
 
 import hashlib
 import logging
@@ -989,7 +990,7 @@ def root():
     """Root endpoint - SAME INTERFACE with updated info"""
     return {
         "message": "Multi-LLM PhD Advisor Backend is up and running",
-        "version": "1.0.0",  # Updated version 
+        "version": __version__,
         "features": [
             "Improved Session Management",
             "Unified Context Handling", 

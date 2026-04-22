@@ -1,0 +1,33 @@
+# On every push to `main` (which happens when a release PR produced by
+# Propose Stable Release is merged), read the current version and create a
+# matching GitHub release.  Docker image publishing is intentionally left
+# out for now and can be added separately.
+
+name: Publish GitHub Release
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag_release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install setuptools
+        run: pip install setuptools
+      - name: Get Version
+        run: |
+          VERSION=$(python setup.py --version)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+      - uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ env.VERSION }}
+          generateReleaseNotes: true
