@@ -209,16 +209,15 @@ class ContextManager:
                     "role": "user",
                     "parts": [{"text": content}]
                 })
-            elif role in ['assistant', 'methodologist', 'theorist', 'pragmatist']:
-                formatted.append({
-                    "role": "model",
-                    "parts": [{"text": content}]
-                })
             elif role == 'document':
-                # Add document as user context
                 formatted.append({
                     "role": "user",
                     "parts": [{"text": f"[Context Document] {content}"}]
+                })
+            else:
+                formatted.append({
+                    "role": "model",
+                    "parts": [{"text": content}]
                 })
 
         return formatted

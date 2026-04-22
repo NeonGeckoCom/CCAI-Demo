@@ -58,6 +58,7 @@ app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
 
+
 # ---------------------------------------------------------------------------
 # Public configuration endpoint — serves the frontend-safe subset
 # ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ def create_llm_client(provider=None):
         )
 
 llm = create_llm_client()
-chat_orchestrator = ImprovedChatOrchestrator()
+chat_orchestrator = ImprovedChatOrchestrator(llm_client=llm)
 
 DEFAULT_PERSONAS = get_default_personas(llm)
 for persona in DEFAULT_PERSONAS:

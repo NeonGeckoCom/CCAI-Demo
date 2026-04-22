@@ -4,6 +4,8 @@ from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
 from app.config import get_settings
+from app.llm.llm_client import LLMClient, ToolCallResult
+from app.tools import get_tool_definitions, get_tool_executor
 
 import json
 import logging
@@ -16,8 +18,9 @@ class ImprovedChatOrchestrator:
     Enhanced orchestrator with document awareness and improved context handling
     """
     
-    def __init__(self):
+    def __init__(self, llm_client: LLMClient = None):
         self.personas: Dict[str, Persona] = {}
+        self.llm_client = llm_client
         self.session_manager = get_session_manager()
         self.context_manager = get_context_manager()
     
@@ -33,7 +36,49 @@ class ImprovedChatOrchestrator:
     def list_personas(self) -> List[str]:
         """List all available persona IDs"""
         return list(self.personas.keys())
-    
+
+    async def get_tool_response(self, user_message: str) -> ToolCallResult:
+        """Check whether a tool can handle *user_message*.
+
+        If tools are disabled in config, no LLM client is available, or the
+        model decides no tool is needed, returns
+        ``ToolCallResult(used_tool=False)``.  Otherwise executes the tool and
+        returns the grounded response with ``used_tool=True``.
+        """
+        if self.llm_client is None:
+            return ToolCallResult(text="", used_tool=False)
+
+        settings = get_settings()
+        tools_enabled = settings.tools.get_enabled_names()
+
+        if not tools_enabled:
+            return ToolCallResult(text="", used_tool=False)
+
+        tool_definitions = get_tool_definitions(enabled=tools_enabled)
+        tool_executor = get_tool_executor(enabled=tools_enabled)
+
+        if not tool_definitions:
+            return ToolCallResult(text="", used_tool=False)
+
+        system_prompt = (
+            "You are a helpful assistant with access to external tools. "
+            "Use the available tools when the user's question can be answered "
+            "by one of them. If no tool is relevant, respond with a brief "
+            "text answer. "
+            "If a tool response includes 'truncated': true, let the user know "
+            "how many total results were found and suggest they narrow their "
+            "search for more specific results. "
+            "Format your responses using markdown. Use bullet points "
+            "to present structured data like course listings or professor ratings."
+        )
+
+        return await self.llm_client.generate_with_tools(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            tool_definitions=tool_definitions,
+            tool_executor=tool_executor,
+        )
+
     async def process_message(self, 
                             user_input: str, 
                             session_id: Optional[str] = None,

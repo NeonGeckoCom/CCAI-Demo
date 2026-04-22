@@ -115,6 +115,27 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
+            # If an enabled tool can handle this query, return its response
+            # directly and skip persona generation.
+            tool_result = await chat_orchestrator.get_tool_response(message.user_input)
+            if tool_result.used_tool:
+                session.append_message("orchestrator", tool_result.text)
+                yield ChatStreamLine(
+                    type="advisor",
+                    data={
+                        "persona_id": "orchestrator",
+                        "persona_name": "Orchestrator",
+                        "content": tool_result.text,
+                        "used_documents": False,
+                        "document_chunks_used": 0,
+                    },
+                ).to_ndjson()
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "complete"},
+                ).to_ndjson()
+                return
+
             # Get personas most relevant to the current session
             top_personas = await chat_orchestrator.get_top_personas(
                 session_id=sid,
@@ -363,7 +384,26 @@ async def chat_sequential_enhanced(
                     "trigger": "vague_input"
                 }
             }
-        
+
+        # If an enabled tool can handle this query, return its response
+        # directly and skip persona generation.
+        tool_result = await chat_orchestrator.get_tool_response(message.user_input)
+        if tool_result.used_tool:
+            session.append_message("orchestrator", tool_result.text)
+            return {
+                "responses": [{
+                    "persona_id": "orchestrator",
+                    "persona_name": "Orchestrator",
+                    "content": tool_result.text,
+                    "used_documents": False,
+                    "document_chunks_used": 0,
+                }],
+                "session_debug": {
+                    "session_id": session_id,
+                    "tool_used": True,
+                }
+            }
+
         # RESTORED: Get intelligently ordered personas based on context
         top_personas = await chat_orchestrator.get_top_personas(
             session_id=session_id, 

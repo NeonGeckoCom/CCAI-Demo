@@ -69,6 +69,8 @@ async def switch_provider(provider_data: ProviderSwitch):
         new_llm = create_llm_client(current_provider)
         llm = new_llm
 
+        chat_orchestrator.llm_client = new_llm
+
         new_personas = get_default_personas(new_llm)
         chat_orchestrator.personas.clear()
         for persona in new_personas:

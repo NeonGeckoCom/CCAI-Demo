@@ -11,7 +11,7 @@ import os
 import logging
 import colorsys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from colorhash import ColorHash
 
 import yaml
@@ -234,6 +234,23 @@ class RAGConfig(BaseModel):
     chroma_collection: str = "phd_advisor_documents"
 
 
+class ToolsConfig(BaseModel):
+    model_config = {"extra": "allow"}
+
+    def get_enabled_names(self) -> List[str]:
+        """Return tool names whose config has ``enabled: true``."""
+        return [
+            name
+            for name, cfg in self.__pydantic_extra__.items()
+            if isinstance(cfg, dict) and cfg.get("enabled", True)
+        ]
+
+    def get_tool_config(self, name: str) -> Dict[str, Any]:
+        """Return the raw config dict for a single tool, or ``{}``."""
+        cfg = self.__pydantic_extra__.get(name, {})
+        return cfg if isinstance(cfg, dict) else {}
+
+
 class AppSettings(BaseModel):
     """Top-level container that mirrors the YAML structure."""
     app: AppConfig = AppConfig()
@@ -246,6 +263,7 @@ class AppSettings(BaseModel):
     mongodb: MongoDBConfig = MongoDBConfig()
     llm: LLMConfig = LLMConfig()
     rag: RAGConfig = RAGConfig()
+    tools: ToolsConfig = ToolsConfig()
 
     # ------------------------------------------------------------------
     # Convenience helpers
