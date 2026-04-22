@@ -23,6 +23,21 @@ class SaveMessageRequest(BaseModel):
     session_id: str
     message: dict
 
+async def persist_message(session_id: str, message: dict):
+    """Write a single message to a MongoDB chat session."""
+    db = get_database()
+    msg = message.copy()
+    if "timestamp" not in msg:
+        msg["timestamp"] = datetime.utcnow().isoformat()
+    await db.chat_sessions.update_one(
+        {"_id": ObjectId(session_id)},
+        {
+            "$push": {"messages": msg},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+
+
 @router.post("/chat-sessions", response_model=dict)
 async def create_chat_session(
     request: CreateChatSessionRequest,
@@ -57,6 +72,7 @@ async def create_chat_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not create chat session"
         )
+
 
 @router.get("/chat-sessions", response_model=List[ChatSessionResponse])
 async def get_user_chat_sessions(
@@ -227,18 +243,7 @@ async def save_message_to_session(
                 detail="Chat session not found"
             )
         
-        # Add timestamp to message if not present
-        message = request.message.copy()
-        if "timestamp" not in message:
-            message["timestamp"] = datetime.utcnow().isoformat()
-        
-        await db.chat_sessions.update_one(
-            {"_id": ObjectId(session_id)},
-            {
-                "$push": {"messages": message},
-                "$set": {"updated_at": datetime.utcnow()}
-            }
-        )
+        await persist_message(session_id, request.message)
         
         return {"message": "Message saved successfully"}
         

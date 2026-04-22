@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.api.routes.chat_sessions import persist_message
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
 from app.core.bootstrap import chat_orchestrator
@@ -77,6 +78,7 @@ async def chat_stream(
 
     async def _event_generator():
         try:
+            # Load or create the in-memory session
             if message.chat_session_id:
                 sid = f"chat_{message.chat_session_id}"
                 if sid not in session_manager.sessions:
@@ -90,15 +92,14 @@ async def chat_stream(
 
             session = session_manager.get_session(sid)
 
-            already_loaded = (
-                len(session.messages) > 0 and
-                session.messages[-1].get("role") == "user" and
-                session.messages[-1].get("content") == message.user_input
-            )
-            if not already_loaded:
-                session.append_message("user", message.user_input)
-            else:
-                logger.debug(f"User message already in session, skipping append: {message.user_input}")
+            # Append user message to in-memory session and persist to MongoDB
+            session.append_message("user", message.user_input)
+            if message.chat_session_id:
+                await persist_message(message.chat_session_id, {
+                    "id": str(ObjectId()),
+                    "type": "user",
+                    "content": message.user_input,
+                })
 
             if chat_orchestrator.needs_clarification(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)

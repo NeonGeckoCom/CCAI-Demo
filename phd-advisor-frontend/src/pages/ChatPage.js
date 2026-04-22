@@ -380,9 +380,6 @@ const handleNewChat = async (sessionId = null) => {
       }
     }
 
-    // Save user message to database
-    await saveMessageToSession(userMessage);
-
     // Update session title if this is the first message and title is generic
     if (messages.length === 0 && currentSessionTitle.includes('Chat ')) {
       const newTitle = inputMessage.length > 30 
