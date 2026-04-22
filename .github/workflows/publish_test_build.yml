@@ -18,6 +18,7 @@ jobs:
     secrets: inherit
     with:
       version_file: "multi_llm_chatbot_backend/app/version.py"
+      setup_py: "multi_llm_chatbot_backend/app/version.py"
       publish_prerelease: true
       publish_pypi: false
       update_changelog: true

@@ -24,7 +24,7 @@ jobs:
         run: pip install setuptools
       - name: Get Version
         run: |
-          VERSION=$(python setup.py --version)
+          VERSION=$(python multi_llm_chatbot_backend/app/version.py)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
       - uses: ncipollo/release-action@v1
         with:
