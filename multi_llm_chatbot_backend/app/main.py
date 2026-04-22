@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 # Load configuration FIRST so every module can use it
 from app.config import load_settings
+from app.version import __version__
 settings = load_settings()
 
 # Import the new database functions
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=f"{settings.app.title} Backend",
-    version="2.0.0",
+    version=__version__,
     lifespan=lifespan
 )
 
@@ -71,7 +72,7 @@ def get_public_config():
 def root():
     return {
         "message": f"{settings.app.title} Backend",
-        "version": "2.0.0",
+        "version": __version__,
         "features": [
             "User Authentication", 
             "Persistent Chat Sessions",
