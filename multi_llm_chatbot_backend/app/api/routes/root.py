@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from app.config import get_settings
+from app.version import __version__
 
 import logging
 
@@ -12,7 +13,7 @@ def root():
     title = get_settings().app.title
     return {
         "message": f"{title} Backend is up and running",
-        "version": "1.0.0",
+        "version": __version__,
         "features": [
             "Configurable Personas",
             "Improved Session Management",

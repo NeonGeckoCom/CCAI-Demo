@@ -1,0 +1,24 @@
+# Bumps the alpha suffix on every push to `dev` (except when the only
+# change is to the version file itself, to prevent a publish loop).  A
+# GitHub prerelease is cut for each alpha so artifacts are easy to find.
+# This project is not distributed via PyPI, so `publish_pypi` is disabled.
+
+name: Publish Alpha Build
+on:
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - 'multi_llm_chatbot_backend/app/version.py'
+      - 'CHANGELOG.md'
+
+jobs:
+  publish_alpha_release:
+    uses: neongeckocom/.github/.github/workflows/publish_alpha_release.yml@master
+    secrets: inherit
+    with:
+      version_file: "multi_llm_chatbot_backend/app/version.py"
+      setup_py: "multi_llm_chatbot_backend/app/version.py"
+      publish_prerelease: true
+      publish_pypi: false
+      update_changelog: true

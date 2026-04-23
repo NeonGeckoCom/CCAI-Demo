@@ -690,3 +690,23 @@
     display: block;
   }
 }
+
+.sidebar-version {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-light, #e5e7eb);
+  font-size: 11px;
+  color: var(--text-secondary, #6b7280);
+  text-align: center;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed .sidebar-version {
+  padding: 8px 4px;
+  font-size: 10px;
+}
+
+.dark .sidebar-version {
+  border-top-color: var(--border-dark, #374151);
+  color: var(--text-secondary-dark, #9ca3af);
+}
