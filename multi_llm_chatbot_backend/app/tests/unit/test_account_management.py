@@ -13,11 +13,9 @@ from pydantic import ValidationError
 # downloads, and ChromaDB at import time. Stub those heavy modules with
 # harmless substitutes so the package imports cleanly and auth.py can
 # be loaded via normal import machinery.
-for _name in ("app.core.bootstrap", "app.core.rag_manager"):
-    sys.modules.setdefault(_name, MagicMock())
 
-_stub_router_module = MagicMock(router=APIRouter())
-for _name in (
+_STUBBED_HEAVY_MODULES = ("app.core.bootstrap", "app.core.rag_manager")
+_STUBBED_ROUTE_MODULES = (
     "app.api.routes.chat",
     "app.api.routes.documents",
     "app.api.routes.sessions",
@@ -25,18 +23,68 @@ for _name in (
     "app.api.routes.debug",
     "app.api.routes.root",
     "app.api.routes.phd_canvas",
-):
-    sys.modules.setdefault(_name, _stub_router_module)
-
-from app.api.routes.auth import (  # noqa: E402
-    ChangePasswordRequest,
-    DeleteAccountRequest,
-    UpdateProfileRequest,
-    change_password,
-    delete_account,
-    update_profile,
 )
-from app.models.user import User  # noqa: E402
+_MISSING = object()
+_original_sys_modules: dict = {}
+
+# Populated by setUpModule so tests can reference them as module globals.
+ChangePasswordRequest = None  # type: ignore[assignment]
+DeleteAccountRequest = None  # type: ignore[assignment]
+UpdateProfileRequest = None  # type: ignore[assignment]
+change_password = None  # type: ignore[assignment]
+delete_account = None  # type: ignore[assignment]
+update_profile = None  # type: ignore[assignment]
+User = None  # type: ignore[assignment]
+
+
+def setUpModule():
+    global ChangePasswordRequest, DeleteAccountRequest, UpdateProfileRequest
+    global change_password, delete_account, update_profile, User
+
+    for name in _STUBBED_HEAVY_MODULES:
+        _original_sys_modules[name] = sys.modules.get(name, _MISSING)
+        sys.modules[name] = MagicMock()
+
+    stub_router_module = MagicMock(router=APIRouter())
+    for name in _STUBBED_ROUTE_MODULES:
+        _original_sys_modules[name] = sys.modules.get(name, _MISSING)
+        sys.modules[name] = stub_router_module
+
+    from app.api.routes.auth import (
+        ChangePasswordRequest as _ChangePasswordRequest,
+        DeleteAccountRequest as _DeleteAccountRequest,
+        UpdateProfileRequest as _UpdateProfileRequest,
+        change_password as _change_password,
+        delete_account as _delete_account,
+        update_profile as _update_profile,
+    )
+    from app.models.user import User as _User
+
+    ChangePasswordRequest = _ChangePasswordRequest
+    DeleteAccountRequest = _DeleteAccountRequest
+    UpdateProfileRequest = _UpdateProfileRequest
+    change_password = _change_password
+    delete_account = _delete_account
+    update_profile = _update_profile
+    User = _User
+
+
+def tearDownModule():
+    # Restore any modules we overrode, removing the ones that had no
+    # prior entry.
+    for name, original in _original_sys_modules.items():
+        if original is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = original
+    _original_sys_modules.clear()
+
+    # Importing app.api.routes.auth also pulled in app.api, app.api.routes,
+    # and app.api.routes.auth itself, all resolved against the stubs above.
+    # Evict those so other test modules get a clean import.
+    for name in list(sys.modules):
+        if name == "app.api" or name.startswith("app.api."):
+            del sys.modules[name]
 
 FAKE_USER_ID = ObjectId()
 
