@@ -74,7 +74,7 @@ async def signup(user_data: UserCreate):
             )
         
         # Create new user
-        hashed_password = get_password_hash(user_data.password)
+        hashed_password = get_password_hash(user_data.password_hash)
         user = User(
             firstName=user_data.firstName,
             lastName=user_data.lastName,
@@ -121,7 +121,7 @@ async def login(user_credentials: UserLogin):
     """
     try:
         # Authenticate user
-        user = await authenticate_user(user_credentials.email, user_credentials.password)
+        user = await authenticate_user(user_credentials.email, user_credentials.password_hash)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

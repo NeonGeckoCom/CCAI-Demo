@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, BookOpen, Phone, GraduationCap } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import { hashPassword } from '../utils/hashPassword';
 import '../styles/Signup.css';
 
 const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
@@ -90,6 +91,7 @@ const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
     setIsLoading(true);
     
     try {
+      const hashedPassword = await hashPassword(formData.password);
       const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/signup`, {
         method: 'POST',
         headers: {
@@ -99,7 +101,7 @@ const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
-          password: formData.password,
+          password_hash: hashedPassword,
           academicStage: formData.academicStage,
           researchArea: formData.researchArea
         }),

@@ -22,13 +22,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES = _cfg.token_expiry_minutes
 # Security scheme
 security = HTTPBearer()
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(password_hash: str, hashed_password: str) -> bool:
+    """Verify a client-provided SHA-256 password hash against the stored bcrypt hash"""
+    return pwd_context.verify(password_hash, hashed_password)
 
-def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    return pwd_context.hash(password)
+def get_password_hash(password_hash: str) -> str:
+    """Bcrypt-hash a client-provided SHA-256 password hash for storage"""
+    return pwd_context.hash(password_hash)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create a JWT access token"""
@@ -61,12 +61,12 @@ async def get_user_by_id(user_id: str) -> Optional[User]:
     except Exception:
         return None
 
-async def authenticate_user(email: str, password: str) -> Optional[User]:
-    """Authenticate user with email and password"""
+async def authenticate_user(email: str, password_hash: str) -> Optional[User]:
+    """Authenticate user with email and client-provided SHA-256 password hash"""
     user = await get_user_by_email(email)
     if not user:
         return None
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password_hash, user.hashed_password):
         return None
     return user
 

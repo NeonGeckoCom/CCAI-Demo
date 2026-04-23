@@ -25,13 +25,13 @@ class UserCreate(BaseModel):
     firstName: str
     lastName: str
     email: EmailStr
-    password: str
+    password_hash: str
     academicStage: Optional[str] = None
     researchArea: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password_hash: str
 
 class User(BaseModel):
     model_config = ConfigDict(
