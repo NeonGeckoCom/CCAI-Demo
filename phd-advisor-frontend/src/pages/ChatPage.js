@@ -33,6 +33,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [isSavingSession, setIsSavingSession] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
 
   
 
@@ -487,6 +488,7 @@ const handleNewChat = async (sessionId = null) => {
     } finally {
       setIsLoading(false);
       setThinkingAdvisors([]);
+      setSidebarRefreshTrigger(prev => prev + 1);
     }
   };
 
@@ -750,6 +752,7 @@ const handleNewChat = async (sessionId = null) => {
         isMobileOpen={isMobileMenuOpen}
         onMobileToggle={setIsMobileMenuOpen}
         onNavigateToCanvas={onNavigateToCanvas}
+        refreshTrigger={sidebarRefreshTrigger}
       />
       
       <div className={`main-chat-area ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
