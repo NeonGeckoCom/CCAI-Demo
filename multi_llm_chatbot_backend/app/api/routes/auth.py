@@ -275,6 +275,7 @@ async def delete_account(
         uid = current_user.id
         await db.chat_sessions.delete_many({"user_id": uid})
         await db.phd_canvases.delete_many({"user_id": uid})
+        await db.user_preferences.delete_many({"user_id": uid})
         await db.users.delete_one({"_id": uid})
         return MessageResponse(message="Account deleted")
 

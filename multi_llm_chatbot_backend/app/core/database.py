@@ -74,6 +74,9 @@ async def create_indexes():
         await db.database.chat_sessions.create_index("created_at")
         await db.database.chat_sessions.create_index([("user_id", 1), ("created_at", -1)])
         
+        # Index for user_preferences collection
+        await db.database.user_preferences.create_index("user_id", unique=True)
+        
         logger.info("Database indexes created successfully")
     except Exception as e:
         logger.warning(f"Error creating indexes: {e}")
