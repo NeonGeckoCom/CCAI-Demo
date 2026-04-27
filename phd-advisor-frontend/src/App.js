@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import AuthPage from './pages/AuthPage';
 import CanvasPage from './pages/CanvasPage';
+import UserGuide from './components/UserGuide';
 import './styles/components.css';
 
 function App() {
@@ -89,7 +90,7 @@ function App() {
             />
           )}
           {currentView === 'chat' && isAuthenticated && (
-            <ChatPage 
+            <ChatPage
               user={user}
               authToken={authToken}
               onNavigateToHome={navigateToHome}
@@ -97,6 +98,8 @@ function App() {
               onSignOut={handleSignOut}
             />
           )}
+          {/* Global help center — listens for the 'open-user-guide' event */}
+          <UserGuide />
         </div>
       </ThemeProvider>
     </AppConfigProvider>
