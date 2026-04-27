@@ -7,6 +7,10 @@ import AuthPage from './pages/AuthPage';
 import CanvasPage from './pages/CanvasPage';
 import './styles/components.css';
 
+// Set to true to force the onboarding tour to run on every page load.
+// Leave false in production — tour will only show once per user (localStorage).
+export const TESTING_ONBOARDING = false;
+
 function App() {
   const [currentView, setCurrentView] = useState('home');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
