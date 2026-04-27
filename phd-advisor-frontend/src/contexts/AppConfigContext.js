@@ -40,7 +40,7 @@ const buildAdvisors = (personaItems, overrides = {}) => {
       bgColor: p.bg_color || '#F3F4F6',
       darkColor: p.dark_color || '#9CA3AF',
       darkBgColor: p.dark_bg_color || '#374151',
-      icon: resolveIcon(p.icon),
+      icon: resolveIcon(p.image?.type === 'icon' ? p.image.value : p.icon),
       avatarUrl,
     };
   }
