@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  MessageSquare, 
-  Plus, 
-  Search, 
-  MoreVertical, 
-  Trash2, 
+import {
+  MessageSquare,
+  Plus,
+  SquarePen,
+  Search,
+  MoreVertical,
+  Trash2,
   Edit3,
   LogOut,
   User,
   Settings,
-  ChevronLeft,
-  ChevronRight,
+  PanelLeft,
   FileText
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
@@ -191,7 +191,7 @@ const Sidebar = ({
                     onClick={toggleSidebar} 
                     title="Collapse sidebar"
                   >
-                    <ChevronLeft size={16} />
+                    <PanelLeft size={18} />
                   </button>
                   
                   <div className="user-menu-container">
@@ -218,21 +218,12 @@ const Sidebar = ({
                 </div>
               </div>
 
-              <button 
-                className="new-chat-button" 
-                onClick={handleNewChat}
-                disabled={isCreatingNewChat}
-              >
-                <Plus size={16} />
-                <span>{isCreatingNewChat ? 'Creating...' : 'New Chat'}</span>
-              </button>
-
-              <button 
+              <button
                 className="sidebar-canvas-btn"
                 onClick={onNavigateToCanvas}
                 title={canvasLabel}
               >
-                <FileText size={20} />
+                <FileText size={18} />
                 {!isCollapsed && <span>{canvasLabel}</span>}
               </button>
             </>
@@ -246,15 +237,15 @@ const Sidebar = ({
                 onClick={toggleSidebar} 
                 title="Expand sidebar"
               >
-                <ChevronRight size={20} />
+                <PanelLeft size={20} />
               </button>
-              <button 
-                className="collapsed-new-chat" 
-                onClick={handleNewChat} 
+              <button
+                className="collapsed-new-chat"
+                onClick={handleNewChat}
                 title="New Chat"
                 disabled={isCreatingNewChat}
               >
-                <Plus size={20} />
+                <SquarePen size={20} />
               </button>
               <button 
                 className="sidebar-canvas-btn"
@@ -268,7 +259,7 @@ const Sidebar = ({
           )}
         </div>
 
-        {/* Search - only show when expanded */}
+        {/* Search + New Chat - only show when expanded */}
         {!isCollapsed && (
           <div className="sidebar-search">
             <div className="search-container">
@@ -281,6 +272,14 @@ const Sidebar = ({
                 className="search-input"
               />
             </div>
+            <button
+              className="new-chat-icon-btn"
+              onClick={handleNewChat}
+              disabled={isCreatingNewChat}
+              title={isCreatingNewChat ? 'Creating...' : 'New Chat'}
+            >
+              <SquarePen size={18} />
+            </button>
           </div>
         )}
 
