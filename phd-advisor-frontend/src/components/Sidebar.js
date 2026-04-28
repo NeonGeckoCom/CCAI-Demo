@@ -26,7 +26,8 @@ const Sidebar = ({
   onSidebarToggle,
   isMobileOpen = false,
   onMobileToggle,
-  onNavigateToCanvas
+  onNavigateToCanvas,
+  refreshTrigger
 }) => {
   const { config } = useAppConfig();
   const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
@@ -74,6 +75,13 @@ const Sidebar = ({
       return () => clearTimeout(timer);
     }
   }, [currentSessionId, authToken]);
+
+  // Refresh session list when parent signals a message exchange completed
+  useEffect(() => {
+    if (refreshTrigger > 0 && authToken) {
+      fetchChatSessions();
+    }
+  }, [refreshTrigger]);
 
 
   const fetchChatSessions = async () => {

@@ -310,7 +310,7 @@ curl -X POST "http://localhost:8000/switch-provider" \
 - `GET /auth/me` - Get current user profile
 
 ### Chat Endpoints
-- `POST /chat-sequential` - Get responses from all advisors
+- `POST /chat-stream` - Get streaming responses from all advisors (NDJSON)
 - `POST /chat/{persona_id}` - Chat with specific advisor
 - `POST /reply-to-advisor` - Reply to specific advisor message
 
