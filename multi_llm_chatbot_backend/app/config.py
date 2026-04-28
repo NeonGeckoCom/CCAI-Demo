@@ -116,12 +116,26 @@ class PersonaItemConfig(_IconValidatorMixin):
         Returns ``{"type": "url", "value": "<url>"}`` when an avatar is
         configured, otherwise ``{"type": "icon", "value": "<LucideIconName>"}``.
         Falls back to the icon when a bundled avatar name doesn't match a
-        file on disk.
+        file on disk or when an external URL is unreachable.
         """
         if self.avatar is None:
             return {"type": "icon", "value": self.icon}
         if self.avatar.startswith(("http://", "https://")):
-            return {"type": "url", "value": self.avatar}
+            import httpx
+            try:
+                resp = httpx.head(self.avatar, timeout=5, follow_redirects=True)
+                if resp.is_success:
+                    return {"type": "url", "value": self.avatar}
+                logger.warning(
+                    "Avatar URL %r returned status %d for persona %r, falling back to icon.",
+                    self.avatar, resp.status_code, self.id,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "Avatar URL %r unreachable for persona %r (%s), falling back to icon.",
+                    self.avatar, self.id, exc,
+                )
+            return {"type": "icon", "value": self.icon}
         from app.utils.avatar_helpers import get_bundled_avatar_path
         if get_bundled_avatar_path(self.avatar) is None:
             logger.warning(

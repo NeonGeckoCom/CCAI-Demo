@@ -1,8 +1,10 @@
 import unittest
 import tempfile
 import os
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from pathlib import Path
+
+import httpx
 
 from app.config import PersonaItemConfig
 from app.utils.avatar_helpers import get_bundled_avatar_path, list_bundled_avatars
@@ -54,7 +56,9 @@ class TestResolveImage(unittest.TestCase):
             {"type": "icon", "value": "Brain"},
         )
 
-    def test_external_url_passed_through(self):
+    @patch("httpx.head")
+    def test_external_url_passed_through(self, mock_head):
+        mock_head.return_value = MagicMock(is_success=True)
         persona = PersonaItemConfig(
             id="test", name="Test", icon="Brain",
             avatar="https://example.com/avatar.png",
@@ -63,8 +67,13 @@ class TestResolveImage(unittest.TestCase):
             persona._resolve_image(),
             {"type": "url", "value": "https://example.com/avatar.png"},
         )
+        mock_head.assert_called_once_with(
+            "https://example.com/avatar.png", timeout=5, follow_redirects=True,
+        )
 
-    def test_http_url_passed_through(self):
+    @patch("httpx.head")
+    def test_http_url_passed_through(self, mock_head):
+        mock_head.return_value = MagicMock(is_success=True)
         persona = PersonaItemConfig(
             id="test", name="Test", icon="Brain",
             avatar="http://example.com/avatar.png",
@@ -72,6 +81,42 @@ class TestResolveImage(unittest.TestCase):
         self.assertEqual(
             persona._resolve_image(),
             {"type": "url", "value": "http://example.com/avatar.png"},
+        )
+
+    @patch("httpx.head")
+    def test_url_returning_404_falls_back_to_icon(self, mock_head):
+        mock_head.return_value = MagicMock(is_success=False, status_code=404)
+        persona = PersonaItemConfig(
+            id="test", name="Test", icon="Brain",
+            avatar="https://example.com/missing.png",
+        )
+        self.assertEqual(
+            persona._resolve_image(),
+            {"type": "icon", "value": "Brain"},
+        )
+
+    @patch("httpx.head")
+    def test_unreachable_url_falls_back_to_icon(self, mock_head):
+        mock_head.side_effect = httpx.ConnectError("DNS lookup failed")
+        persona = PersonaItemConfig(
+            id="test", name="Test", icon="Brain",
+            avatar="https://nonexistent.invalid/avatar.png",
+        )
+        self.assertEqual(
+            persona._resolve_image(),
+            {"type": "icon", "value": "Brain"},
+        )
+
+    @patch("httpx.head")
+    def test_url_timeout_falls_back_to_icon(self, mock_head):
+        mock_head.side_effect = httpx.TimeoutException("timed out")
+        persona = PersonaItemConfig(
+            id="test", name="Test", icon="Brain",
+            avatar="https://slow.example.com/avatar.png",
+        )
+        self.assertEqual(
+            persona._resolve_image(),
+            {"type": "icon", "value": "Brain"},
         )
 
     @patch("app.utils.avatar_helpers.get_bundled_avatar_path")
