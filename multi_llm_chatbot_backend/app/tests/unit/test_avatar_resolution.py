@@ -49,12 +49,9 @@ class TestAvatarHelpers(unittest.TestCase):
 
 class TestResolveImage(unittest.TestCase):
 
-    def test_no_avatar_returns_icon(self):
+    def test_no_avatar_returns_icon_uri(self):
         persona = PersonaItemConfig(id="test", name="Test", icon="Brain")
-        self.assertEqual(
-            persona._resolve_image(),
-            {"type": "icon", "value": "Brain"},
-        )
+        self.assertEqual(persona._resolve_image(), "icon://Brain")
 
     @patch("httpx.head")
     def test_external_url_passed_through(self, mock_head):
@@ -65,7 +62,7 @@ class TestResolveImage(unittest.TestCase):
         )
         self.assertEqual(
             persona._resolve_image(),
-            {"type": "url", "value": "https://example.com/avatar.png"},
+            "https://example.com/avatar.png",
         )
         mock_head.assert_called_once_with(
             "https://example.com/avatar.png", timeout=5, follow_redirects=True,
@@ -80,7 +77,7 @@ class TestResolveImage(unittest.TestCase):
         )
         self.assertEqual(
             persona._resolve_image(),
-            {"type": "url", "value": "http://example.com/avatar.png"},
+            "http://example.com/avatar.png",
         )
 
     @patch("httpx.head")
@@ -90,10 +87,7 @@ class TestResolveImage(unittest.TestCase):
             id="test", name="Test", icon="Brain",
             avatar="https://example.com/missing.png",
         )
-        self.assertEqual(
-            persona._resolve_image(),
-            {"type": "icon", "value": "Brain"},
-        )
+        self.assertEqual(persona._resolve_image(), "icon://Brain")
 
     @patch("httpx.head")
     def test_unreachable_url_falls_back_to_icon(self, mock_head):
@@ -102,10 +96,7 @@ class TestResolveImage(unittest.TestCase):
             id="test", name="Test", icon="Brain",
             avatar="https://nonexistent.invalid/avatar.png",
         )
-        self.assertEqual(
-            persona._resolve_image(),
-            {"type": "icon", "value": "Brain"},
-        )
+        self.assertEqual(persona._resolve_image(), "icon://Brain")
 
     @patch("httpx.head")
     def test_url_timeout_falls_back_to_icon(self, mock_head):
@@ -114,20 +105,17 @@ class TestResolveImage(unittest.TestCase):
             id="test", name="Test", icon="Brain",
             avatar="https://slow.example.com/avatar.png",
         )
-        self.assertEqual(
-            persona._resolve_image(),
-            {"type": "icon", "value": "Brain"},
-        )
+        self.assertEqual(persona._resolve_image(), "icon://Brain")
 
     @patch("app.utils.avatar_helpers.get_bundled_avatar_path")
-    def test_bundled_avatar_exists_returns_url(self, mock_get_path):
+    def test_bundled_avatar_exists_returns_path(self, mock_get_path):
         mock_get_path.return_value = Path("/fake/path/advisor1.png")
         persona = PersonaItemConfig(
             id="test", name="Test", icon="Brain", avatar="advisor1.png",
         )
         self.assertEqual(
             persona._resolve_image(),
-            {"type": "url", "value": "/api/avatars/bundled/advisor1.png"},
+            "/api/avatars/bundled/advisor1.png",
         )
 
     @patch("app.utils.avatar_helpers.get_bundled_avatar_path")
@@ -136,14 +124,11 @@ class TestResolveImage(unittest.TestCase):
         persona = PersonaItemConfig(
             id="test", name="Test", icon="Brain", avatar="missing.png",
         )
-        self.assertEqual(
-            persona._resolve_image(),
-            {"type": "icon", "value": "Brain"},
-        )
+        self.assertEqual(persona._resolve_image(), "icon://Brain")
 
     def test_to_frontend_config_includes_image_field(self):
         persona = PersonaItemConfig(id="test", name="Test", icon="Brain")
         config = persona.to_frontend_config()
         self.assertIn("image", config)
         self.assertNotIn("icon", config)
-        self.assertEqual(config["image"], {"type": "icon", "value": "Brain"})
+        self.assertEqual(config["image"], "icon://Brain")
