@@ -14,8 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from colorhash import ColorHash
 
+import httpx
 import yaml
 from pydantic import BaseModel, validator, Field, model_validator
+
+from app.utils.avatar_helpers import get_bundled_avatar_path
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +127,6 @@ class PersonaItemConfig(_IconValidatorMixin):
         if self.avatar is None:
             return f"icon://{self.icon}"
         if self.avatar.startswith(("http://", "https://")):
-            import httpx
             try:
                 resp = httpx.head(self.avatar, timeout=5, follow_redirects=True)
                 if resp.is_success:
@@ -139,7 +141,6 @@ class PersonaItemConfig(_IconValidatorMixin):
                     self.avatar, self.id, exc,
                 )
             return f"icon://{self.icon}"
-        from app.utils.avatar_helpers import get_bundled_avatar_path
         if get_bundled_avatar_path(self.avatar) is None:
             logger.warning(
                 "Bundled avatar %r not found for persona %r, falling back to icon.",
