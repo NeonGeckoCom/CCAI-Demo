@@ -20,7 +20,9 @@ const buildAdvisors = (personaItems, overrides = {}) => {
   if (!personaItems || !Array.isArray(personaItems)) return {};
   const advisors = {};
   for (const p of personaItems) {
-    const rawImageUrl = p.image?.type === 'url' ? p.image.value : null;
+    const image = p.image || '';
+    const isIcon = image.startsWith('icon://');
+    const rawImageUrl = isIcon ? null : image || null;
     const configImageUrl = rawImageUrl && rawImageUrl.startsWith('/')
       ? `${process.env.REACT_APP_API_URL}${rawImageUrl}`
       : rawImageUrl;
@@ -40,7 +42,7 @@ const buildAdvisors = (personaItems, overrides = {}) => {
       bgColor: p.bg_color || '#F3F4F6',
       darkColor: p.dark_color || '#9CA3AF',
       darkBgColor: p.dark_bg_color || '#374151',
-      icon: resolveIcon(p.image?.type === 'icon' ? p.image.value : p.icon),
+      icon: resolveIcon(isIcon ? image.replace('icon://', '') : null),
       avatarUrl,
     };
   }
