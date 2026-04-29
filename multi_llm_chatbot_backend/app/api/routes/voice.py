@@ -18,7 +18,7 @@ from app.core.auth import get_current_active_user
 from app.models.user import User
 from app.config import get_settings
 
-LOG = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -82,7 +82,7 @@ async def _synthesize_one(client: httpx.AsyncClient, chunk: str) -> Optional[byt
         r.raise_for_status()
         return r.content
     except Exception as exc:
-        LOG.warning("TTS chunk failed (%s chars): %s", len(chunk), exc)
+        logger.warning("TTS chunk failed (%s chars): %s", len(chunk), exc)
         return None
 
 
@@ -140,7 +140,7 @@ def _convert_to_wav(audio_bytes: bytes, src_mime: str) -> bytes:
             timeout=30,
         )
         if result.returncode != 0:
-            LOG.warning(
+            logger.warning(
                 "ffmpeg stderr: %s",
                 result.stderr.decode(errors="replace")[-500:],
             )
@@ -168,7 +168,7 @@ async def transcribe_audio(
         return {"text": ""}
 
     mime = audio.content_type or "audio/webm"
-    LOG.info("STT: received %s bytes (%s)", len(contents), mime)
+    logger.info("STT: received %s bytes (%s)", len(contents), mime)
 
     need_convert = "wav" not in mime.lower()
     if need_convert:
@@ -177,9 +177,9 @@ async def transcribe_audio(
             wav_bytes = await loop.run_in_executor(
                 None, _convert_to_wav, contents, mime
             )
-            LOG.info("STT: converted to WAV (%s bytes)", len(wav_bytes))
+            logger.info("STT: converted to WAV (%s bytes)", len(wav_bytes))
         except Exception as e:
-            LOG.error("STT conversion error: %s", e)
+            logger.error("STT conversion error: %s", e)
             raise HTTPException(status_code=500, detail="Audio conversion failed")
     else:
         wav_bytes = contents
@@ -193,12 +193,12 @@ async def transcribe_audio(
             )
             resp.raise_for_status()
             text = resp.text.strip().strip('"')
-            LOG.info("STT result: %r", text[:100])
+            logger.info("STT result: %r", text[:100])
             return {"text": text}
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="STT service timed out")
     except Exception as e:
-        LOG.error("STT proxy error: %s", e)
+        logger.error("STT proxy error: %s", e)
         raise HTTPException(status_code=502, detail="STT service unavailable")
 
 
@@ -216,7 +216,7 @@ async def text_to_speech(
 
     spoken = _rough_spoken_text(raw)
     chunks = _text_chunks(spoken)
-    LOG.info(
+    logger.info(
         "TTS: %s chunk(s) from %s input chars → %s spoken chars",
         len(chunks),
         len(req.text),
@@ -242,5 +242,5 @@ async def text_to_speech(
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="TTS service timed out")
     except Exception as e:
-        LOG.error("TTS proxy error: %s", e)
+        logger.error("TTS proxy error: %s", e)
         raise HTTPException(status_code=502, detail="TTS service unavailable")
