@@ -345,6 +345,18 @@
   margin: 0;
 }
 
+.login-powered-by {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-secondary);
+  text-align: center;
+}
+
+.login-powered-by .footer-neon-link {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
 .link-btn {
   background: none;
   border: none;

@@ -2,6 +2,7 @@ import React from 'react';
 import { MessageCircle, ArrowRight } from 'lucide-react';
 import AdvisorCard from '../components/AdvisorCard';
 import ThemeToggle from '../components/ThemeToggle';
+import CopyrightNotice from '../components/CopyrightNotice';
 import { useAppConfig } from '../contexts/AppConfigContext';
 
 const HomePage = ({ onNavigateToChat, isAuthenticated }) => {
@@ -80,9 +81,7 @@ const HomePage = ({ onNavigateToChat, isAuthenticated }) => {
       {/* Footer */}
       <footer className="footer">
         <div className="footer-content">
-          <p className="footer-text">
-            {config.app.footer_text}
-          </p>
+          <CopyrightNotice />
         </div>
       </footer>
     </div>
