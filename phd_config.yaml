@@ -84,6 +84,21 @@ chat_page:
         - "Should I speak up about unclear expectations or just try to figure it out quietly?"
         - "What are the unspoken expectations no one tells you about?"
 
+onboarding:
+  features:
+    - title: "Get advice from specialized AI advisors"
+      icon: "GraduationCap"
+    - title: "Save and revisit every conversation"
+      icon: "MessageCircle"
+    - title: "Upload PDFs for context-aware answers"
+      icon: "Paperclip"
+    - title: "Track your PhD progress on a structured canvas"
+      icon: "BarChart3"
+
+canvas:
+  tour_title: "PhD Progress Canvas"
+  tour_body: "A dashboard view of your PhD journey — research progress, methodology, next steps, all in one place."
+
 # ── Personas ───────────────────────────────────────────────────────────────
 
 personas:
