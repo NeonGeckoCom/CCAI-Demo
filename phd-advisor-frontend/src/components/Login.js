@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Mail, Lock, ArrowRight, BookOpen, Phone } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import CopyrightNotice from './CopyrightNotice';
 import '../styles/Login.css';
 
 const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
@@ -97,7 +98,8 @@ const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
 
   return (
     <div className="login-page">
-      <div className="login-container">
+      <div className="login-content">
+        <div className="login-container">
         {/* Header */}
         <div className="login-header">
           <div className="logo-container">
@@ -255,6 +257,10 @@ const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
           </div>
         </div>
       </div>
+      </div>
+      <footer className="login-page-footer">
+        <CopyrightNotice className="login-page-copyright" />
+      </footer>
     </div>
   );
 };
