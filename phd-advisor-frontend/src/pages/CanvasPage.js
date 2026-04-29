@@ -16,6 +16,7 @@ import {
   Printer
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import CopyrightNotice from '../components/CopyrightNotice';
 import '../styles/CanvasPage.css';
 
 // Section icons mapping
@@ -513,17 +514,7 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
 
       {/* Copyright Footer */}
       <footer className="canvas-copyright-footer">
-        <p className="footer-text">
-          Copyright{' '}
-          <a href="https://neon.ai" target="_blank" rel="noopener noreferrer" className="footer-neon-link">
-            <img src="/neon-logo.png" alt="" className="footer-neon-logo" />
-            Neon.ai
-          </a>
-          , portions copyright University of Colorado Boulder. All rights reserved.{' '}
-          <a href="https://www.neon.ai/contact" target="_blank" rel="noopener noreferrer" className="footer-patents-link">
-            Patents and licensing.
-          </a>
-        </p>
+        <CopyrightNotice />
       </footer>
 
       {/* Print Footer */}
