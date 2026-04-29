@@ -147,7 +147,8 @@ class PersonaItemConfig(_IconValidatorMixin):
                 self.avatar, self.id,
             )
             return f"icon://{self.icon}"
-        return f"/api/avatars/bundled/{self.avatar}"
+        base = os.getenv("REACT_APP_API_URL", "http://localhost:8000").rstrip("/")
+        return f"{base}/api/avatars/bundled/{self.avatar}"
 
     def to_frontend_config(self) -> dict:
         return {
