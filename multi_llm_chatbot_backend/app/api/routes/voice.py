@@ -161,6 +161,12 @@ async def transcribe_audio(
     audio: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, str]:
+    """
+    Transcribe an uploaded audio file and return the text.
+    @param audio: The uploaded audio file (from a browser recording)
+    @param current_user: The authenticated user making the request
+    @return: A dictionary with the transcribed text under key "text"
+    """
     contents = await audio.read()
     if not contents:
         return {"text": ""}
@@ -205,6 +211,12 @@ async def text_to_speech(
     req: TTSRequest,
     current_user: User = Depends(get_current_active_user),
 ) -> Response:
+    """
+    Generate spoken audio for the input text
+    @param req: A TTSRequest containing the text to synthesize
+    @param current_user: The authenticated user making the request
+    @return: A Response containing the synthesized audio in WAV format
+    """
     raw = req.text.strip()
     if not raw:
         raise HTTPException(status_code=400, detail="Text is required")
