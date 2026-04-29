@@ -2,10 +2,41 @@ import React, { useEffect, useMemo } from 'react';
 import { TourProvider, useTour } from '@reactour/tour';
 import { Hand, GraduationCap, Plus, MessageCircle, Paperclip, BarChart3 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import { TESTING_ONBOARDING } from '../App';
 import '../styles/OnboardingTour.css';
 
 const STORAGE_KEY = 'hasSeenOnboardingTour';
+
+// Fallbacks used when config.onboarding.* fields aren't provided by the backend.
+const DEFAULT_FEATURES = [
+  { Icon: GraduationCap, label: 'Get advice from specialized AI advisors' },
+  { Icon: MessageCircle, label: 'Save and revisit every conversation' },
+  { Icon: Paperclip, label: 'Upload PDFs and documents for context-aware answers' },
+  { Icon: BarChart3, label: 'Track your progress on a structured canvas' },
+];
+const DEFAULT_CANVAS_STEP = {
+  title: 'PhD Progress Canvas',
+  body: 'A dashboard view of your PhD journey — research progress, methodology, next steps, all in one place.',
+};
+
+const buildAdvisorBody = (advisors) => {
+  const names = Object.values(advisors || {}).map((a) => a.name).filter(Boolean);
+  if (names.length === 0) {
+    return "AI personas are ready to help. Click here anytime to see who's available.";
+  }
+  const firstThree = names.slice(0, 3).join(', ');
+  return `${names.length} AI personas are ready to help — ${firstThree}, and more. Click here anytime to see who's available.`;
+};
+
+const buildFeatures = (config, resolveIcon) => {
+  const fromConfig = config?.onboarding?.features;
+  if (!Array.isArray(fromConfig) || fromConfig.length === 0) return DEFAULT_FEATURES;
+  return fromConfig.map((f) => ({
+    Icon: f.icon ? resolveIcon(f.icon) : GraduationCap,
+    label: f.label || f.description || f.title || '',
+  }));
+};
 
 // Theme-resolved colors that match the rest of the app exactly
 const palette = (isDark) => ({
@@ -48,13 +79,7 @@ const StepBody = ({ title, body, Icon, c }) => (
   </div>
 );
 
-const WelcomeBody = ({ c }) => {
-  const features = [
-    { Icon: GraduationCap, label: 'Get advice from 10 specialized AI advisors' },
-    { Icon: MessageCircle, label: 'Save and revisit every conversation' },
-    { Icon: Paperclip, label: 'Upload PDFs and documents for context-aware answers' },
-    { Icon: BarChart3, label: 'Track your PhD progress on a structured canvas' },
-  ];
+const WelcomeBody = ({ c, title, subtitle, features }) => {
   return (
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', textAlign: 'center', padding: '4px 8px' }}>
       <div style={{
@@ -69,13 +94,13 @@ const WelcomeBody = ({ c }) => {
         margin: '0 0 12px', fontSize: 30, fontWeight: 800, lineHeight: 1.15,
         color: c.text, WebkitTextFillColor: c.text, letterSpacing: '-0.025em',
       }}>
-        Welcome to your<br />PhD Advisory Panel
+        Welcome to your<br />{title}
       </div>
       <div style={{
         margin: '0 0 22px', fontSize: 16, lineHeight: 1.55,
         color: c.textMuted, WebkitTextFillColor: c.textMuted,
       }}>
-        Your AI-powered guidance for the PhD journey. Here's what you can do:
+        {subtitle}
       </div>
       <div style={{
         display: 'grid', gap: 14, textAlign: 'left',
@@ -103,11 +128,11 @@ const WelcomeBody = ({ c }) => {
   );
 };
 
-const buildSteps = (c) => [
+const buildSteps = (c, data) => [
   {
     selector: 'body',
     position: 'center',
-    content: <WelcomeBody c={c} />,
+    content: <WelcomeBody c={c} title={data.title} subtitle={data.subtitle} features={data.features} />,
     styles: {
       maskArea: (base) => ({ ...base, x: -10000, y: -10000, width: 0, height: 0 }),
       popover: (base) => ({
@@ -126,7 +151,7 @@ const buildSteps = (c) => [
   },
   {
     selector: '.advisor-status-button',
-    content: <StepBody c={c} Icon={GraduationCap} title="Meet your advisors" body="10 AI personas are ready to help — methodologists, theorists, motivators, and more. Click here anytime to see who's available." />,
+    content: <StepBody c={c} Icon={GraduationCap} title="Meet your advisors" body={data.advisorBody} />,
   },
   {
     selector: '.new-chat-button',
@@ -142,7 +167,7 @@ const buildSteps = (c) => [
   },
   {
     selector: '.sidebar-canvas-btn',
-    content: <StepBody c={c} Icon={BarChart3} title="PhD Progress Canvas" body="A dashboard view of your PhD journey — research progress, methodology, next steps, all in one place." />,
+    content: <StepBody c={c} Icon={BarChart3} title={data.canvas.title} body={data.canvas.body} />,
   },
 ];
 
@@ -226,8 +251,21 @@ const TourLauncher = () => {
 
 const OnboardingTour = ({ children }) => {
   const { isDark } = useTheme();
+  const { config, advisors, resolveIcon } = useAppConfig();
   const c = useMemo(() => palette(isDark), [isDark]);
-  const steps = useMemo(() => buildSteps(c), [c]);
+
+  const stepData = useMemo(() => ({
+    title: config?.app?.title || 'PhD Advisory Panel',
+    subtitle: config?.app?.subtitle || 'AI-Powered Guidance',
+    features: buildFeatures(config, resolveIcon),
+    advisorBody: buildAdvisorBody(advisors),
+    canvas: {
+      title: config?.canvas?.tour?.title || DEFAULT_CANVAS_STEP.title,
+      body: config?.canvas?.tour?.body || DEFAULT_CANVAS_STEP.body,
+    },
+  }), [config, advisors, resolveIcon]);
+
+  const steps = useMemo(() => buildSteps(c, stepData), [c, stepData]);
   const { PrevButton, NextButton, SkipButton } = useMemo(() => makeButtons(c), [c]);
 
   return (
