@@ -27,8 +27,6 @@ TTS_BASE = voice_settings.tts_endpoint
 STT_BASE = voice_settings.stt_endpoint
 
 HTTP_TIMEOUT = 120
-PROBE_TIMEOUT = 12
-CACHE_TTL = 120
 # Coqui uses GET /synthesize/{text}; keep chunks small for URL limits.
 MAX_SYNTH_CHUNK = 200
 
