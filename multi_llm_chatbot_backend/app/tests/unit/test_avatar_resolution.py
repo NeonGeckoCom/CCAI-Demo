@@ -113,10 +113,11 @@ class TestResolveImage(unittest.TestCase):
         persona = PersonaItemConfig(
             id="test", name="Test", icon="Brain", avatar="advisor1.png",
         )
-        self.assertEqual(
-            persona._resolve_image(),
-            "/api/avatars/bundled/advisor1.png",
-        )
+        with patch.dict(os.environ, {"REACT_APP_API_URL": "http://localhost:8000"}):
+            self.assertEqual(
+                persona._resolve_image(),
+                "http://localhost:8000/api/avatars/bundled/advisor1.png",
+            )
 
     @patch("app.utils.avatar_helpers.get_bundled_avatar_path")
     def test_bundled_avatar_missing_falls_back_to_icon(self, mock_get_path):
