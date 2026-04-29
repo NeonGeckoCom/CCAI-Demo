@@ -14,8 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from colorhash import ColorHash
 
+import httpx
 import yaml
 from pydantic import BaseModel, validator, Field, model_validator
+
+from app.utils.avatar_helpers import get_bundled_avatar_path
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +98,7 @@ class PersonaItemConfig(_IconValidatorMixin):
     dark_color: Optional[str] = None
     dark_bg_color: Optional[str] = None
     icon: str = "HelpCircle"
+    avatar: Optional[str] = None
     temperature: int = 5
     persona_prompt: str = ""
 
@@ -108,6 +112,44 @@ class PersonaItemConfig(_IconValidatorMixin):
             self.dark_bg_color = generated["dark_bg_color"]
         return self
 
+    def _resolve_image(self) -> str:
+        """Resolve the persona's visual representation as a URI string.
+
+        Returns the avatar as a URI the frontend can dispatch on by scheme:
+
+        - ``https://…`` / ``http://…`` - external image URL
+        - ``/api/avatars/bundled/…`` - server-relative path for a bundled file
+        - ``icon://<LucideIconName>`` - render a Lucide icon component
+
+        Falls back to ``icon://`` when a bundled avatar name doesn't match a
+        file on disk or when an external URL is unreachable.
+        """
+        if self.avatar is None:
+            return f"icon://{self.icon}"
+        if self.avatar.startswith(("http://", "https://")):
+            try:
+                resp = httpx.head(self.avatar, timeout=5, follow_redirects=True)
+                if resp.is_success:
+                    return self.avatar
+                logger.warning(
+                    "Avatar URL %r returned status %d for persona %r, falling back to icon.",
+                    self.avatar, resp.status_code, self.id,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "Avatar URL %r unreachable for persona %r (%s), falling back to icon.",
+                    self.avatar, self.id, exc,
+                )
+            return f"icon://{self.icon}"
+        if get_bundled_avatar_path(self.avatar) is None:
+            logger.warning(
+                "Bundled avatar %r not found for persona %r, falling back to icon.",
+                self.avatar, self.id,
+            )
+            return f"icon://{self.icon}"
+        base = os.getenv("REACT_APP_API_URL", "http://localhost:8000").rstrip("/")
+        return f"{base}/api/avatars/bundled/{self.avatar}"
+
     def to_frontend_config(self) -> dict:
         return {
             "id": self.id,
@@ -118,7 +160,7 @@ class PersonaItemConfig(_IconValidatorMixin):
             "bg_color": self.bg_color,
             "dark_color": self.dark_color,
             "dark_bg_color": self.dark_bg_color,
-            "icon": self.icon
+            "image": self._resolve_image(),
             }
 
 

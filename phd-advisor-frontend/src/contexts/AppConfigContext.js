@@ -8,18 +8,32 @@ const AppConfigContext = createContext(null);
  * component.  Falls back to HelpCircle if the name isn't found.
  */
 const resolveIcon = (iconName) => {
-  if (!iconName) return LucideIcons.HelpCircle;
-  return LucideIcons[iconName] || LucideIcons.HelpCircle;
+  if (!iconName) return LucideIcons.User;
+  return LucideIcons[iconName] || LucideIcons.User;
 };
 
 /**
  * Build the advisors lookup object (keyed by persona id) from the config
  * personas array, mirroring the shape that components already expect.
  */
-const buildAdvisors = (personaItems) => {
+const buildAdvisors = (personaItems, overrides = {}) => {
   if (!personaItems || !Array.isArray(personaItems)) return {};
   const advisors = {};
   for (const p of personaItems) {
+    const image = p.image || '';
+    const isIcon = image.startsWith('icon://');
+    const rawImageUrl = isIcon ? null : image || null;
+    const configImageUrl = rawImageUrl && rawImageUrl.startsWith('/')
+      ? `${process.env.REACT_APP_API_URL}${rawImageUrl}`
+      : rawImageUrl;
+
+    // Override takes precedence if the advisor has one set.
+    // Override = truthy URL → use it. Override = '' → force default icon.
+    // No override key → fall back to config image.
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, p.id);
+    const overrideValue = overrides[p.id];
+    const avatarUrl = hasOverride ? (overrideValue || null) : configImageUrl;
+
     advisors[p.id] = {
       name: p.name,
       role: p.role || '',
@@ -28,7 +42,8 @@ const buildAdvisors = (personaItems) => {
       bgColor: p.bg_color || '#F3F4F6',
       darkColor: p.dark_color || '#9CA3AF',
       darkBgColor: p.dark_bg_color || '#374151',
-      icon: resolveIcon(p.icon),
+      icon: resolveIcon(isIcon ? image.replace('icon://', '') : null),
+      avatarUrl,
     };
   }
   return advisors;
@@ -62,21 +77,27 @@ export const useAppConfig = () => {
 
 export const AppConfigProvider = ({ children }) => {
   const [config, setConfig] = useState(null);
+  const [personaItems, setPersonaItems] = useState([]);
   const [advisors, setAdvisors] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [avatarOverrides, setAvatarOverrides] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('advisorAvatarOverrides') || '{}'); }
+    catch { return {}; }
+  });
+  const [myCustomAvatars, setMyCustomAvatars] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('myCustomAvatars') || '[]'); }
+    catch { return []; }
+  });
 
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const response = await fetch(
-          `${process.env.REACT_APP_API_URL}/api/config`
-        );
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/config`);
         if (!response.ok) throw new Error(`Config fetch failed: ${response.status}`);
         const data = await response.json();
         setConfig(data);
-        const builtAdvisors = buildAdvisors(data.personas?.items);
-        setAdvisors(builtAdvisors);
+        setPersonaItems(data.personas?.items || []);
       } catch (err) {
         console.error('Failed to load app config:', err);
         setError(err.message);
@@ -86,6 +107,23 @@ export const AppConfigProvider = ({ children }) => {
     };
     fetchConfig();
   }, []);
+
+  useEffect(() => {
+    setAdvisors(buildAdvisors(personaItems, avatarOverrides));
+  }, [personaItems, avatarOverrides]);
+
+  const setAdvisorAvatar = (advisorId, url) => {
+    const next = { ...avatarOverrides, [advisorId]: url };
+    setAvatarOverrides(next);
+    localStorage.setItem('advisorAvatarOverrides', JSON.stringify(next));
+  };
+
+  const addMyAvatar = (url) => {
+    if (myCustomAvatars.includes(url)) return;
+    const next = [url, ...myCustomAvatars];
+    setMyCustomAvatars(next);
+    localStorage.setItem('myCustomAvatars', JSON.stringify(next));
+  };
 
   // Inject the primary colour as a CSS custom property on <html> so it is
   // available everywhere without prop-drilling.
@@ -115,6 +153,9 @@ export const AppConfigProvider = ({ children }) => {
     resolveIcon,
     loading,
     error,
+    setAdvisorAvatar,
+    addMyAvatar,
+    myCustomAvatars,
   };
 
   if (loading) {
