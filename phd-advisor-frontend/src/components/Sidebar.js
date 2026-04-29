@@ -27,7 +27,8 @@ const Sidebar = ({
   isMobileOpen = false,
   onMobileToggle,
   onNavigateToCanvas,
-  refreshTrigger
+  refreshTrigger,
+  onCurrentSessionDeleted
 }) => {
   const { config } = useAppConfig();
   const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
@@ -141,7 +142,7 @@ const Sidebar = ({
         if (response.ok) {
           setChatSessions(prev => prev.filter(session => session.id !== sessionId));
           if (currentSessionId === sessionId) {
-            onNewChat(); // Create new session if current one was deleted
+            onCurrentSessionDeleted?.();
           }
         }
       } catch (error) {
