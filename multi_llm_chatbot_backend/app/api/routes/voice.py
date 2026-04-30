@@ -92,6 +92,8 @@ def _concat_wav(segments: List[bytes]) -> bytes:
     first_header = b""
 
     for i, seg in enumerate(segments):
+        # PCM WAV files begin with a 44-byte header; if the segment is shorter,
+        # then it cannot be valid WAV audio
         if len(seg) < 44:
             continue
         if i == 0:
