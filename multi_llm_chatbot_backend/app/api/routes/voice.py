@@ -150,9 +150,21 @@ def _convert_to_wav(audio_bytes: bytes, src_mime: str) -> bytes:
 async def voice_status(
     current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, bool]:
-    tts_ready = TTS_BASE is not None
-    stt_ready = STT_BASE is not None
-
+    tts_ready = False
+    stt_ready = False
+    async with httpx.AsyncClient(timeout=5) as client:
+        if TTS_BASE not in ("", None):
+            try:
+                resp = await client.get(f"{TTS_BASE}/status")
+                tts_ready = resp.status_code == 200
+            except Exception:
+                tts_ready = False
+        if STT_BASE not in ("", None):
+            try:
+                resp = await client.get(f"{STT_BASE}/status")
+                stt_ready = resp.status_code == 200
+            except Exception:
+                stt_ready = False
     return {"tts_ready": tts_ready, "stt_ready": stt_ready}
 
 
