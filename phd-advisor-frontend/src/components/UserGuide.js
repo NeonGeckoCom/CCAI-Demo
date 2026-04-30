@@ -9,7 +9,7 @@ import { userGuideTopics } from '../data/userGuide';
 import '../styles/UserGuide.css';
 
 const UserGuide = () => {
-  const { config } = useAppConfig();
+  const { config, advisors } = useAppConfig();
   const [isOpen, setIsOpen] = useState(false);
   const [activeId, setActiveId] = useState(userGuideTopics[0].id);
   const [search, setSearch] = useState('');
@@ -28,6 +28,11 @@ const UserGuide = () => {
   }, [isOpen]);
 
   const appName = config?.app?.title || 'the app';
+  const advisorEntries = Object.values(advisors || {});
+  const advisorCount = advisorEntries.length;
+  const advisorList = advisorEntries
+    .map((a) => `- **${a.name}:** ${a.description || a.role || ''}`.trimEnd())
+    .join('\n');
   const q = search.toLowerCase().trim();
   const filteredTopics = q
     ? userGuideTopics.filter(t =>
@@ -89,7 +94,10 @@ const UserGuide = () => {
           {/* Content */}
           <main className="ug-content" key={activeTopic.id}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {activeTopic.content.replace(/\{\{appName\}\}/g, appName)}
+              {activeTopic.content
+                .replace(/\{\{appName\}\}/g, appName)
+                .replace(/\{\{advisorCount\}\}/g, String(advisorCount))
+                .replace(/\{\{advisorList\}\}/g, advisorList)}
             </ReactMarkdown>
           </main>
         </div>

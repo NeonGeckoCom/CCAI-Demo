@@ -26,19 +26,10 @@ You can return to this guide anytime by clicking the **?** icon in the header.`,
     icon: 'GraduationCap',
     content: `# Your Advisors
 
-{{appName}} comes with 10 specialized advisor personas. Each one is tuned with a different perspective and area of expertise.
+{{appName}} comes with {{advisorCount}} specialized advisor personas. Each one is tuned with a different perspective and area of expertise.
 
 ## Available advisors
-- **Methodologist:** structured & planning-focused
-- **Theorist:** abstract & conceptual
-- **Pragmatist:** real-world & outcome-focused
-- **Empathetic Listener:** caring & emotionally supportive
-- **Constructive Critic:** detail-oriented & standards-focused
-- **Motivational Coach:** energizing & confidence-building
-- **Narrative Advisor:** creative & communication-focused
-- **Socratic Mentor:** question-driven & discovery-focused
-- **Minimalist Mentor:** concise & priority-focused
-- **Visionary:** long-term & possibility-oriented
+{{advisorList}}
 
 ## Seeing who's available
 Click the **"X Advisors"** dropdown in the top right of the chat to see all of your advisors and their current status.`,
