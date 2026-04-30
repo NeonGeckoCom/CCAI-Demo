@@ -258,6 +258,35 @@ async def save_message_to_session(
     
 
 
+@router.delete("/chat-sessions")
+async def delete_all_chat_sessions(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Delete all chat sessions for the current user (soft delete)"""
+    try:
+        db = get_database()
+
+        result = await db.chat_sessions.update_many(
+            {
+                "user_id": current_user.id,
+                "is_active": True
+            },
+            {"$set": {"is_active": False, "updated_at": datetime.utcnow()}}
+        )
+
+        return {
+            "message": f"Deleted {result.modified_count} chat sessions",
+            "deleted_count": result.modified_count
+        }
+
+    except Exception as e:
+        logger.error(f"Error deleting all chat sessions for user {current_user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not delete chat sessions"
+        )
+
+
 @router.delete("/chat-sessions/{session_id}")
 async def delete_chat_session(
     session_id: str,
