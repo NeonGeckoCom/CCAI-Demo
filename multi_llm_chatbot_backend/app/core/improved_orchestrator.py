@@ -240,7 +240,7 @@ class ImprovedChatOrchestrator:
         """
         Use an LLM call to determine whether the user's input is too vague
         to route to the advisor panel.  Falls back to the legacy rule-based
-        method if the LLM call fails or no LLM client is available.
+        method if the LLM call fails.
         """
         user_messages = [msg for msg in session.messages if msg.get('role') == 'user']
         if len(user_messages) > 1:
@@ -279,6 +279,8 @@ class ImprovedChatOrchestrator:
 
         user_prompt = f'User message: "{user_input}"'
 
+        raw = None
+
         try:
             llm = next(iter(self.personas.values())).llm
             raw = await llm.generate(
@@ -309,6 +311,7 @@ class ImprovedChatOrchestrator:
         except Exception as exc:
             logger.error("LLM classification call failed: %s", exc)
 
+        # TODO: Evaluate if this fallback is still needed and remove if not.
         logger.warning("Falling back to rule-based clarification check")
         return self.needs_clarification(session, user_input)
 
