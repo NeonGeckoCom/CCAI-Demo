@@ -101,7 +101,7 @@ async def chat_stream(
                     "content": message.user_input,
                 })
 
-            if chat_orchestrator.needs_clarification(session, message.user_input):
+            if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
                 yield ChatStreamLine(
                     type="clarification",

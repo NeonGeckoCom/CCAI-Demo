@@ -79,6 +79,7 @@ class ImprovedChatOrchestrator:
             tool_executor=tool_executor,
         )
 
+    # TODO: Investigate if this method is still needed and remove if not.
     async def process_message(self, 
                             user_input: str, 
                             session_id: Optional[str] = None,
@@ -234,7 +235,83 @@ class ImprovedChatOrchestrator:
 
         logger.info("CLARIFICATION TRIGGERED: short input (%d words) without specific keywords", word_count)
         return True
-    
+
+    async def needs_clarification_improved(self, session: ConversationContext, user_input: str) -> bool:
+        """
+        Use an LLM call to determine whether the user's input is too vague
+        to route to the advisor panel.  Falls back to the legacy rule-based
+        method if the LLM call fails or no LLM client is available.
+        """
+        user_messages = [msg for msg in session.messages if msg.get('role') == 'user']
+        if len(user_messages) > 1:
+            logger.info("Skipping clarification: session already has %d user message(s)", len(user_messages))
+            return False
+
+        app_cfg = get_settings().app
+        orch_cfg = get_settings().orchestrator
+        advisor_descriptions = ", ".join(
+            f"{p.name} ({p.id})" for p in self.personas.values()
+        )
+        domain_keywords = ", ".join(orch_cfg.specific_keywords)
+
+        system_prompt = (
+            "You are a routing classifier for an AI advisory application.\n\n"
+            f"Application: {app_cfg.title} — {app_cfg.subtitle}\n"
+            f"Available advisors: {advisor_descriptions}\n"
+            f"Domain-relevant topics: {domain_keywords}\n\n"
+            "Your task: decide whether the user's FIRST message contains enough "
+            "substance to send to the advisors, or whether it is too vague and "
+            "requires a clarifying follow-up before the advisors can help.\n\n"
+            "A message NEEDS CLARIFICATION when it:\n"
+            "- Expresses confusion or uncertainty without a concrete topic\n"
+            "- Is a single generic request like 'help' or 'advice'\n"
+            "- Contains no identifiable subject the advisors could address\n\n"
+            "A message is CLEAR ENOUGH when it:\n"
+            "- Mentions a specific topic, question, or problem area\n"
+            "- Provides enough context for at least one advisor to respond usefully\n"
+            "- Even a short message is fine if the intent is unambiguous "
+            "(e.g. 'explain transformers' is clear)\n"
+            "- Messages mentioning domain-relevant topics are likely clear enough "
+            "to route directly, even if brief\n\n"
+            "Respond ONLY with valid JSON:\n"
+            '{"needs_clarification": true or false, "reason": "one sentence explanation"}'
+        )
+
+        user_prompt = f'User message: "{user_input}"'
+
+        try:
+            llm = next(iter(self.personas.values())).llm
+            raw = await llm.generate(
+                system_prompt=system_prompt,
+                context=[{"role": "user", "content": user_prompt}],
+                temperature=0.0,
+                max_tokens=128,
+                response_mime_type="application/json",
+            )
+
+            parsed = json.loads(raw.strip())
+            value = parsed.get("needs_clarification")
+            if not isinstance(value, bool):
+                raise TypeError(
+                    f"needs_clarification must be a boolean, got {type(value).__name__}: {value!r}"
+                )
+            result = value
+            reason = parsed.get("reason", "")
+
+            logger.info(
+                "LLM clarification classification: needs_clarification=%s, reason=%r, input=%r",
+                result, reason, user_input,
+            )
+            return result
+
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            logger.error("Failed to parse LLM classification response: %s (raw=%r)", exc, raw)
+        except Exception as exc:
+            logger.error("LLM classification call failed: %s", exc)
+
+        logger.warning("Falling back to rule-based clarification check")
+        return self.needs_clarification(session, user_input)
+
     async def generate_contextual_clarification(self, user_input: str) -> Dict[str, Any]:
         """
         Use the LLM to produce a clarification question and clickable
