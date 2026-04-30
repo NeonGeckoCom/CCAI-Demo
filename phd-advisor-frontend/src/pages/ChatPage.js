@@ -261,6 +261,17 @@ const handleSelectSession = async (sessionId) => {
   await loadChatSession(sessionId);
 };
 
+// Sidebar deleted the currently-active chat. Clear local state without
+// creating a replacement session.
+const handleCurrentSessionDeleted = () => {
+  setCurrentSessionId(null);
+  setCurrentSessionTitle('');
+  setMessages([]);
+  setReplyingTo(null);
+  setThinkingAdvisors([]);
+  setUploadedDocuments([]);
+};
+
 // Handle creating new chat from sidebar
 const handleNewChat = async (sessionId = null) => {
   if (sessionId) {
@@ -746,6 +757,7 @@ const handleNewChat = async (sessionId = null) => {
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
+        onCurrentSessionDeleted={handleCurrentSessionDeleted}
         onSignOut={onSignOut}
         authToken={authToken}
         onSidebarToggle={handleSidebarToggle}
