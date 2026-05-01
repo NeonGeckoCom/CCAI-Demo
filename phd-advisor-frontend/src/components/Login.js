@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Mail, Lock, ArrowRight, BookOpen, Phone } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import CopyrightNotice from './CopyrightNotice';
 import '../styles/Login.css';
 
 const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
@@ -97,7 +98,8 @@ const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
 
   return (
     <div className="login-page">
-      <div className="login-container">
+      <div className="login-content">
+        <div className="login-container">
         {/* Header */}
         <div className="login-header">
           <div className="logo-container">
@@ -247,8 +249,18 @@ const Login = ({ onNavigateToSignup, onNavigateToHome }) => {
               Sign up here
             </button>
           </p>
+          <div className="login-powered-by">
+            <a href="https://neon.ai" target="_blank" rel="noopener noreferrer" className="footer-neon-link">
+              <img src="/neon-logo.png" alt="" className="footer-neon-logo" />
+              Powered by Neon.ai
+            </a>
+          </div>
         </div>
       </div>
+      </div>
+      <footer className="login-page-footer">
+        <CopyrightNotice className="login-page-copyright" />
+      </footer>
     </div>
   );
 };

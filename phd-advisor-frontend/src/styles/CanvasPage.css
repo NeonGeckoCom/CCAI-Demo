@@ -91,7 +91,34 @@
 
 .header-actions {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.header-buttons {
+  display: flex;
   gap: 1rem;
+}
+
+.canvas-powered-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.canvas-powered-by:hover {
+  opacity: 0.8;
+}
+
+.canvas-powered-by-logo {
+  height: 1em;
+  width: auto;
+  vertical-align: middle;
 }
 
 .print-view .header-actions {
@@ -541,4 +568,12 @@
   .stat-item {
     min-width: auto;
   }
+}
+
+/* Canvas Copyright Footer */
+.canvas-copyright-footer {
+  padding: 24px;
+  text-align: center;
+  border-top: 1px solid var(--border-light, #e5e7eb);
+  margin-top: 32px;
 }

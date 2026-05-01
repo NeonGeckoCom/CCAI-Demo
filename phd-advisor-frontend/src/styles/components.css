@@ -886,6 +886,33 @@
   margin: 0;
 }
 
+.footer-neon-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.footer-neon-link:hover {
+  opacity: 0.8;
+}
+
+.footer-neon-logo {
+  height: 1em;
+  width: auto;
+  vertical-align: text-bottom;
+  margin-right: 2px;
+}
+
+.footer-patents-link {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  transition: opacity 0.2s ease;
+}
+
+.footer-patents-link:hover {
+  opacity: 0.8;
+}
+
 .rag-info-overlay {
   position: absolute;
   top: 100%;

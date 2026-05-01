@@ -14,6 +14,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import CopyrightNotice from './CopyrightNotice';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 
@@ -345,6 +346,21 @@ const Sidebar = ({
               ))}
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className={`sidebar-footer ${isCollapsed ? 'collapsed' : ''}`}>
+          <a 
+            href="https://neon.ai" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="sidebar-neon-link"
+            title="Neon.ai"
+          >
+            <img src="/neon-logo.png" alt="" className="sidebar-neon-logo" />
+            {!isCollapsed && <span className="sidebar-neon-text">Neon.ai</span>}
+          </a>
+          {!isCollapsed && <CopyrightNotice variant="sidebar" />}
         </div>
       </div>
       
