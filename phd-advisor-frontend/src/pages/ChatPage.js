@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText , LogOut, Menu} from 'lucide-react';
+import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText, Menu } from 'lucide-react';
 import EnhancedChatInput from '../components/EnhancedChatInput';
 import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
@@ -808,29 +808,20 @@ const handleNewChat = async (sessionId = null) => {
                   </div>
                 )}
                 
-                {/* Optional: Add header sign out button */}
-                <button 
-                  className="header-signout-btn"
-                  onClick={onSignOut}
-                  title="Sign Out"
-                >
-                  <LogOut size={16} />
-                </button>
-                
                 {/* Export Button */}
-                <ExportButton 
-                  hasMessages={hasConversationMessages} 
+                <ExportButton
+                  hasMessages={hasConversationMessages}
                   currentSessionId={currentSessionId}
                   authToken={authToken}
                 />
-                
+
                 {/* Provider Dropdown */}
-                <ProviderDropdown 
+                <ProviderDropdown
                   currentProvider={currentProvider}
                   onProviderChange={handleProviderSwitch}
                   isLoading={isProviderSwitching}
                 />
-                
+
                 {/* Theme Toggle */}
                 <ThemeToggle />
               </div>

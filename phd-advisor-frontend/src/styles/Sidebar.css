@@ -27,16 +27,18 @@
 
 /* Toggle Button - Matches User Menu Style */
 .sidebar-toggle {
-  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: none;
   background: none;
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-secondary, #6b7280);
   transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .sidebar-toggle:hover {
@@ -188,7 +190,12 @@
 }
 
 .user-menu-button {
-  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: none;
   background: none;
   border-radius: 6px;
@@ -289,10 +296,43 @@
 
 /* Search Section */
 .sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-light, #e5e7eb);
   flex-shrink: 0;
   transition: all 0.3s ease;
+}
+
+.sidebar-search .search-container {
+  flex: 1;
+}
+
+.new-chat-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: #2663EB;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.new-chat-icon-btn:hover {
+  background: #1d4fc4;
+  transform: translateY(-1px);
+}
+
+.new-chat-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .dark .sidebar-search {
@@ -704,26 +744,83 @@
 }
 
 .sidebar-canvas-btn {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 10px;
   width: 100%;
-  padding: 12px 16px;
-  background: var(--feature-bg);
-  border: 1px solid var(--accent-primary);
-  border-radius: 8px;
-  color: var(--accent-primary);
+  padding: 13px 20px;
+  background: linear-gradient(180deg, #7B7BF0 0%, #5957E8 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #ffffff;
   cursor: pointer;
-  transition: all 0.2s ease;
-  margin-bottom: 8px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  margin-top: 14px;
+  margin-bottom: 8px;
+  box-shadow:
+    0 0 32px -10px rgba(99, 102, 241, 0.45),
+    0 4px 14px -4px rgba(89, 87, 232, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition:
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.25s ease;
+}
+
+/* Sliding shimmer that sweeps across on hover */
+.sidebar-canvas-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  transition: left 0.6s ease;
+  pointer-events: none;
+}
+
+.sidebar-canvas-btn > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-canvas-btn svg {
+  color: #ffffff;
+  flex-shrink: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-canvas-btn:hover {
-  background: var(--accent-primary);
-  color: white;
-  transform: translateY(-1px);
+  transform: translateY(-2px) scale(1.015);
+  background: linear-gradient(180deg, #8C8CF7 0%, #6663EE 100%);
+  box-shadow:
+    0 0 80px -8px rgba(124, 124, 240, 0.85),
+    0 12px 28px -6px rgba(89, 87, 232, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.sidebar-canvas-btn:hover::before {
+  left: 100%;
+}
+
+.sidebar-canvas-btn:hover svg {
+  transform: rotate(-8deg) scale(1.1);
+}
+
+.sidebar-canvas-btn:active {
+  transform: translateY(0) scale(1);
+  transition-duration: 0.1s;
 }
 
 .sidebar.collapsed .sidebar-canvas-btn span {
