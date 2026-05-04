@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  RefreshCw, 
-  Download, 
+import {
+  FileText,
+  RefreshCw,
+  Download,
   Calendar,
   TrendingUp,
   Target,
@@ -13,9 +13,13 @@ import {
   BarChart3,
   Heart,
   ArrowLeft,
-  Printer
+  Printer,
+  Trash2,
+  MessageCircle,
+  ArrowRight
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import ConfirmDialog from '../components/ConfirmDialog';
 import '../styles/CanvasPage.css';
 
 // Section icons mapping
@@ -97,6 +101,8 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
   const [isPrintView, setIsPrintView] = useState(false);
   const [isProcessingFirstTime, setIsProcessingFirstTime] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
     let pollInterval = null;
@@ -258,6 +264,28 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     }
   };
 
+  const handleClearCanvas = async () => {
+    setIsClearing(true);
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/phd-canvas`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        setCanvasData(null);
+        await fetchCanvas();
+      }
+    } catch (error) {
+      console.error('Error clearing canvas:', error);
+    } finally {
+      setIsClearing(false);
+      setShowClearConfirm(false);
+    }
+  };
+
   const handleRefreshCanvas = async () => {
     // Prevent multiple simultaneous refresh requests
     if (isRefreshing || isUpdating) {
@@ -384,40 +412,53 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     <div className={`canvas-page ${isPrintView ? 'print-view' : ''}`}>
       {/* Header */}
       <div className="canvas-header">
-        <div className="header-left">
-          <button 
+        <div className="canvas-header-top">
+          <button
             className="back-button"
             onClick={onNavigateToChat}
           >
             <ArrowLeft size={20} />
             Back to Chat
           </button>
-          <div className="canvas-title-section">
-            <h1 className="canvas-title">
-              <FileText className="canvas-title-icon" />
-              {appName} Canvas
-            </h1>
-            <p className="canvas-subtitle">Your research progress at a glance</p>
+
+          <div className="header-actions">
+            <button
+              onClick={handleRefreshCanvas}
+              disabled={isRefreshing || isUpdating}
+              className={`canvas-icon-btn refresh-button ${(isRefreshing || isUpdating) ? 'disabled' : ''}`}
+              title={(isRefreshing || isUpdating) ? 'Refreshing…' : 'Refresh Canvas'}
+              aria-label="Refresh canvas"
+            >
+              <RefreshCw className={`refresh-icon ${(isRefreshing || isUpdating) ? 'spinning' : ''}`} />
+            </button>
+
+            <button
+              className="canvas-icon-btn print-button"
+              onClick={handlePrint}
+              title="Print"
+              aria-label="Print canvas"
+            >
+              <Printer className="action-icon" />
+            </button>
+
+            <button
+              className="canvas-icon-btn clear-canvas-btn"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={isClearing}
+              title="Clear Canvas"
+              aria-label="Clear canvas"
+            >
+              <Trash2 className="action-icon" />
+            </button>
           </div>
         </div>
-        
-        <div className="header-actions">
-          <button 
-            onClick={handleRefreshCanvas}
-            disabled={isRefreshing || isUpdating}
-            className={`refresh-button ${(isRefreshing || isUpdating) ? 'disabled' : ''}`}
-          >
-            <RefreshCw className={`refresh-icon ${(isRefreshing || isUpdating) ? 'spinning' : ''}`} />
-            {(isRefreshing || isUpdating) ? 'Refreshing...' : 'Refresh Canvas'}
-          </button>
-          
-          <button 
-            className="action-button print-button"
-            onClick={handlePrint}
-          >
-            <Printer className="action-icon" />
-            Print
-          </button>
+
+        <div className="canvas-title-section">
+          <h1 className="canvas-title">
+            <FileText className="canvas-title-icon" />
+            {appName} Canvas
+          </h1>
+          <p className="canvas-subtitle">Your research progress at a glance</p>
         </div>
       </div>
 
@@ -457,7 +498,7 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
                     : 'Updating canvas with latest insights...'
                   }
                 </p>
-                <div className="loading-spinner">
+                <div className="inline-loading-spinner">
                   <RefreshCw className="spinning" />
                 </div>
                 <p className="processing-note">
@@ -468,18 +509,20 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
               <div>
                 <p>Start chatting with your AI advisors to populate your {appName} Canvas with insights!</p>
                 <div className="empty-canvas-actions">
-                  <button 
-                    className="start-chatting-button"
+                  <button
+                    className="empty-canvas-btn primary"
                     onClick={onNavigateToChat}
                   >
-                    Start Chatting
+                    <MessageCircle size={18} />
+                    <span>Start Chatting</span>
+                    <ArrowRight size={16} className="empty-canvas-btn-arrow" />
                   </button>
-                  <button 
-                    className="refresh-button secondary"
+                  <button
+                    className="empty-canvas-btn secondary"
                     onClick={handleFullRefresh}
                   >
-                    <RefreshCw className="action-icon" />
-                    Process Existing Chats
+                    <RefreshCw size={16} />
+                    <span>Process Existing Chats</span>
                   </button>
                 </div>
               </div>
@@ -507,6 +550,17 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           <p>Student: {user?.email} | Total Insights: {canvasData?.total_insights || 0}</p>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={showClearConfirm}
+        title="Clear canvas?"
+        message="This will permanently delete all insights on your canvas. This action can't be undone."
+        confirmLabel={isClearing ? 'Clearing…' : 'Clear canvas'}
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={handleClearCanvas}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 };
