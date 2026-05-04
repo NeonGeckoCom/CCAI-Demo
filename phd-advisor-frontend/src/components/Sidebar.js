@@ -16,6 +16,7 @@ import {
 import { useAppConfig } from '../contexts/AppConfigContext';
 import ConfirmDialog from './ConfirmDialog';
 import CopyrightNotice from './CopyrightNotice';
+import SettingsModal from './SettingsModal';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 
@@ -38,6 +39,7 @@ const Sidebar = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isCreatingNewChat, setIsCreatingNewChat] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
@@ -239,7 +241,10 @@ const Sidebar = ({
                     
                     {showUserMenu && (
                       <div className="user-menu">
-                        <button className="user-menu-item">
+                        <button
+                          className="user-menu-item"
+                          onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
+                        >
                           <Settings size={16} />
                           <span>Settings</span>
                         </button>
@@ -425,6 +430,9 @@ const Sidebar = ({
         onConfirm={handleClearAllChats}
         onCancel={() => setShowClearAllConfirm(false)}
       />
+      {showSettings && (
+        <SettingsModal user={user} onClose={() => setShowSettings(false)} />
+      )}
     </>
   );
 };
