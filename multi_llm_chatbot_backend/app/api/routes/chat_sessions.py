@@ -43,7 +43,12 @@ async def create_chat_session(
     request: CreateChatSessionRequest,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Create a new chat session for the user"""
+    """
+    Create a new chat session for the authenticated user.
+    @param request: CreateChatSessionRequest with the session title
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with the new session id, title, timestamps, and message_count
+    """
     try:
         db = get_database()
         
@@ -80,7 +85,13 @@ async def get_user_chat_sessions(
     limit: int = 50,
     skip: int = 0
 ):
-    """Get all chat sessions for the current user"""
+    """
+    Get all active chat sessions for the authenticated user.
+    @param current_user: Authenticated user from dependency injection
+    @param limit: Maximum number of sessions to return (default 50)
+    @param skip: Number of sessions to skip for pagination (default 0)
+    @return: List of ChatSessionResponse sorted by most recently updated
+    """
     try:
         db = get_database()
         
@@ -113,7 +124,11 @@ async def get_user_chat_sessions(
 async def get_chat_sessions_count(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get count of user's chat sessions"""
+    """
+    Get count of active, non-deleted chat sessions for the authenticated user.
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with the session count
+    """
     try:
         db = get_database()
         user_object_id = ObjectId(str(current_user.id))
@@ -140,7 +155,12 @@ async def get_chat_session(
     session_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get a specific chat session with all messages"""
+    """
+    Get a specific chat session with all messages.
+    @param session_id: MongoDB ObjectId of the chat session
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with session id, title, messages, and timestamps
+    """
     try:
         db = get_database()
         
@@ -179,7 +199,13 @@ async def update_chat_session(
     request: UpdateChatSessionRequest,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Update a chat session (title or messages)"""
+    """
+    Update a chat session's title and/or messages.
+    @param session_id: MongoDB ObjectId of the chat session
+    @param request: UpdateChatSessionRequest with optional title and messages
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with a confirmation message
+    """
     try:
         db = get_database()
         
@@ -226,7 +252,13 @@ async def save_message_to_session(
     request: SaveMessageRequest,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Add a message to a chat session"""
+    """
+    Add a message to a chat session.
+    @param session_id: MongoDB ObjectId of the chat session
+    @param request: SaveMessageRequest with the message dict
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with a confirmation message
+    """
     try:
         db = get_database()
         
@@ -262,7 +294,11 @@ async def save_message_to_session(
 async def delete_all_chat_sessions(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Delete all chat sessions for the current user (soft delete)"""
+    """
+    Soft-delete all chat sessions for the authenticated user.
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with a confirmation message and the number of deleted sessions
+    """
     try:
         db = get_database()
 
@@ -292,7 +328,12 @@ async def delete_chat_session(
     session_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Delete a chat session (soft delete)"""
+    """
+    Soft-delete a single chat session.
+    @param session_id: MongoDB ObjectId of the chat session
+    @param current_user: Authenticated user from dependency injection
+    @return: Dict with a confirmation message
+    """
     try:
         db = get_database()
         
