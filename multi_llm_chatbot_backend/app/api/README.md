@@ -39,7 +39,7 @@ Uses JWT-based Bearer token auth via FastAPI dependencies.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/chat-sequential` | `POST` | Run a full advisor loop and return all persona responses |
+| `/chat-stream` | `POST` | Stream advisor responses as newline-delimited JSON |
 | `/reply-to-advisor` | `POST` | Ask a question to a specific advisor/persona |
 
 These routes handle:
@@ -166,7 +166,7 @@ JWT tokens are passed via the `Authorization: Bearer ...` header.
 ## High-Level Flow
 
 ```text
-Frontend → /chat-sequential → orchestrator → personas → RAG + LLM → response[]
+Frontend → /chat-stream → orchestrator → personas → RAG + LLM → response[]
         ↘ /upload-document → extractor → RAG chunks → indexed
         ↘ /context or /reset-session → session_manager
         ↘ /export-chat or /chat-summary → utils + formatter

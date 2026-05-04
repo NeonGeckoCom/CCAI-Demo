@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ChevronDown } from 'lucide-react';
+import { Users, ChevronDown, Pencil } from 'lucide-react';
+import AvatarPickerModal from './AvatarPickerModal';
 
 const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, isDark }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [hoveredId, setHoveredId] = useState(null);
+  const [pickerAdvisor, setPickerAdvisor] = useState(null);
   
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -50,6 +53,13 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         <ChevronDown size={14} className={`dropdown-arrow ${isOpen ? 'rotated' : ''}`} />
       </button>
       
+      {pickerAdvisor && (
+        <AvatarPickerModal
+          advisorId={pickerAdvisor.id}
+          advisorName={pickerAdvisor.name}
+          onClose={() => setPickerAdvisor(null)}
+        />
+      )}
       {isOpen && (
         <div className="advisor-dropdown-panel">
           <div className="advisor-list">
@@ -59,16 +69,27 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
               const isThinking = Array.isArray(thinkingAdvisors) && thinkingAdvisors.includes(id);
               
               return (
-                <div 
-                  key={id} 
+                <div
+                  key={id}
                   className={`advisor-item ${isThinking ? 'thinking' : ''}`}
-                  style={{ 
-                    '--advisor-color': colors.color,
-                    '--advisor-bg': colors.bgColor
-                  }}
+                  style={{ '--advisor-color': colors.color, '--advisor-bg': colors.bgColor }}
                 >
-                  <div className="advisor-icon">
-                    <IconComponent size={16} />
+                  <div
+                    className="advisor-icon"
+                    style={{ position: 'relative', cursor: 'pointer', overflow: 'hidden', width: 32, height: 32, borderRadius: 8, flexShrink: 0 }}
+                    onMouseEnter={() => setHoveredId(id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    onClick={() => setPickerAdvisor({ id, name: advisor.name })}
+                  >
+                    {advisor.avatarUrl
+                      ? <img src={advisor.avatarUrl} alt={advisor.name} style={{ width: 32, height: 32, objectFit: 'cover', display: 'block' }} />
+                      : <IconComponent size={16} />
+                    }
+                    {hoveredId === id && (
+                      <div style={{ position: 'absolute', inset: 0, borderRadius: 8, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Pencil size={10} color="#fff" />
+                      </div>
+                    )}
                   </div>
                   <div className="advisor-details">
                     <div className="advisor-name">{advisor.name}</div>
@@ -94,7 +115,7 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         </div>
       )}
       
-      <style jsx>{`
+      <style>{`
         .advisor-status-dropdown {
           position: relative;
           display: inline-block;

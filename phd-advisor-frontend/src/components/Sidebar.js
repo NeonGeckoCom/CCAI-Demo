@@ -14,6 +14,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import CopyrightNotice from './CopyrightNotice';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 
@@ -26,7 +27,9 @@ const Sidebar = ({
   onSidebarToggle,
   isMobileOpen = false,
   onMobileToggle,
-  onNavigateToCanvas
+  onNavigateToCanvas,
+  refreshTrigger,
+  onCurrentSessionDeleted
 }) => {
   const { config } = useAppConfig();
   const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
@@ -74,6 +77,13 @@ const Sidebar = ({
       return () => clearTimeout(timer);
     }
   }, [currentSessionId, authToken]);
+
+  // Refresh session list when parent signals a message exchange completed
+  useEffect(() => {
+    if (refreshTrigger > 0 && authToken) {
+      fetchChatSessions();
+    }
+  }, [refreshTrigger]);
 
 
   const fetchChatSessions = async () => {
@@ -133,7 +143,7 @@ const Sidebar = ({
         if (response.ok) {
           setChatSessions(prev => prev.filter(session => session.id !== sessionId));
           if (currentSessionId === sessionId) {
-            onNewChat(); // Create new session if current one was deleted
+            onCurrentSessionDeleted?.();
           }
         }
       } catch (error) {
@@ -335,6 +345,21 @@ const Sidebar = ({
               ))}
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className={`sidebar-footer ${isCollapsed ? 'collapsed' : ''}`}>
+          <a 
+            href="https://neon.ai" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="sidebar-neon-link"
+            title="Neon.ai"
+          >
+            <img src="/neon-logo.png" alt="" className="sidebar-neon-logo" />
+            {!isCollapsed && <span className="sidebar-neon-text">Neon.ai</span>}
+          </a>
+          {!isCollapsed && <CopyrightNotice variant="sidebar" />}
         </div>
       </div>
       

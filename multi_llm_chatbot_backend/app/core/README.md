@@ -129,7 +129,7 @@ This is the main **message routing engine**.
 - Persona-specific fallback logic
 - Session reset/deletion
 
-Used by `/chat-sequential`, `/reply-to-advisor`, etc.
+Used by `/chat-stream`, `/reply-to-advisor`, etc.
 
 ---
 

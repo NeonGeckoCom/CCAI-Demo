@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText, Menu, HelpCircle } from 'lucide-react';
+
+import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText, Menu } from 'lucide-react';
+
 import EnhancedChatInput from '../components/EnhancedChatInput';
 import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
@@ -33,6 +35,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [isSavingSession, setIsSavingSession] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
 
   
 
@@ -260,6 +263,17 @@ const handleSelectSession = async (sessionId) => {
   await loadChatSession(sessionId);
 };
 
+// Sidebar deleted the currently-active chat. Clear local state without
+// creating a replacement session.
+const handleCurrentSessionDeleted = () => {
+  setCurrentSessionId(null);
+  setCurrentSessionTitle('');
+  setMessages([]);
+  setReplyingTo(null);
+  setThinkingAdvisors([]);
+  setUploadedDocuments([]);
+};
+
 // Handle creating new chat from sidebar
 const handleNewChat = async (sessionId = null) => {
   if (sessionId) {
@@ -380,9 +394,6 @@ const handleNewChat = async (sessionId = null) => {
       }
     }
 
-    // Save user message to database
-    await saveMessageToSession(userMessage);
-
     // Update session title if this is the first message and title is generic
     if (messages.length === 0 && currentSessionTitle.includes('Chat ')) {
       const newTitle = inputMessage.length > 30 
@@ -490,6 +501,7 @@ const handleNewChat = async (sessionId = null) => {
     } finally {
       setIsLoading(false);
       setThinkingAdvisors([]);
+      setSidebarRefreshTrigger(prev => prev + 1);
     }
   };
 
@@ -747,12 +759,14 @@ const handleNewChat = async (sessionId = null) => {
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
+        onCurrentSessionDeleted={handleCurrentSessionDeleted}
         onSignOut={onSignOut}
         authToken={authToken}
         onSidebarToggle={handleSidebarToggle}
         isMobileOpen={isMobileMenuOpen}
         onMobileToggle={setIsMobileMenuOpen}
         onNavigateToCanvas={onNavigateToCanvas}
+        refreshTrigger={sidebarRefreshTrigger}
       />
       
       <div className={`main-chat-area ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
