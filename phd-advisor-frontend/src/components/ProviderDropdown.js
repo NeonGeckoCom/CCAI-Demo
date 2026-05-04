@@ -1,9 +1,9 @@
 // src/components/ProviderDropdown.js
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Cpu, Cloud, Server, Loader2 } from 'lucide-react';
+import { ChevronDown, Cpu, Cloud, Server, Loader2, Layers, Settings2 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
-const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false }) => {
+const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false, onConfigureHybrid }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
   const { isDark } = useTheme();
@@ -29,6 +29,13 @@ const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false
       description: 'vLLM inference endpoint',
       icon: Server,
       badge: 'API'
+    },
+    {
+      id: 'hybrid',
+      name: 'Hybrid',
+      description: 'Per-advisor backend selection',
+      icon: Layers,
+      badge: 'Mixed'
     }
   ];
 
@@ -49,10 +56,23 @@ const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false
   }, []);
 
   const handleProviderSelect = (providerId) => {
-    if (providerId !== currentProvider && !isLoading) {
+    if (isLoading) return;
+    if (providerId === 'hybrid') {
+      onProviderChange(providerId);
+      if (onConfigureHybrid) onConfigureHybrid();
+      setIsOpen(false);
+      return;
+    }
+    if (providerId !== currentProvider) {
       onProviderChange(providerId);
       setIsOpen(false);
     }
+  };
+
+  const handleConfigureClick = (event) => {
+    event.stopPropagation();
+    if (onConfigureHybrid) onConfigureHybrid();
+    setIsOpen(false);
   };
 
   const toggleDropdown = () => {
@@ -110,6 +130,16 @@ const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false
                 </div>
                 {isSelected && (
                   <div className="provider-option-checkmark">✓</div>
+                )}
+                {provider.id === 'hybrid' && isSelected && onConfigureHybrid && (
+                  <button
+                    type="button"
+                    className="provider-option-configure"
+                    onClick={handleConfigureClick}
+                    title="Configure hybrid mapping"
+                  >
+                    <Settings2 size={14} />
+                  </button>
                 )}
               </button>
             );

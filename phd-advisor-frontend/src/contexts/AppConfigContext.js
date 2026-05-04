@@ -44,6 +44,8 @@ const buildAdvisors = (personaItems, overrides = {}) => {
       darkBgColor: p.dark_bg_color || '#374151',
       icon: resolveIcon(isIcon ? image.replace('icon://', '') : null),
       avatarUrl,
+      defaultBackend: p.default_backend || null,
+      backendLocked: Boolean(p.brainforge || p.backend_locked),
     };
   }
   return advisors;

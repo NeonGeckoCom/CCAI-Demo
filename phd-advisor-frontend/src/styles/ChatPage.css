@@ -885,6 +885,12 @@
 .provider-badge.gemini { color: #4285f4; }
 .provider-badge.ollama { color: #10b981; }
 .provider-badge.vllm   { color: #ef4444; }
+.provider-badge.hybrid { color: #a855f7; }
+
+[data-theme="dark"] .provider-badge.hybrid,
+[data-theme="dark"] .provider-option-badge.hybrid {
+  color: #ffffff;
+}
 
 .clarification-message-container {
   display: flex;
@@ -1119,6 +1125,34 @@
 .provider-option-badge.vllm {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
+}
+
+.provider-option-badge.hybrid {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.provider-option-configure {
+  margin-left: 8px;
+  background: transparent;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary, #6b7280);
+}
+
+.provider-option-configure:hover {
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
+}
+
+[data-theme="dark"] .provider-option-configure {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .provider-option-description {
