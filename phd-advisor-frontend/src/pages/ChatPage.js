@@ -6,6 +6,7 @@ import ThinkingIndicator from '../components/ThinkingIndicator';
 import SuggestionsPanel from '../components/SuggestionsPanel';
 import ThemeToggle from '../components/ThemeToggle';
 import ProviderDropdown from '../components/ProviderDropdown';
+import HybridConfigModal from '../components/HybridConfigModal';
 import ExportButton from '../components/ExportButton';
 import Sidebar from '../components/Sidebar';
 import { useAppConfig } from '../contexts/AppConfigContext';
@@ -22,8 +23,17 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [thinkingAdvisors, setThinkingAdvisors] = useState([]);
   const [collectedInfo, setCollectedInfo] = useState({});
   const [replyingTo, setReplyingTo] = useState(null);
-  const [currentProvider, setCurrentProvider] = useState('gemini');
+  const [llmConfig, setLlmConfig] = useState({
+    mode: 'uniform',
+    default_backend: 'gemini',
+    orchestrator_backend: null,
+    persona_backends: null,
+  });
+  const [availableBackends, setAvailableBackends] = useState(['gemini', 'ollama', 'vllm']);
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
+  const [isHybridModalOpen, setIsHybridModalOpen] = useState(false);
+
+  const currentProvider = llmConfig.mode === 'hybrid' ? 'hybrid' : llmConfig.default_backend;
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
   const messagesEndRef = useRef(null);
   const { isDark } = useTheme();
@@ -50,16 +60,18 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   }, [messages, thinkingAdvisors]);
 
   useEffect(() => {
-    fetchCurrentProvider();
-  }, []);
+    if (authToken) fetchCurrentProvider();
+  }, [authToken]);
 
   const fetchCurrentProvider = async () => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/current-provider`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/current-provider`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
       if (response.ok) {
         const data = await response.json();
-        setCurrentProvider(data.current_provider);
-        console.log('Loaded provider:', data.current_provider, 'Available:', data.available_providers);
+        if (data.llm_config) setLlmConfig(data.llm_config);
+        if (Array.isArray(data.available_backends)) setAvailableBackends(data.available_backends);
       }
     } catch (error) {
       console.error('Error fetching current provider:', error);
@@ -68,55 +80,78 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
 
   
 
-  const handleProviderSwitch = async (newProvider) => {
-    if (newProvider === currentProvider || isProviderSwitching) return;
-
+  const submitProviderConfig = async (payload, label) => {
     setIsProviderSwitching(true);
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/switch-provider`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({
-          provider: newProvider
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         const data = await response.json();
-        setCurrentProvider(newProvider);
-        
-        const switchMessage = {
+        if (data.llm_config) {
+          setLlmConfig(data.llm_config);
+        } else {
+          setLlmConfig(payload);
+        }
+
+        setMessages(prev => [...prev, {
           id: generateMessageId(),
           type: 'system',
-          content: `✨ Switched to ${newProvider.charAt(0).toUpperCase() + newProvider.slice(1)} provider. Your advisors are now ready with the new AI model.`,
+          content: `✨ Switched to ${label}. Your advisors are now ready with the new configuration.`,
           timestamp: new Date()
-        };
-        setMessages(prev => [...prev, switchMessage]);
-      } else {
-        const error = await response.json();
-        console.error('Failed to switch provider:', error);
-        const errorMessage = {
-          id: generateMessageId(),
-          type: 'error',
-          content: `Failed to switch to ${newProvider}: ${error.detail || 'Unknown error'}`,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
+        }]);
+        return true;
       }
-    } catch (error) {
-      console.error('Error switching provider:', error);
-      const errorMessage = {
+
+      const error = await response.json().catch(() => ({}));
+      console.error('Failed to switch provider:', error);
+      setMessages(prev => [...prev, {
         id: generateMessageId(),
         type: 'error',
-        content: `Error switching to ${newProvider}. Please try again.`,
+        content: `Failed to switch to ${label}: ${error.detail || 'Unknown error'}`,
         timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      }]);
+      return false;
+    } catch (error) {
+      console.error('Error switching provider:', error);
+      setMessages(prev => [...prev, {
+        id: generateMessageId(),
+        type: 'error',
+        content: `Error switching to ${label}. Please try again.`,
+        timestamp: new Date()
+      }]);
+      return false;
     } finally {
       setIsProviderSwitching(false);
     }
+  };
+
+  const handleProviderSwitch = async (newProvider) => {
+    if (isProviderSwitching) return;
+    if (newProvider === 'hybrid') {
+      setIsHybridModalOpen(true);
+      return;
+    }
+    if (llmConfig.mode === 'uniform' && newProvider === llmConfig.default_backend) return;
+
+    await submitProviderConfig(
+      { mode: 'uniform', default_backend: newProvider },
+      newProvider.charAt(0).toUpperCase() + newProvider.slice(1)
+    );
+  };
+
+  const handleHybridSubmit = async (hybridConfig) => {
+    const ok = await submitProviderConfig(
+      { mode: 'hybrid', ...hybridConfig },
+      'Hybrid configuration'
+    );
+    if (ok) setIsHybridModalOpen(false);
   };
 
   const generateMessageId = () => {
@@ -539,6 +574,7 @@ const handleNewChat = async (sessionId = null) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
       },
       body: JSON.stringify({
         user_input: inputMessage,
@@ -623,6 +659,7 @@ const handleNewChat = async (sessionId = null) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           user_input: expandPrompt,
@@ -820,6 +857,7 @@ const handleNewChat = async (sessionId = null) => {
                   currentProvider={currentProvider}
                   onProviderChange={handleProviderSwitch}
                   isLoading={isProviderSwitching}
+                  onConfigureHybrid={() => setIsHybridModalOpen(true)}
                 />
 
                 {/* Theme Toggle */}
@@ -985,6 +1023,17 @@ const handleNewChat = async (sessionId = null) => {
           </div>
         </div>
       </div>
+
+      {isHybridModalOpen && (
+        <HybridConfigModal
+          advisors={advisors}
+          availableBackends={availableBackends}
+          initialConfig={llmConfig}
+          isSaving={isProviderSwitching}
+          onSubmit={handleHybridSubmit}
+          onClose={() => setIsHybridModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
