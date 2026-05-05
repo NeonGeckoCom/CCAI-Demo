@@ -44,6 +44,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
+  const [responseMode, setResponseMode] = useState('panel'); // 'panel' | 'aggregated'
 
   
 
@@ -398,7 +399,12 @@ const handleNewChat = async (sessionId = null) => {
     setIsLoading(true);
     setThinkingAdvisors(['system']);
 
-    try {
+    // In 'aggregated' mode we collect advisor responses internally and merge
+    // them into a single synthesized message instead of rendering each one.
+    const aggregatedMode = responseMode === 'aggregated';
+    const collectedAdvisorResponses = [];
+
+    const streamChat = async (userInput) => {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-stream`, {
         method: 'POST',
         headers: {
@@ -406,15 +412,17 @@ const handleNewChat = async (sessionId = null) => {
           'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          user_input: inputMessage,
+          user_input: userInput,
           response_length: 'medium',
           chat_session_id: sessionId
         }),
       });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      return response;
+    };
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+    try {
+      const response = await streamChat(inputMessage);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -452,8 +460,16 @@ const handleNewChat = async (sessionId = null) => {
                 used_documents: d.used_documents || false,
                 document_chunks_used: d.document_chunks_used || 0,
               };
-              setMessages(prev => [...prev, msg]);
-              setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              // Individual advisor messages are persisted by the /chat-stream backend endpoint.
+              // NOTE: aggregated/synthesis metadata (is_aggregated, source_personas) is not yet
+              // persisted — only the raw synthesis response is stored via the second /chat-stream call.
+              if (aggregatedMode) {
+                collectedAdvisorResponses.push(msg);
+                setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              } else {
+                setMessages(prev => [...prev, msg]);
+                setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              }
               break;
             }
             case 'clarification':
@@ -483,6 +499,74 @@ const handleNewChat = async (sessionId = null) => {
               break;
             default:
               break;
+          }
+        }
+      }
+
+      // TEMPORARY: Client-side synthesis — will be replaced by a dedicated backend
+      // endpoint that generates & stores all 4 responses (3 panel + 1 aggregated)
+      // with proper schema (response_group_id, is_aggregated, source_personas).
+      // Currently reuses /chat-stream which pollutes chat history with the
+      // synthesis prompt as a fake "user" message.
+      if (aggregatedMode && collectedAdvisorResponses.length > 0) {
+        setThinkingAdvisors(['system']);
+        const perspectives = collectedAdvisorResponses
+          .map((m, i) => `Perspective ${i + 1} — ${m.advisorName}:\n${m.content}`)
+          .join('\n\n');
+        const synthesisPrompt =
+          `The user originally asked: "${inputMessage}"\n\n` +
+          `You received these ${collectedAdvisorResponses.length} expert perspectives:\n\n${perspectives}\n\n` +
+          `Synthesize them into a single, cohesive best-answer response that integrates the strongest points from each. ` +
+          `Do not list the perspectives separately — produce one unified answer addressed to the user.`;
+
+        try {
+          const synthResponse = await streamChat(synthesisPrompt);
+          const sReader = synthResponse.body.getReader();
+          const sDecoder = new TextDecoder();
+          let sBuffer = '';
+          let mergedMsg = null;
+
+          while (!mergedMsg) {
+            const { done, value } = await sReader.read();
+            if (done) break;
+            sBuffer += sDecoder.decode(value, { stream: true });
+            const sLines = sBuffer.split('\n');
+            sBuffer = sLines.pop() ?? '';
+            for (const line of sLines) {
+              if (!line.trim()) continue;
+              const payload = JSON.parse(line);
+              if (payload.type === 'advisor' && payload.data?.content) {
+                const d = payload.data;
+                mergedMsg = {
+                  id: generateMessageId(),
+                  type: 'advisor',
+                  persona_id: 'aggregated',
+                  content: d.content,
+                  timestamp: new Date(),
+                  advisorName: 'Partner',
+                  is_aggregated: true,
+                  source_personas: collectedAdvisorResponses.map(r => r.persona_id),
+                };
+                break;
+              }
+            }
+          }
+          // Drain remaining stream so the connection closes cleanly.
+          try { await sReader.cancel(); } catch (_) {}
+
+          if (mergedMsg) {
+            setMessages(prev => [...prev, mergedMsg]);
+          } else {
+            // Fallback: if synthesis returned nothing usable, show panel responses
+            // so the user isn't left empty-handed.
+            for (const m of collectedAdvisorResponses) {
+              setMessages(prev => [...prev, m]);
+            }
+          }
+        } catch (synthErr) {
+          console.error('Synthesis pass failed, falling back to panel:', synthErr);
+          for (const m of collectedAdvisorResponses) {
+            setMessages(prev => [...prev, m]);
           }
         }
       }
@@ -781,21 +865,16 @@ const handleNewChat = async (sessionId = null) => {
             </div>
             
             <div className="header-right">
-              <AdvisorStatusDropdown 
-                advisors={advisors}
+              <AdvisorStatusDropdown
+                advisors={Object.fromEntries(
+                  Object.entries(advisors).filter(([id]) => id !== 'aggregated')
+                )}
                 thinkingAdvisors={thinkingAdvisors}
                 getAdvisorColors={getAdvisorColors}
                 isDark={isDark}
               />
               
               <div className="header-controls">
-                {/* Add session title display */}
-                {currentSessionTitle && (
-                  <div className="session-title-display">
-                    <span>{currentSessionTitle}</span>
-                  </div>
-                )}
-                
                 {/* Export Button */}
                 <ExportButton
                   hasMessages={hasConversationMessages}
@@ -959,15 +1038,17 @@ const handleNewChat = async (sessionId = null) => {
               </div>
             )}
             
-            <EnhancedChatInput 
+            <EnhancedChatInput
               onSendMessage={handleInputSubmit}
               onFileUploaded={handleFileUploaded}
               uploadedDocuments={uploadedDocuments}
               isLoading={isLoading}
               currentChatSessionId={currentSessionId}
               authToken={authToken}
+              responseMode={responseMode}
+              onResponseModeChange={setResponseMode}
               placeholder={
-                replyingTo 
+                replyingTo
                   ? `Reply to ${replyingTo.advisorName}...`
                   : chatPlaceholder
               }
