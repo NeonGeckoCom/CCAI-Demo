@@ -109,7 +109,21 @@ export const AppConfigProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    setAdvisors(buildAdvisors(personaItems, avatarOverrides));
+    const built = buildAdvisors(personaItems, avatarOverrides);
+    // Synthetic persona used for aggregated/synthesized responses — represents
+    // a single combined "Partner" voice rather than the panel of advisors.
+    built.aggregated = {
+      name: 'Partner',
+      role: 'Synthesized Response',
+      description: 'A single combined response merging all advisor perspectives.',
+      color: '#7C3AED',
+      bgColor: '#F3E8FF',
+      darkColor: '#A78BFA',
+      darkBgColor: '#3B2A5E',
+      icon: LucideIcons.User,
+      avatarUrl: avatarOverrides.aggregated || null,
+    };
+    setAdvisors(built);
   }, [personaItems, avatarOverrides]);
 
   const setAdvisorAvatar = (advisorId, url) => {
