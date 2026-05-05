@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  RefreshCw, 
-  Download, 
+import {
+  FileText,
+  RefreshCw,
+  Download,
   Calendar,
   TrendingUp,
   Target,
@@ -13,9 +13,13 @@ import {
   BarChart3,
   Heart,
   ArrowLeft,
-  Printer
+  Printer,
+  Trash2,
+  MessageCircle,
+  ArrowRight
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import ConfirmDialog from '../components/ConfirmDialog';
 import CopyrightNotice from '../components/CopyrightNotice';
 import '../styles/CanvasPage.css';
 
@@ -98,6 +102,8 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
   const [isPrintView, setIsPrintView] = useState(false);
   const [isProcessingFirstTime, setIsProcessingFirstTime] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
     let pollInterval = null;
@@ -114,7 +120,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     
     initializeCanvas();
     
-    // Cleanup on unmount
     return () => {
       if (pollInterval) {
         clearInterval(pollInterval);
@@ -135,7 +140,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         const data = await response.json();
         setCanvasData(data);
         
-        // Auto-expand sections with insights
         const sectionsToExpand = {};
         Object.entries(data.sections).forEach(([key, section]) => {
           if (section.insights.length > 0) {
@@ -171,7 +175,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     }
   };
 
-  // Check if user has chats but empty canvas
   const checkForEmptyCanvasWithChats = async () => {
     try {
       const isEmpty = !canvasData || canvasData.total_insights === 0;
@@ -192,13 +195,11 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           }
         } else {
           console.error('Failed to fetch chat sessions count:', response.status);
-          // Don't trigger refresh if count fails
           return;
         }
       }
     } catch (error) {
       console.error('Error checking for empty canvas with chats:', error);
-      // Stop the polling if there's an error
       return;
     }
   };
@@ -216,17 +217,14 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
       if (response.ok) {
         const result = await response.json();
         
-        // If this is a first-time canvas update, show appropriate message
         if (result.type === 'full_update') {
           console.log('First-time canvas detected. Processing all your chats...');
           
-          // Show loading state
           setIsProcessingFirstTime(true);
           setIsUpdating(true);
           
-          // Poll for updates every 10 seconds for up to 3 minutes
           let attempts = 0;
-          const maxAttempts = 18; // 3 minutes / 10 seconds
+          const maxAttempts = 18;
           
           const pollForUpdates = setInterval(async () => {
             attempts++;
@@ -234,7 +232,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
             try {
               await fetchCanvas();
               
-              // If canvas now has insights, stop polling
               if (canvasData && canvasData.total_insights > 0) {
                 clearInterval(pollForUpdates);
                 setIsUpdating(false);
@@ -242,7 +239,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
                 console.log('Canvas successfully populated with insights!');
               }
               
-              // Stop polling after max attempts
               if (attempts >= maxAttempts) {
                 clearInterval(pollForUpdates);
                 setIsUpdating(false);
@@ -259,8 +255,29 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     }
   };
 
+  const handleClearCanvas = async () => {
+    setIsClearing(true);
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/phd-canvas`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        setCanvasData(null);
+        await fetchCanvas();
+      }
+    } catch (error) {
+      console.error('Error clearing canvas:', error);
+    } finally {
+      setIsClearing(false);
+      setShowClearConfirm(false);
+    }
+  };
+
   const handleRefreshCanvas = async () => {
-    // Prevent multiple simultaneous refresh requests
     if (isRefreshing || isUpdating) {
       console.log('Refresh already in progress, ignoring duplicate request');
       return;
@@ -282,7 +299,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         const result = await response.json();
         console.log('Full refresh initiated:', result);
         
-        // Poll for updates
         setTimeout(() => {
           fetchCanvas();
           fetchStats();
@@ -301,7 +317,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
   };
 
   const handleFullRefresh = async () => {
-    // Prevent multiple simultaneous refresh requests
     if (isRefreshing || isUpdating) {
       console.log('Refresh already in progress, ignoring duplicate request');
       return;
@@ -323,7 +338,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         const result = await response.json();
         console.log('Full refresh initiated:', result);
         
-        // Poll for updates
         setTimeout(() => {
           fetchCanvas();
           fetchStats();
@@ -370,14 +384,11 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     );
   }
 
-  // Sort sections by priority and insights count
   const sortedSections = Object.entries(canvasData?.sections || {})
     .sort(([, a], [, b]) => {
-      // First by priority (lower number = higher priority)
       if (a.priority !== b.priority) {
         return a.priority - b.priority;
       }
-      // Then by insights count (more insights first)
       return b.insights.length - a.insights.length;
     });
 
@@ -385,52 +396,64 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     <div className={`canvas-page ${isPrintView ? 'print-view' : ''}`}>
       {/* Header */}
       <div className="canvas-header">
-        <div className="header-left">
-          <button 
+        <div className="canvas-header-top">
+          <button
             className="back-button"
             onClick={onNavigateToChat}
           >
             <ArrowLeft size={20} />
             Back to Chat
           </button>
-          <div className="canvas-title-section">
-            <h1 className="canvas-title">
-              <FileText className="canvas-title-icon" />
-              {appName} Canvas
-            </h1>
-            <p className="canvas-subtitle">Your research progress at a glance</p>
-          </div>
-        </div>
-        
-        <div className="header-actions">
-          <div className="header-buttons">
-            <button 
+
+          <div className="header-actions">
+            <button
               onClick={handleRefreshCanvas}
               disabled={isRefreshing || isUpdating}
-              className={`refresh-button ${(isRefreshing || isUpdating) ? 'disabled' : ''}`}
+              className={`canvas-icon-btn refresh-button ${(isRefreshing || isUpdating) ? 'disabled' : ''}`}
+              title={(isRefreshing || isUpdating) ? 'Refreshing…' : 'Refresh Canvas'}
+              aria-label="Refresh canvas"
             >
               <RefreshCw className={`refresh-icon ${(isRefreshing || isUpdating) ? 'spinning' : ''}`} />
-              {(isRefreshing || isUpdating) ? 'Refreshing...' : 'Refresh Canvas'}
             </button>
-            
-            <button 
-              className="action-button print-button"
+
+            <button
+              className="canvas-icon-btn print-button"
               onClick={handlePrint}
+              title="Print"
+              aria-label="Print canvas"
             >
               <Printer className="action-icon" />
-              Print
+            </button>
+
+            <button
+              className="canvas-icon-btn clear-canvas-btn"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={isClearing}
+              title="Clear Canvas"
+              aria-label="Clear canvas"
+            >
+              <Trash2 className="action-icon" />
             </button>
           </div>
-          <a 
-            href="https://neon.ai" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="canvas-powered-by"
-          >
-            <img src="/neon-logo.png" alt="" className="canvas-powered-by-logo" />
-            Powered by Neon.ai
-          </a>
         </div>
+
+        <div className="canvas-title-section">
+          <h1 className="canvas-title">
+            <FileText className="canvas-title-icon" />
+            {appName} Canvas
+          </h1>
+          <p className="canvas-subtitle">Your research progress at a glance</p>
+        </div>
+
+        <a
+          href="https://neon.ai"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="canvas-powered-by"
+        >
+          <img src="/neon-logo.png" alt="" className="canvas-powered-by-logo" />
+          Powered by Neon.ai
+        </a>
       </div>
 
       {/* Stats Bar */}
@@ -469,7 +492,7 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
                     : 'Updating canvas with latest insights...'
                   }
                 </p>
-                <div className="loading-spinner">
+                <div className="inline-loading-spinner">
                   <RefreshCw className="spinning" />
                 </div>
                 <p className="processing-note">
@@ -480,18 +503,20 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
               <div>
                 <p>Start chatting with your AI advisors to populate your {appName} Canvas with insights!</p>
                 <div className="empty-canvas-actions">
-                  <button 
-                    className="start-chatting-button"
+                  <button
+                    className="empty-canvas-btn primary"
                     onClick={onNavigateToChat}
                   >
-                    Start Chatting
+                    <MessageCircle size={18} />
+                    <span>Start Chatting</span>
+                    <ArrowRight size={16} className="empty-canvas-btn-arrow" />
                   </button>
-                  <button 
-                    className="refresh-button secondary"
+                  <button
+                    className="empty-canvas-btn secondary"
                     onClick={handleFullRefresh}
                   >
-                    <RefreshCw className="action-icon" />
-                    Process Existing Chats
+                    <RefreshCw size={16} />
+                    <span>Process Existing Chats</span>
                   </button>
                 </div>
               </div>
@@ -524,6 +549,17 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           <p>Student: {user?.email} | Total Insights: {canvasData?.total_insights || 0}</p>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={showClearConfirm}
+        title="Clear canvas?"
+        message="This will permanently delete all insights on your canvas. This action can't be undone."
+        confirmLabel={isClearing ? 'Clearing…' : 'Clear canvas'}
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={handleClearCanvas}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 };

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   MessageSquare,
-  Plus,
   SquarePen,
   Search,
   MoreVertical,
@@ -14,6 +13,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import ConfirmDialog from './ConfirmDialog';
 import CopyrightNotice from './CopyrightNotice';
 import '../styles/Sidebar.css';
 
@@ -39,6 +39,8 @@ const Sidebar = ({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isCreatingNewChat, setIsCreatingNewChat] = useState(false);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   useEffect(() => {
     if (authToken) {
@@ -48,7 +50,6 @@ const Sidebar = ({
 
   useEffect(() => {
     const handleOverlayClick = (e) => {
-      // Only close if clicking the overlay itself, not the sidebar
       if (e.target.classList.contains('mobile-sidebar-overlay')) {
         onMobileToggle(false);
       }
@@ -60,17 +61,14 @@ const Sidebar = ({
     }
   }, [isMobileOpen, onMobileToggle]);
 
-  // Notify parent when sidebar state changes
   useEffect(() => {
     if (onSidebarToggle) {
       onSidebarToggle(isCollapsed);
     }
   }, [isCollapsed, onSidebarToggle]);
 
-  // Add effect to refresh when currentSessionId changes (new session created)
   useEffect(() => {
     if (currentSessionId && authToken) {
-      // Small delay to ensure the session is saved to database
       const timer = setTimeout(() => {
         fetchChatSessions();
       }, 200);
@@ -78,7 +76,6 @@ const Sidebar = ({
     }
   }, [currentSessionId, authToken]);
 
-  // Refresh session list when parent signals a message exchange completed
   useEffect(() => {
     if (refreshTrigger > 0 && authToken) {
       fetchChatSessions();
@@ -112,16 +109,10 @@ const Sidebar = ({
     setIsCreatingNewChat(true);
     
     try {
-      // Call the parent's new chat handler and wait for it to complete
       await onNewChat();
-      
-      // Refresh the sessions list immediately after new chat is created
-      // The parent should have updated currentSessionId by now
       await fetchChatSessions();
-      
     } catch (error) {
       console.error('Error creating new chat:', error);
-      // Optionally show an error message to the user
     } finally {
       setIsCreatingNewChat(false);
     }
@@ -152,9 +143,30 @@ const Sidebar = ({
     }
   };
 
+  const handleClearAllChats = async () => {
+    setIsClearingAll(true);
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/chat-sessions`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        setChatSessions([]);
+        onCurrentSessionDeleted?.();
+      }
+    } catch (error) {
+      console.error('Error clearing all chat sessions:', error);
+    } finally {
+      setIsClearingAll(false);
+      setShowClearAllConfirm(false);
+    }
+  };
+
   const toggleSidebar = () => {
     setIsCollapsed(!isCollapsed);
-    // Close user menu when collapsing
     if (!isCollapsed) {
       setShowUserMenu(false);
     }
@@ -195,7 +207,6 @@ const Sidebar = ({
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {/* Toggle button next to user menu when expanded */}
                   <button 
                     className="sidebar-toggle"
                     onClick={toggleSidebar} 
@@ -241,7 +252,6 @@ const Sidebar = ({
 
           {isCollapsed && (
             <div className="collapsed-header">
-              {/* Toggle button replaces user avatar when collapsed */}
               <button 
                 className="collapsed-toggle-avatar"
                 onClick={toggleSidebar} 
@@ -289,6 +299,15 @@ const Sidebar = ({
               title={isCreatingNewChat ? 'Creating...' : 'New Chat'}
             >
               <SquarePen size={18} />
+            </button>
+            <button
+              className="clear-all-chats-btn"
+              onClick={() => setShowClearAllConfirm(true)}
+              disabled={isClearingAll || chatSessions.length === 0}
+              title="Clear all chats"
+              aria-label="Clear all chats"
+            >
+              <Trash2 size={16} />
             </button>
           </div>
         )}
@@ -364,11 +383,22 @@ const Sidebar = ({
       </div>
       
       {isMobileOpen && (
-        <div 
-          className="mobile-sidebar-overlay visible" 
+        <div
+          className="mobile-sidebar-overlay visible"
           onClick={() => onMobileToggle(false)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={showClearAllConfirm}
+        title="Clear all chats?"
+        message="This will permanently delete every chat in your sidebar. This action can't be undone."
+        confirmLabel={isClearingAll ? 'Clearing…' : 'Clear all chats'}
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={handleClearAllChats}
+        onCancel={() => setShowClearAllConfirm(false)}
+      />
     </>
   );
 };
