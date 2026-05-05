@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   MessageSquare,
-  Plus,
+  SquarePen,
   Search,
   MoreVertical,
   Trash2,
@@ -9,12 +9,12 @@ import {
   LogOut,
   User,
   Settings,
-  ChevronLeft,
-  ChevronRight,
+  PanelLeft,
   FileText
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import ConfirmDialog from './ConfirmDialog';
+import CopyrightNotice from './CopyrightNotice';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 
@@ -50,7 +50,6 @@ const Sidebar = ({
 
   useEffect(() => {
     const handleOverlayClick = (e) => {
-      // Only close if clicking the overlay itself, not the sidebar
       if (e.target.classList.contains('mobile-sidebar-overlay')) {
         onMobileToggle(false);
       }
@@ -62,17 +61,14 @@ const Sidebar = ({
     }
   }, [isMobileOpen, onMobileToggle]);
 
-  // Notify parent when sidebar state changes
   useEffect(() => {
     if (onSidebarToggle) {
       onSidebarToggle(isCollapsed);
     }
   }, [isCollapsed, onSidebarToggle]);
 
-  // Add effect to refresh when currentSessionId changes (new session created)
   useEffect(() => {
     if (currentSessionId && authToken) {
-      // Small delay to ensure the session is saved to database
       const timer = setTimeout(() => {
         fetchChatSessions();
       }, 200);
@@ -80,7 +76,6 @@ const Sidebar = ({
     }
   }, [currentSessionId, authToken]);
 
-  // Refresh session list when parent signals a message exchange completed
   useEffect(() => {
     if (refreshTrigger > 0 && authToken) {
       fetchChatSessions();
@@ -114,16 +109,10 @@ const Sidebar = ({
     setIsCreatingNewChat(true);
     
     try {
-      // Call the parent's new chat handler and wait for it to complete
       await onNewChat();
-      
-      // Refresh the sessions list immediately after new chat is created
-      // The parent should have updated currentSessionId by now
       await fetchChatSessions();
-      
     } catch (error) {
       console.error('Error creating new chat:', error);
-      // Optionally show an error message to the user
     } finally {
       setIsCreatingNewChat(false);
     }
@@ -178,7 +167,6 @@ const Sidebar = ({
 
   const toggleSidebar = () => {
     setIsCollapsed(!isCollapsed);
-    // Close user menu when collapsing
     if (!isCollapsed) {
       setShowUserMenu(false);
     }
@@ -219,13 +207,12 @@ const Sidebar = ({
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {/* Toggle button next to user menu when expanded */}
                   <button 
                     className="sidebar-toggle"
                     onClick={toggleSidebar} 
                     title="Collapse sidebar"
                   >
-                    <ChevronLeft size={16} />
+                    <PanelLeft size={18} />
                   </button>
                   
                   <div className="user-menu-container">
@@ -252,32 +239,12 @@ const Sidebar = ({
                 </div>
               </div>
 
-              <div className="new-chat-row">
-                <button
-                  className="new-chat-button"
-                  onClick={handleNewChat}
-                  disabled={isCreatingNewChat}
-                >
-                  <Plus size={16} />
-                  <span>{isCreatingNewChat ? 'Creating...' : 'New Chat'}</span>
-                </button>
-                <button
-                  className="clear-all-chats-btn"
-                  onClick={() => setShowClearAllConfirm(true)}
-                  disabled={isClearingAll || chatSessions.length === 0}
-                  title="Clear all chats"
-                  aria-label="Clear all chats"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-
-              <button 
+              <button
                 className="sidebar-canvas-btn"
                 onClick={onNavigateToCanvas}
                 title={canvasLabel}
               >
-                <FileText size={20} />
+                <FileText size={18} />
                 {!isCollapsed && <span>{canvasLabel}</span>}
               </button>
             </>
@@ -285,21 +252,20 @@ const Sidebar = ({
 
           {isCollapsed && (
             <div className="collapsed-header">
-              {/* Toggle button replaces user avatar when collapsed */}
               <button 
                 className="collapsed-toggle-avatar"
                 onClick={toggleSidebar} 
                 title="Expand sidebar"
               >
-                <ChevronRight size={20} />
+                <PanelLeft size={20} />
               </button>
-              <button 
-                className="collapsed-new-chat" 
-                onClick={handleNewChat} 
+              <button
+                className="collapsed-new-chat"
+                onClick={handleNewChat}
                 title="New Chat"
                 disabled={isCreatingNewChat}
               >
-                <Plus size={20} />
+                <SquarePen size={20} />
               </button>
               <button 
                 className="sidebar-canvas-btn"
@@ -313,7 +279,7 @@ const Sidebar = ({
           )}
         </div>
 
-        {/* Search - only show when expanded */}
+        {/* Search + New Chat - only show when expanded */}
         {!isCollapsed && (
           <div className="sidebar-search">
             <div className="search-container">
@@ -326,6 +292,23 @@ const Sidebar = ({
                 className="search-input"
               />
             </div>
+            <button
+              className="new-chat-icon-btn"
+              onClick={handleNewChat}
+              disabled={isCreatingNewChat}
+              title={isCreatingNewChat ? 'Creating...' : 'New Chat'}
+            >
+              <SquarePen size={18} />
+            </button>
+            <button
+              className="clear-all-chats-btn"
+              onClick={() => setShowClearAllConfirm(true)}
+              disabled={isClearingAll || chatSessions.length === 0}
+              title="Clear all chats"
+              aria-label="Clear all chats"
+            >
+              <Trash2 size={16} />
+            </button>
           </div>
         )}
 
@@ -381,6 +364,21 @@ const Sidebar = ({
               ))}
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className={`sidebar-footer ${isCollapsed ? 'collapsed' : ''}`}>
+          <a 
+            href="https://neon.ai" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="sidebar-neon-link"
+            title="Neon.ai"
+          >
+            <img src="/neon-logo.png" alt="" className="sidebar-neon-logo" />
+            {!isCollapsed && <span className="sidebar-neon-text">Neon.ai</span>}
+          </a>
+          {!isCollapsed && <CopyrightNotice variant="sidebar" />}
         </div>
       </div>
       

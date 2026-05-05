@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import ConfirmDialog from '../components/ConfirmDialog';
+import CopyrightNotice from '../components/CopyrightNotice';
 import '../styles/CanvasPage.css';
 
 // Section icons mapping
@@ -119,7 +120,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     
     initializeCanvas();
     
-    // Cleanup on unmount
     return () => {
       if (pollInterval) {
         clearInterval(pollInterval);
@@ -140,7 +140,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         const data = await response.json();
         setCanvasData(data);
         
-        // Auto-expand sections with insights
         const sectionsToExpand = {};
         Object.entries(data.sections).forEach(([key, section]) => {
           if (section.insights.length > 0) {
@@ -176,7 +175,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     }
   };
 
-  // Check if user has chats but empty canvas
   const checkForEmptyCanvasWithChats = async () => {
     try {
       const isEmpty = !canvasData || canvasData.total_insights === 0;
@@ -197,13 +195,11 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           }
         } else {
           console.error('Failed to fetch chat sessions count:', response.status);
-          // Don't trigger refresh if count fails
           return;
         }
       }
     } catch (error) {
       console.error('Error checking for empty canvas with chats:', error);
-      // Stop the polling if there's an error
       return;
     }
   };
@@ -221,17 +217,14 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
       if (response.ok) {
         const result = await response.json();
         
-        // If this is a first-time canvas update, show appropriate message
         if (result.type === 'full_update') {
           console.log('First-time canvas detected. Processing all your chats...');
           
-          // Show loading state
           setIsProcessingFirstTime(true);
           setIsUpdating(true);
           
-          // Poll for updates every 10 seconds for up to 3 minutes
           let attempts = 0;
-          const maxAttempts = 18; // 3 minutes / 10 seconds
+          const maxAttempts = 18;
           
           const pollForUpdates = setInterval(async () => {
             attempts++;
@@ -239,7 +232,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
             try {
               await fetchCanvas();
               
-              // If canvas now has insights, stop polling
               if (canvasData && canvasData.total_insights > 0) {
                 clearInterval(pollForUpdates);
                 setIsUpdating(false);
@@ -247,7 +239,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
                 console.log('Canvas successfully populated with insights!');
               }
               
-              // Stop polling after max attempts
               if (attempts >= maxAttempts) {
                 clearInterval(pollForUpdates);
                 setIsUpdating(false);
@@ -287,7 +278,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
   };
 
   const handleRefreshCanvas = async () => {
-    // Prevent multiple simultaneous refresh requests
     if (isRefreshing || isUpdating) {
       console.log('Refresh already in progress, ignoring duplicate request');
       return;
@@ -309,7 +299,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         const result = await response.json();
         console.log('Full refresh initiated:', result);
         
-        // Poll for updates
         setTimeout(() => {
           fetchCanvas();
           fetchStats();
@@ -328,7 +317,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
   };
 
   const handleFullRefresh = async () => {
-    // Prevent multiple simultaneous refresh requests
     if (isRefreshing || isUpdating) {
       console.log('Refresh already in progress, ignoring duplicate request');
       return;
@@ -350,7 +338,6 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
         const result = await response.json();
         console.log('Full refresh initiated:', result);
         
-        // Poll for updates
         setTimeout(() => {
           fetchCanvas();
           fetchStats();
@@ -397,14 +384,11 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
     );
   }
 
-  // Sort sections by priority and insights count
   const sortedSections = Object.entries(canvasData?.sections || {})
     .sort(([, a], [, b]) => {
-      // First by priority (lower number = higher priority)
       if (a.priority !== b.priority) {
         return a.priority - b.priority;
       }
-      // Then by insights count (more insights first)
       return b.insights.length - a.insights.length;
     });
 
@@ -460,6 +444,16 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           </h1>
           <p className="canvas-subtitle">Your research progress at a glance</p>
         </div>
+
+        <a
+          href="https://neon.ai"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="canvas-powered-by"
+        >
+          <img src="/neon-logo.png" alt="" className="canvas-powered-by-logo" />
+          Powered by Neon.ai
+        </a>
       </div>
 
       {/* Stats Bar */}
@@ -542,6 +536,11 @@ const CanvasPage = ({ user, authToken, onNavigateToChat, onSignOut }) => {
           </div>
         )}
       </div>
+
+      {/* Copyright Footer */}
+      <footer className="canvas-copyright-footer">
+        <CopyrightNotice />
+      </footer>
 
       {/* Print Footer */}
       {isPrintView && (

@@ -89,7 +89,7 @@ function App() {
             />
           )}
           {currentView === 'chat' && isAuthenticated && (
-            <ChatPage 
+            <ChatPage
               user={user}
               authToken={authToken}
               onNavigateToHome={navigateToHome}
