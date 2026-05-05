@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, FileText, X, Trash2, Download } from 'lucide-react';
+import { Send, Paperclip, FileText, X, Trash2, Download, Users, Sparkles } from 'lucide-react';
 import FileUpload from './FileUpload';
 
 const EnhancedChatInput = ({ 
@@ -8,8 +8,10 @@ const EnhancedChatInput = ({
   uploadedDocuments = [],
   isLoading,
   currentChatSessionId,
-  authToken, 
-  placeholder = "Ask your advisors anything..." 
+  authToken,
+  placeholder = "Ask your advisors anything...",
+  responseMode = 'panel',
+  onResponseModeChange,
 }) => {
   const [inputMessage, setInputMessage] = useState('');
   const [showUpload, setShowUpload] = useState(false);
@@ -204,6 +206,19 @@ const EnhancedChatInput = ({
                 <span className="docs-count">{uploadedDocuments.length}</span>
               </button>
             )}
+
+            <button
+              onClick={() => onResponseModeChange?.(responseMode === 'panel' ? 'aggregated' : 'panel')}
+              className={`add-docs-btn response-mode-toggle ${responseMode === 'aggregated' ? 'active' : ''}`}
+              type="button"
+              title={responseMode === 'panel'
+                ? 'Currently: Multiple Responses — click to switch to a single Generalized Response'
+                : 'Currently: Generalized Response — click to switch back to Multiple Responses'}
+              disabled={isDisabled}
+            >
+              {responseMode === 'aggregated' ? <Sparkles size={16} /> : <Users size={16} />}
+              <span>{responseMode === 'aggregated' ? 'Generalized response' : 'Multiple responses'}</span>
+            </button>
           </div>
 
           {/* Right - Send Button */}

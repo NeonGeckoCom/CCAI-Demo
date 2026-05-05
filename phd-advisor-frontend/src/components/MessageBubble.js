@@ -339,10 +339,23 @@ const MessageBubble = ({
     return (
       <div className={`advisor-message-container ${inlineAvatar ? 'inline-avatar-mode' : ''}`}>
         {!inlineAvatar && (
-          <div 
-            className="advisor-avatar" 
+          <div
+            className="advisor-avatar"
             style={{ backgroundColor: colors.bgColor || 'var(--bg-muted)', overflow: 'hidden' }}
           >
+            {advisor.avatarUrl ? (
+              <img
+                src={advisor.avatarUrl}
+                alt={advisor.name || 'Advisor'}
+                style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+              />
+            ) : Icon ? (
+              <Icon style={{ color: colors.color || 'var(--text-secondary)', width: 20, height: 20 }} />
+            ) : (
+              <span style={{ color: colors.color || 'var(--text-secondary)', fontWeight: 600, fontSize: 16 }}>
+                {(advisor.name || message.advisorName || 'A').charAt(0)}
+              </span>
+            )}
           </div>
         )}
 
