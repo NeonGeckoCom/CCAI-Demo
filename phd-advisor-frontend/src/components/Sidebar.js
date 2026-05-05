@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import CopyrightNotice from './CopyrightNotice';
+import SettingsModal from './SettingsModal';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 
@@ -37,6 +38,7 @@ const Sidebar = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isCreatingNewChat, setIsCreatingNewChat] = useState(false);
 
@@ -214,7 +216,10 @@ const Sidebar = ({
                     
                     {showUserMenu && (
                       <div className="user-menu">
-                        <button className="user-menu-item">
+                        <button
+                          className="user-menu-item"
+                          onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
+                        >
                           <Settings size={16} />
                           <span>Settings</span>
                         </button>
@@ -364,10 +369,14 @@ const Sidebar = ({
       </div>
       
       {isMobileOpen && (
-        <div 
-          className="mobile-sidebar-overlay visible" 
+        <div
+          className="mobile-sidebar-overlay visible"
           onClick={() => onMobileToggle(false)}
         />
+      )}
+
+      {showSettings && (
+        <SettingsModal user={user} onClose={() => setShowSettings(false)} />
       )}
     </>
   );
