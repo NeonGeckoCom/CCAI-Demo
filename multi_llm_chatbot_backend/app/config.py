@@ -294,6 +294,7 @@ class LLMConfig(BaseModel):
     ollama: OllamaConfig = OllamaConfig()
     vllm: VllmConfig = VllmConfig()
     brainforge: BrainForgeConfig = BrainForgeConfig()
+    health_check_interval: int = 300
 
 
 class RAGConfig(BaseModel):

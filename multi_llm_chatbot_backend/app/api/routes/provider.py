@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.auth import get_current_active_user
-from app.core.bootstrap import chat_orchestrator, get_llm_client
+from app.core.bootstrap import chat_orchestrator, get_llm_client, AVAILABLE_BACKENDS
 from app.core.database import get_database
-from app.models.user import User, UserLLMConfig, LLM_BACKENDS
+from app.models.user import User, UserLLMConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ async def get_current_provider(
     config = current_user.llm_config or UserLLMConfig()
     return {
         "llm_config": config.model_dump(),
-        "available_backends": list(LLM_BACKENDS),
+        "available_backends": AVAILABLE_BACKENDS,
     }
 
 
