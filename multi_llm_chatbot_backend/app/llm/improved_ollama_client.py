@@ -111,3 +111,11 @@ class ImprovedOllamaClient(LLMClient):
             response.count("?") > 3,  # Too many questions
         ]
         return any(poor_indicators)
+
+    async def health_check(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.base_url}/api/tags")
+                return resp.is_success
+        except Exception:
+            return False

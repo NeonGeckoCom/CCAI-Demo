@@ -269,6 +269,7 @@ class LLMConfig(BaseModel):
     gemini: GeminiConfig = GeminiConfig()
     ollama: OllamaConfig = OllamaConfig()
     vllm: VllmConfig = VllmConfig()
+    health_check_interval: int = 300
 
 
 class RAGConfig(BaseModel):
