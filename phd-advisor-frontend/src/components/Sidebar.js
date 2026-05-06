@@ -29,7 +29,8 @@ const Sidebar = ({
   onMobileToggle,
   onNavigateToCanvas,
   refreshTrigger,
-  onCurrentSessionDeleted
+  onCurrentSessionDeleted,
+  onOpenSettings,
 }) => {
   const { config } = useAppConfig();
   const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
@@ -214,7 +215,13 @@ const Sidebar = ({
                     
                     {showUserMenu && (
                       <div className="user-menu">
-                        <button className="user-menu-item">
+                        <button
+                          className="user-menu-item"
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            onOpenSettings?.();
+                          }}
+                        >
                           <Settings size={16} />
                           <span>Settings</span>
                         </button>

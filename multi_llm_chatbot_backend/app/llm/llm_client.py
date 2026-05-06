@@ -67,6 +67,15 @@ class LLMClient(ABC):
         )
         return ToolCallResult(text=text, used_tool=False)
 
+    async def health_check(self) -> bool:
+        """Check if the backend service is reachable.
+
+        Subclasses for self-hosted services should override this with a
+        lightweight network probe.  The default returns True (suitable for
+        cloud APIs where the config check is sufficient).
+        """
+        return True
+
     def _clean_response(self, response: str) -> str:
         """Clean up response text, preserving Markdown formatting."""
         response = response.replace("\r\n", "\n").replace("\r", "\n")

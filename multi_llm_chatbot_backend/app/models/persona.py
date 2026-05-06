@@ -245,10 +245,14 @@ class Persona:
         self.llm = llm
         self.temperature = temperature
 
-    async def respond(self, context: List[Dict], response_length: str = "medium") -> str:
+    async def respond(self, context: List[Dict], response_length: str = "medium",
+                      llm: LLMClient = None) -> str:
         """Generate a compact, well-formed Markdown response suitable for the UI.
-        Returns the compact Markdown string (backward compatible with previous callers).
+
+        *llm* overrides the default client for this call (used for per-user
+        backend selection).  Falls back to ``self.llm`` when not provided.
         """
+        effective_llm = llm or self.llm
         max_tokens = MAX_TOKENS_MAP.get(response_length, 500)
         structure_hint = STRUCTURE_HINTS.get(response_length, STRUCTURE_HINTS["medium"])
         temp_scaled = round(self.temperature / 10, 2)
@@ -259,7 +263,7 @@ class Persona:
             f"{structure_hint}"
         )
 
-        raw_text = await self.llm.generate(
+        raw_text = await effective_llm.generate(
             system_prompt=full_prompt,
             context=context,
             temperature=temp_scaled,
