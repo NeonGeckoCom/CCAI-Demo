@@ -13,6 +13,7 @@ os.environ.setdefault("CONFIG_PATH", "")
 # in a unit-test environment (no real LLM connections, no NLTK, etc.)
 for _name in ("app.core.rag_manager",):
     sys.modules.setdefault(_name, MagicMock())
+sys.modules.pop("app.core.bootstrap", None)
 
 # Patch the Gemini client constructor so creating a client doesn't fail
 with patch("app.llm.improved_gemini_client.ImprovedGeminiClient.__init__", lambda self, **kw: None):
