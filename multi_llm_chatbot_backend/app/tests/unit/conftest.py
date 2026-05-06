@@ -17,11 +17,14 @@ module (for example, ``test_version.py`` wanting the real
 coordinate cleanup with peer test modules.
 """
 
+import os
 import sys
 from unittest.mock import MagicMock
 
 from fastapi import APIRouter
 
+os.environ.setdefault("GEMINI_API_KEY", "fake-test-key")
+os.environ.setdefault("CONFIG_PATH", "")
 
 for _name in ("app.core.bootstrap", "app.core.rag_manager"):
     sys.modules.setdefault(_name, MagicMock())
