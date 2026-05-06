@@ -1,28 +1,13 @@
 import asyncio
-import os
-import sys
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Set env vars before any app modules are imported so that config
-# validators don't raise during the bootstrap import chain.
-os.environ.setdefault("GEMINI_API_KEY", "fake-test-key")
-os.environ.setdefault("CONFIG_PATH", "")
-
-# Stub heavy modules that bootstrap imports which would fail or be slow
-# in a unit-test environment (no real LLM connections, no NLTK, etc.)
-for _name in ("app.core.rag_manager",):
-    sys.modules.setdefault(_name, MagicMock())
-sys.modules.pop("app.core.bootstrap", None)
-
-# Patch the Gemini client constructor so creating a client doesn't fail
-with patch("app.llm.improved_gemini_client.ImprovedGeminiClient.__init__", lambda self, **kw: None):
-    from app.core.bootstrap import (  # noqa: E402
-        get_available_backends,
-        refresh_available_backends,
-        AVAILABLE_BACKENDS,
-        LLM_BACKENDS,
-    )
+from app.core.bootstrap import (
+    get_available_backends,
+    refresh_available_backends,
+    AVAILABLE_BACKENDS,
+    LLM_BACKENDS,
+)
 
 
 class TestGetAvailableBackends(unittest.TestCase):
