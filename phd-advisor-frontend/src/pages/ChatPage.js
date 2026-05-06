@@ -5,8 +5,8 @@ import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import SuggestionsPanel from '../components/SuggestionsPanel';
 import ThemeToggle from '../components/ThemeToggle';
-import ProviderDropdown from '../components/ProviderDropdown';
-import HybridConfigModal from '../components/HybridConfigModal';
+import WelcomeModelPicker from '../components/WelcomeModelPicker';
+import SettingsModal from '../components/SettingsModal';
 import ExportButton from '../components/ExportButton';
 import Sidebar from '../components/Sidebar';
 import { useAppConfig } from '../contexts/AppConfigContext';
@@ -31,9 +31,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   });
   const [availableBackends, setAvailableBackends] = useState(['gemini', 'ollama', 'vllm']);
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
-  const [isHybridModalOpen, setIsHybridModalOpen] = useState(false);
-
-  const currentProvider = llmConfig.mode === 'hybrid' ? 'hybrid' : llmConfig.default_backend;
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
   const messagesEndRef = useRef(null);
   const { isDark } = useTheme();
@@ -134,10 +132,6 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
 
   const handleProviderSwitch = async (newProvider) => {
     if (isProviderSwitching) return;
-    if (newProvider === 'hybrid') {
-      setIsHybridModalOpen(true);
-      return;
-    }
     if (llmConfig.mode === 'uniform' && newProvider === llmConfig.default_backend) return;
 
     await submitProviderConfig(
@@ -151,7 +145,8 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
       { mode: 'hybrid', ...hybridConfig },
       'Hybrid configuration'
     );
-    if (ok) setIsHybridModalOpen(false);
+    if (ok) setIsSettingsOpen(false);
+    return ok;
   };
 
   const generateMessageId = () => {
@@ -789,7 +784,7 @@ const handleNewChat = async (sessionId = null) => {
   return (
     <div className="chat-page-with-sidebar">
       {/* Sidebar Component */}
-      <Sidebar 
+      <Sidebar
         user={user}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
@@ -802,6 +797,7 @@ const handleNewChat = async (sessionId = null) => {
         onMobileToggle={setIsMobileMenuOpen}
         onNavigateToCanvas={onNavigateToCanvas}
         refreshTrigger={sidebarRefreshTrigger}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
       
       <div className={`main-chat-area ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -852,14 +848,6 @@ const handleNewChat = async (sessionId = null) => {
                   authToken={authToken}
                 />
 
-                {/* Provider Dropdown */}
-                <ProviderDropdown
-                  currentProvider={currentProvider}
-                  onProviderChange={handleProviderSwitch}
-                  isLoading={isProviderSwitching}
-                  onConfigureHybrid={() => setIsHybridModalOpen(true)}
-                />
-
                 {/* Theme Toggle */}
                 <ThemeToggle />
               </div>
@@ -870,6 +858,14 @@ const handleNewChat = async (sessionId = null) => {
           <div className="chat-content">
             {!hasMessages ? (
               <div className="welcome-state">
+                <WelcomeModelPicker
+                  advisors={advisors}
+                  availableBackends={availableBackends}
+                  llmConfig={llmConfig}
+                  isSwitching={isProviderSwitching}
+                  onSelectUniform={handleProviderSwitch}
+                  onSubmitHybrid={handleHybridSubmit}
+                />
                 <AdvisorCarousel />
                 <SuggestionsPanel onSuggestionClick={handleSendMessage} />
               </div>
@@ -1024,14 +1020,15 @@ const handleNewChat = async (sessionId = null) => {
         </div>
       </div>
 
-      {isHybridModalOpen && (
-        <HybridConfigModal
+      {isSettingsOpen && (
+        <SettingsModal
+          user={user}
           advisors={advisors}
           availableBackends={availableBackends}
-          initialConfig={llmConfig}
+          llmConfig={llmConfig}
           isSaving={isProviderSwitching}
-          onSubmit={handleHybridSubmit}
-          onClose={() => setIsHybridModalOpen(false)}
+          onSubmitConfig={handleHybridSubmit}
+          onClose={() => setIsSettingsOpen(false)}
         />
       )}
     </div>
