@@ -146,6 +146,9 @@ llm:
     model: "llama3.2:1b"
   vllm:
     api_url: https://rtx6000blackwell-1.neonaiservices2.com/vllm0
+  brainforge:
+    api_url: https://hana.neonaialpha.com
+    orchestrator_model: ""
 
 rag:
   embedding_model: "all-MiniLM-L6-v2"
