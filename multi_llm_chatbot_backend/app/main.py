@@ -10,12 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
+import asyncio
+
 # Load configuration FIRST so every module can use it
 from app.config import load_settings
 settings = load_settings()
 
 # Import the new database functions
 from app.core.database import connect_to_mongo, close_mongo_connection
+from app.core.bootstrap import _backend_health_loop
 
 # Import all route modules
 from app.api.routes import router as main_router
@@ -34,8 +37,10 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
+    health_task = asyncio.create_task(_backend_health_loop())
     yield
     # Shutdown
+    health_task.cancel()
     await close_mongo_connection()
 
 app = FastAPI(

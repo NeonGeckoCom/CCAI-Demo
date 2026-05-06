@@ -1,4 +1,6 @@
 # app/core/bootstrap.py
+import asyncio
+
 from app.config import get_settings
 from app.llm.improved_gemini_client import ImprovedGeminiClient
 from app.llm.improved_ollama_client import ImprovedOllamaClient
@@ -45,8 +47,42 @@ def get_llm_client(backend: str) -> LLMClient:
     return _client_cache[backend]
 
 
+def get_available_backends() -> list:
+    """Return backends that are properly configured (sync, used at startup)."""
+    available = []
+    for backend in LLM_BACKENDS:
+        try:
+            get_llm_client(backend)
+            available.append(backend)
+        except Exception:
+            pass
+    return available
+
+
+async def refresh_available_backends():
+    """Re-check which backends are configured and reachable."""
+    available = []
+    for backend in LLM_BACKENDS:
+        try:
+            client = get_llm_client(backend)
+            if await client.health_check():
+                available.append(backend)
+        except Exception:
+            pass
+    AVAILABLE_BACKENDS[:] = available
+
+
+async def _backend_health_loop():
+    """Background task that periodically refreshes AVAILABLE_BACKENDS."""
+    interval = settings.llm.health_check_interval
+    while True:
+        await refresh_available_backends()
+        await asyncio.sleep(interval)
+
+
 llm = create_llm_client()
 _client_cache[DEFAULT_BACKEND] = llm
+AVAILABLE_BACKENDS = get_available_backends()
 chat_orchestrator = ImprovedChatOrchestrator(llm_client=llm)
 
 DEFAULT_PERSONAS = get_default_personas(llm)
