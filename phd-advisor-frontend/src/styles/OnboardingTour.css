@@ -1,0 +1,12 @@
+/* Force popover to match app theme via CSS vars set on :root[data-theme] */
+[data-tour-elem="popover"] {
+  background: var(--bg-primary) !important;
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+/* All text inside should respect theme */
+[data-tour-elem="popover"] * {
+  -webkit-text-fill-color: inherit;
+}
