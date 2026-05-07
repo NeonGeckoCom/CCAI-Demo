@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText, Menu } from 'lucide-react';
+
+import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText, Menu, HelpCircle } from 'lucide-react';
+
 import EnhancedChatInput from '../components/EnhancedChatInput';
 import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
@@ -824,6 +826,15 @@ const handleNewChat = async (sessionId = null) => {
 
                 {/* Theme Toggle */}
                 <ThemeToggle />
+
+                {/* Help / User Guide */}
+                <button
+                  className="header-help-btn"
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-user-guide'))}
+                  title="Open user guide"
+                >
+                  <HelpCircle />
+                </button>
               </div>
             </div>
           </div>

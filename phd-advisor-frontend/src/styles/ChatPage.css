@@ -730,6 +730,32 @@
   background: var(--bg-secondary-dark, #374151);
 }
 
+.header-help-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.header-help-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.header-help-btn:hover {
+  background: var(--bg-secondary);
+  border-color: #2663EB;
+  color: #2663EB;
+}
+
 /* Loading session indicator */
 .loading-session {
   display: flex;
