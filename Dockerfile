@@ -9,9 +9,10 @@ ENV OVOS_CONFIG_FILENAME=neon.yaml
 ENV XDG_CONFIG_HOME=/config
 
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
     python3 \
-    python3-pip
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
 
 # ---- Python dependencies (cached unless requirements.txt changes) ----------
 WORKDIR /ccai/multi_llm_chatbot_backend
@@ -31,6 +32,10 @@ COPY . .
 
 # ---- Backend target --------------------------------------------------------
 FROM base AS backend
+# Required for /api/voice/transcribe (browser WebM/Opus → WAV for Whisper).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /ccai/multi_llm_chatbot_backend
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 

@@ -5,8 +5,6 @@ import { Reply, Copy, Check, Maximize2, FileText, Hash, Target, Volume2, VolumeX
 import * as LucideIcons from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { useVoiceStatus } from '../contexts/VoiceStatusContext';
-
 const stripMarkdown = (md) => {
   if (!md) return '';
   return md
@@ -35,7 +33,6 @@ const MessageBubble = ({
 }) => {
   const { isDark } = useTheme();
   const { allPersonas: advisors, getAllPersonaColors: getAdvisorColors } = useAppConfig();
-  const voiceStatus = useVoiceStatus();
   const [showTooltip, setShowTooltip] = useState(null);
   const [copiedStates, setCopiedStates] = useState({});
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -55,14 +52,12 @@ const MessageBubble = ({
       setIsLoadingTTS(false);
       return;
     }
-    if (voiceStatus && !voiceStatus.ensureReady('tts')) return;
-
     const text = (content || '').trim();
     if (!text) return;
     setIsLoadingTTS(true);
     try {
       const token = localStorage.getItem('authToken');
-      const resp = await fetch(`${process.env.REACT_APP_API_URL}/api/tts`, {
+      const resp = await fetch(`${process.env.REACT_APP_API_URL}/voice/tts`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -82,7 +77,7 @@ const MessageBubble = ({
       setIsLoadingTTS(false);
       setIsSpeaking(false);
     }
-  }, [isSpeaking, isLoadingTTS, voiceStatus]);
+  }, [isSpeaking, isLoadingTTS]);
 
   useEffect(() => {
     return () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } };
