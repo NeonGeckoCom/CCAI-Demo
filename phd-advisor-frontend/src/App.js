@@ -11,7 +11,7 @@ import './styles/components.css';
 // Set REACT_APP_TESTING_ONBOARDING=true in your .env to force the onboarding
 // tour to run on every page load. Leave unset in production — tour will only
 // show once per user (localStorage).
-export const TESTING_ONBOARDING = process.env.REACT_APP_TESTING_ONBOARDING === 'false';
+export const TESTING_ONBOARDING = process.env.REACT_APP_TESTING_ONBOARDING === 'true';
 
 function App() {
   const [currentView, setCurrentView] = useState('home');
