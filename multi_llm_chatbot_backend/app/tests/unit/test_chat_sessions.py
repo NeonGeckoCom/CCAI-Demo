@@ -81,6 +81,18 @@ def _make_session_doc(user_id=FAKE_USER_ID, session_id=None, **overrides):
     return doc
 
 
+def _make_find_cursor(docs):
+    mock_cursor = MagicMock()
+    mock_cursor.sort.return_value = mock_cursor
+    mock_cursor.skip.return_value = mock_cursor
+    mock_cursor.limit.return_value = mock_cursor
+    mock_cursor.__aiter__ = lambda self: self
+    mock_cursor.__anext__ = AsyncMock(
+        side_effect=[*docs, StopAsyncIteration]
+    )
+    return mock_cursor
+
+
 # ------------------------------------------------------------------
 # persist_message
 # ------------------------------------------------------------------
@@ -164,16 +176,7 @@ class TestGetUserChatSessions(unittest.TestCase):
         mock_get_db.return_value = db
 
         session_doc = _make_session_doc()
-        mock_cursor = MagicMock()
-        mock_cursor.sort.return_value = mock_cursor
-        mock_cursor.skip.return_value = mock_cursor
-        mock_cursor.limit.return_value = mock_cursor
-        mock_cursor.__aiter__ = lambda self: self
-        mock_cursor._items = [session_doc]
-        mock_cursor.__anext__ = AsyncMock(
-            side_effect=[session_doc, StopAsyncIteration]
-        )
-        db.chat_sessions.find.return_value = mock_cursor
+        db.chat_sessions.find.return_value = _make_find_cursor([session_doc])
 
         user = _make_fake_user()
         result = asyncio.run(get_user_chat_sessions(current_user=user))
@@ -185,14 +188,7 @@ class TestGetUserChatSessions(unittest.TestCase):
     def test_returns_empty_list_when_no_sessions(self, mock_get_db):
         db = _mock_db()
         mock_get_db.return_value = db
-
-        mock_cursor = MagicMock()
-        mock_cursor.sort.return_value = mock_cursor
-        mock_cursor.skip.return_value = mock_cursor
-        mock_cursor.limit.return_value = mock_cursor
-        mock_cursor.__aiter__ = lambda self: self
-        mock_cursor.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-        db.chat_sessions.find.return_value = mock_cursor
+        db.chat_sessions.find.return_value = _make_find_cursor([])
 
         user = _make_fake_user()
         result = asyncio.run(get_user_chat_sessions(current_user=user))
