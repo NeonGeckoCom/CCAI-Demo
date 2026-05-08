@@ -54,13 +54,7 @@ const dangerBtn = {
   cursor: 'pointer', fontSize: 14, fontWeight: 500,
 };
 
-const noteBox = {
-  padding: 12, borderRadius: 8, background: 'var(--bg-secondary)',
-  border: '1px dashed var(--border-primary)',
-  color: 'var(--text-secondary)', fontSize: 12.5, marginTop: 12,
-};
-
-const SettingsModal = ({ user, onClose }) => {
+const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) => {
   const [activeTab, setActiveTab] = useState('profile');
 
   const [firstName, setFirstName] = useState(user?.firstName || '');
@@ -74,17 +68,56 @@ const SettingsModal = ({ user, onClose }) => {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   const [message, setMessage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleProfileSubmit = (e) => {
-    e.preventDefault();
-    // TODO(backend): PATCH /api/users/me with { firstName, lastName }
-    // Requires neon-users-service endpoint for profile updates.
-    // On success, update localStorage user + parent App state.
-    setMessage({ type: 'info', text: 'Profile update requires backend endpoint (not yet wired).' });
+  const apiUrl = process.env.REACT_APP_API_URL;
+
+  const extractError = (data, fallback) => {
+    if (!data) return fallback;
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail) && data.detail[0]?.msg) return data.detail[0].msg;
+    return fallback;
   };
 
-  const handlePasswordSubmit = (e) => {
+  const handleProfileSubmit = async (e) => {
     e.preventDefault();
+    setMessage(null);
+    if (!firstName.trim() && !lastName.trim()) {
+      setMessage({ type: 'error', text: 'Enter a first or last name.' });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${apiUrl}/auth/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMessage({ type: 'error', text: extractError(data, 'Could not update profile.') });
+        return;
+      }
+      onUserUpdate?.(data);
+      setFirstName(data.firstName || '');
+      setLastName(data.lastName || '');
+      setMessage({ type: 'success', text: 'Profile updated.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Network error. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    setMessage(null);
     if (newPassword !== confirmPassword) {
       setMessage({ type: 'error', text: 'New passwords do not match.' });
       return;
@@ -93,13 +126,38 @@ const SettingsModal = ({ user, onClose }) => {
       setMessage({ type: 'error', text: 'New password must be at least 8 characters.' });
       return;
     }
-    // TODO(backend): POST /api/users/me/password with { currentPassword, newPassword }
-    // Sensitive action — server must re-verify currentPassword before applying.
-    setMessage({ type: 'info', text: 'Password change requires backend endpoint (not yet wired).' });
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${apiUrl}/auth/me/password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMessage({ type: 'error', text: extractError(data, 'Could not change password.') });
+        return;
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setMessage({ type: 'success', text: 'Password changed.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Network error. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteAccount = (e) => {
+  const handleDeleteAccount = async (e) => {
     e.preventDefault();
+    setMessage(null);
     if (deleteConfirmText !== 'DELETE') {
       setMessage({ type: 'error', text: 'Type DELETE to confirm.' });
       return;
@@ -108,17 +166,49 @@ const SettingsModal = ({ user, onClose }) => {
       setMessage({ type: 'error', text: 'Password required to delete account.' });
       return;
     }
-    // TODO(backend): DELETE /api/users/me with body { password: deleteConfirmPassword }
-    // Sensitive action — server must re-verify password.
-    // On success: clear localStorage, sign out, navigate to home.
-    setMessage({ type: 'info', text: 'Account deletion requires backend endpoint (not yet wired).' });
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${apiUrl}/auth/me`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ password: deleteConfirmPassword }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMessage({ type: 'error', text: extractError(data, 'Could not delete account.') });
+        return;
+      }
+      onClose?.();
+      onSignOut?.();
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Network error. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const messageStyle = (type) => ({
     padding: '10px 12px', borderRadius: 8, marginBottom: 16, fontSize: 13,
-    background: type === 'error' ? 'rgba(220,38,38,0.1)' : 'var(--bg-secondary)',
-    color: type === 'error' ? '#dc2626' : 'var(--text-secondary)',
-    border: `1px solid ${type === 'error' ? 'rgba(220,38,38,0.3)' : 'var(--border-primary)'}`,
+    background: type === 'error'
+      ? 'rgba(220,38,38,0.1)'
+      : type === 'success'
+        ? 'rgba(22,163,74,0.1)'
+        : 'var(--bg-secondary)',
+    color: type === 'error'
+      ? '#dc2626'
+      : type === 'success'
+        ? '#16a34a'
+        : 'var(--text-secondary)',
+    border: `1px solid ${
+      type === 'error'
+        ? 'rgba(220,38,38,0.3)'
+        : type === 'success'
+          ? 'rgba(22,163,74,0.3)'
+          : 'var(--border-primary)'
+    }`,
   });
 
   return ReactDOM.createPortal(
@@ -162,10 +252,9 @@ const SettingsModal = ({ user, onClose }) => {
                   <input style={input} value={lastName} onChange={(e) => setLastName(e.target.value)} />
                 </div>
               </div>
-              <button type="submit" style={primaryBtn}>Save Changes</button>
-              <div style={noteBox}>
-                Backend endpoint not yet wired. See <code>handleProfileSubmit</code> for the expected request shape.
-              </div>
+              <button type="submit" style={primaryBtn} disabled={isSubmitting}>
+                {isSubmitting ? 'Saving…' : 'Save Changes'}
+              </button>
             </form>
           )}
 
@@ -183,10 +272,9 @@ const SettingsModal = ({ user, onClose }) => {
                 <label style={label}>Confirm New Password</label>
                 <input type="password" style={input} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
               </div>
-              <button type="submit" style={primaryBtn}>Change Password</button>
-              <div style={noteBox}>
-                Backend endpoint not yet wired. Server must re-verify the current password before applying the change.
-              </div>
+              <button type="submit" style={primaryBtn} disabled={isSubmitting}>
+                {isSubmitting ? 'Changing…' : 'Change Password'}
+              </button>
             </form>
           )}
 
@@ -210,10 +298,9 @@ const SettingsModal = ({ user, onClose }) => {
                 <label style={label}>Type <strong>DELETE</strong> to confirm</label>
                 <input style={input} value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="DELETE" required />
               </div>
-              <button type="submit" style={dangerBtn}>Permanently Delete Account</button>
-              <div style={noteBox}>
-                Backend endpoint not yet wired. Server must re-verify the password before deletion.
-              </div>
+              <button type="submit" style={dangerBtn} disabled={isSubmitting}>
+                {isSubmitting ? 'Deleting…' : 'Permanently Delete Account'}
+              </button>
             </form>
           )}
         </div>

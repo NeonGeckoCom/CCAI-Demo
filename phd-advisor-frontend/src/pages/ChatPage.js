@@ -17,7 +17,7 @@ import '../styles/EnhancedChatInput.css';
 import AdvisorStatusDropdown from '../components/AdvisorStatusDropdown';
 import AdvisorCarousel from '../components/AdvisorCarousel';
 
-const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSignOut }) => {
+const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSignOut, onUserUpdate }) => {
   const { config, advisors, getAdvisorColors } = useAppConfig();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -754,13 +754,14 @@ const handleNewChat = async (sessionId = null) => {
   return (
     <div className="chat-page-with-sidebar">
       {/* Sidebar Component */}
-      <Sidebar 
+      <Sidebar
         user={user}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onCurrentSessionDeleted={handleCurrentSessionDeleted}
         onSignOut={onSignOut}
+        onUserUpdate={onUserUpdate}
         authToken={authToken}
         onSidebarToggle={handleSidebarToggle}
         isMobileOpen={isMobileMenuOpen}

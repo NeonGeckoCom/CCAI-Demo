@@ -59,6 +59,11 @@ function App() {
     setCurrentView('chat');
   };
 
+  const handleUserUpdate = (updatedUser) => {
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+  };
+
   const handleSignOut = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
@@ -96,6 +101,7 @@ function App() {
               onNavigateToHome={navigateToHome}
               onNavigateToCanvas={navigateToCanvas}
               onSignOut={handleSignOut}
+              onUserUpdate={handleUserUpdate}
             />
           )}
           {/* Global help center — listens for the 'open-user-guide' event */}

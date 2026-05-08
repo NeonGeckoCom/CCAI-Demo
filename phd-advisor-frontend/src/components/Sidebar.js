@@ -19,12 +19,13 @@ import CopyrightNotice from './CopyrightNotice';
 import SettingsModal from './SettingsModal';
 import '../styles/Sidebar.css';
 
-const Sidebar = ({ 
-  user, 
-  currentSessionId, 
-  onSelectSession, 
-  onNewChat, 
+const Sidebar = ({
+  user,
+  currentSessionId,
+  onSelectSession,
+  onNewChat,
   onSignOut,
+  onUserUpdate,
   authToken,
   onSidebarToggle,
   isMobileOpen = false,
@@ -431,7 +432,13 @@ const Sidebar = ({
         onCancel={() => setShowClearAllConfirm(false)}
       />
       {showSettings && (
-        <SettingsModal user={user} onClose={() => setShowSettings(false)} />
+        <SettingsModal
+          user={user}
+          authToken={authToken}
+          onUserUpdate={onUserUpdate}
+          onSignOut={onSignOut}
+          onClose={() => setShowSettings(false)}
+        />
       )}
     </>
   );
