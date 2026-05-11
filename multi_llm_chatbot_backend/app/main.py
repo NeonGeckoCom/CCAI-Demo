@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 
@@ -37,10 +38,12 @@ async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
     from app.core.bootstrap import chat_orchestrator
-    from app.core.brainforge_sync import async_sync_brainforge_personas
+    from app.core.brainforge_sync import async_sync_brainforge_personas, periodic_sync_loop
     await async_sync_brainforge_personas(chat_orchestrator)
+    sync_task = asyncio.create_task(periodic_sync_loop(chat_orchestrator))
     yield
     # Shutdown
+    sync_task.cancel()
     await close_mongo_connection()
 
 app = FastAPI(

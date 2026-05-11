@@ -29,6 +29,12 @@ class ImprovedChatOrchestrator:
         self.personas[persona.id] = persona
         logger.info(f"Registered persona: {persona.id} ({persona.name})")
     
+    def unregister_persona(self, persona_id: str):
+        """Remove a persona from the orchestrator."""
+        removed = self.personas.pop(persona_id, None)
+        if removed:
+            logger.info(f"Unregistered persona: {persona_id} ({removed.name})")
+
     def get_persona(self, persona_id: str) -> Optional[Persona]:
         """Get a specific persona"""
         return self.personas.get(persona_id)

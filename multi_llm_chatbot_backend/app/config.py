@@ -287,7 +287,7 @@ class BrainForgeConfig(BaseModel):
     username: str = Field(default=os.getenv("BRAINFORGE_USERNAME", ""))
     password: str = Field(default=os.getenv("BRAINFORGE_PASSWORD", ""))
     orchestrator_model: str = ""
-    sync_interval: int = 300
+    sync_interval: int = 600   # checks BrainForge for new personas every 10 minutes
 
 
 class LLMConfig(BaseModel):
