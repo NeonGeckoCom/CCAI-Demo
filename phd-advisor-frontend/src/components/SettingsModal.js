@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { X, User as UserIcon, Lock, Trash2, AlertTriangle } from 'lucide-react';
 
@@ -56,6 +56,19 @@ const dangerBtn = {
 
 const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) => {
   const [activeTab, setActiveTab] = useState('profile');
+
+  // Track where the mouse went DOWN so we don't close the modal when a user
+  // drags to select text inside an input and the mouseup happens outside the modal.
+  // (React's onClick fires on the common ancestor of down+up, which can be the
+  // overlay itself — causing accidental close on text selection.)
+  const mouseDownOnOverlay = useRef(false);
+  const handleOverlayMouseDown = (e) => {
+    mouseDownOnOverlay.current = e.target === e.currentTarget;
+  };
+  const handleOverlayMouseUp = (e) => {
+    if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose();
+    mouseDownOnOverlay.current = false;
+  };
 
   const [firstName, setFirstName] = useState(user?.firstName || '');
   const [lastName, setLastName] = useState(user?.lastName || '');
@@ -212,7 +225,7 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
   });
 
   return ReactDOM.createPortal(
-    <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div style={overlay} onMouseDown={handleOverlayMouseDown} onMouseUp={handleOverlayMouseUp}>
       <div style={modal}>
         <div style={header}>
           <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 18 }}>Account Settings</h3>
