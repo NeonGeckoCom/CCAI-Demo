@@ -297,12 +297,13 @@
   transition: all 0.2s ease;
 }
 
-/* Clear All Chats Button */
+/* Clear All Chats Button — matches .new-chat-icon-btn dimensions */
 .clear-all-chats-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   padding: 0;
   background: transparent;
