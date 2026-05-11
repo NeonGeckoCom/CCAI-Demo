@@ -36,6 +36,9 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
+    from app.core.bootstrap import chat_orchestrator
+    from app.core.brainforge_sync import async_sync_brainforge_personas
+    await async_sync_brainforge_personas(chat_orchestrator)
     yield
     # Shutdown
     await close_mongo_connection()
@@ -79,8 +82,40 @@ if _avatars_dir.is_dir():
 # ---------------------------------------------------------------------------
 @app.get("/api/config")
 def get_public_config():
-    """Return the public (non-secret) application configuration."""
-    return settings.get_frontend_config()
+    """Return the public (non-secret) application configuration.
+
+    Merges statically-configured personas (from YAML) with dynamically
+    discovered BrainForge personas so the frontend sees all advisors in
+    a single response.
+    """
+    from app.core.bootstrap import chat_orchestrator
+    from app.config import generate_persona_colors
+    from app.core.brainforge_sync import PERSONA_ID_PREFIX
+
+    config = settings.get_frontend_config()
+
+    static_ids = {p["id"] for p in config["personas"]["items"]}
+
+    for pid, persona in chat_orchestrator.personas.items():
+        if not pid.startswith(f"{PERSONA_ID_PREFIX}_"):
+            continue
+        if pid in static_ids:
+            continue
+
+        colors = generate_persona_colors(persona.name)
+        config["personas"]["items"].append({
+            "id": pid,
+            "name": persona.name,
+            "role": "BrainForge Advisor",
+            "summary": persona.system_prompt[:120] if persona.system_prompt else "",
+            "color": colors["color"],
+            "bg_color": colors["bg_color"],
+            "dark_color": colors["dark_color"],
+            "dark_bg_color": colors["dark_bg_color"],
+            "image": "icon://Brain",
+        })
+
+    return config
 
 @app.get("/")
 def root():

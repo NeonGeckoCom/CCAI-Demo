@@ -134,7 +134,7 @@ class ContextManager:
             return self._format_for_gemini(messages, system_prompt)
         elif provider.lower() in ["ollama", "mistral"]:
             return self._format_for_ollama(messages, system_prompt)
-        elif provider.lower() == "vllm":
+        elif provider.lower() in ["vllm", "brainforge"]:
             return self._format_for_vllm(messages, system_prompt)
         else:
             # Default format

@@ -5,7 +5,6 @@ from app.llm.improved_ollama_client import ImprovedOllamaClient
 from app.llm.improved_vllm_client import ImprovedVllmClient
 from app.core.improved_orchestrator import ImprovedChatOrchestrator
 from app.models.default_personas import get_default_personas
-from app.core.brainforge_sync import sync_brainforge_personas
 
 settings = get_settings()
 
@@ -36,5 +35,3 @@ chat_orchestrator = ImprovedChatOrchestrator(llm_client=llm)
 DEFAULT_PERSONAS = get_default_personas(llm)
 for persona in DEFAULT_PERSONAS:
     chat_orchestrator.register_persona(persona)
-
-sync_brainforge_personas(chat_orchestrator)

@@ -4,9 +4,8 @@ API and registers them as advisors in the orchestrator.
 Called at startup and run periodically via a background loop.
 """
 
-import asyncio
 import logging
-from typing import List, Optional
+from typing import List
 
 import httpx
 
@@ -99,12 +98,8 @@ def build_brainforge_personas(
     return personas
 
 
-def sync_brainforge_personas(orchestrator) -> int:
-    """Fetch BrainForge personas and register them in the orchestrator.
-
-    Returns the number of personas registered. Safe to call at startup —
-    logs a warning and returns 0 if BrainForge is unreachable.
-    """
+async def async_sync_brainforge_personas(orchestrator) -> int:
+    """Async version of sync_brainforge_personas for use within a running event loop."""
     settings = get_settings()
     bf_config = settings.llm.brainforge
 
@@ -119,7 +114,7 @@ def sync_brainforge_personas(orchestrator) -> int:
     api_url = bf_config.api_url.rstrip("/")
     auth = BrainForgeAuthManager(api_url, bf_config.username, bf_config.password)
 
-    models = asyncio.run(fetch_brainforge_models(auth, api_url))
+    models = await fetch_brainforge_models(auth, api_url)
     if not models:
         logger.warning("No BrainForge models available, no personas registered")
         return 0
