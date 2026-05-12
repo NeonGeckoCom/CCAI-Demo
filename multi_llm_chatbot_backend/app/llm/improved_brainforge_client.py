@@ -20,8 +20,8 @@ class ImprovedBrainForgeClient(LLMClient):
     def __init__(
         self,
         api_url: str,
-        username: str,
-        password: str,
+        username: str = "",
+        password: str = "",
         model_id: Optional[str] = None,
         auth_manager: Optional[BrainForgeAuthManager] = None,
     ):

@@ -286,7 +286,6 @@ class BrainForgeConfig(BaseModel):
     api_url: str = Field(default=os.getenv("BRAINFORGE_API_URL", ""))
     username: str = Field(default=os.getenv("BRAINFORGE_USERNAME", ""))
     password: str = Field(default=os.getenv("BRAINFORGE_PASSWORD", ""))
-    orchestrator_model: str = ""
     sync_interval: int = 600   # checks BrainForge for new personas every 10 minutes
 
 

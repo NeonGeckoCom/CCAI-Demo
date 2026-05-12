@@ -25,9 +25,11 @@ class ImprovedChatOrchestrator:
         self.context_manager = get_context_manager()
     
     def register_persona(self, persona: Persona):
-        """Register a persona with the orchestrator"""
+        """Register or update a persona in the orchestrator."""
+        is_new = persona.id not in self.personas
         self.personas[persona.id] = persona
-        logger.info(f"Registered persona: {persona.id} ({persona.name})")
+        if is_new:
+            logger.info(f"Registered persona: {persona.id} ({persona.name})")
     
     def unregister_persona(self, persona_id: str):
         """Remove a persona from the orchestrator."""

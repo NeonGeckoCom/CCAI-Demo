@@ -6,6 +6,7 @@ Called at startup and periodically via a background loop.
 
 import asyncio
 import logging
+import re
 from typing import List
 
 import httpx
@@ -24,7 +25,9 @@ SKIP_PERSONA_NAMES = {"vanilla"}
 def _make_persona_id(model_name: str, persona_name: str) -> str:
     """Generate a stable, unique persona ID like 'bf_neonai_NeonAI'."""
     short_model = model_name.rsplit("/", 1)[-1].lower()
-    return f"{PERSONA_ID_PREFIX}_{short_model}_{persona_name}"
+    # Sanitize persona name for use in URLs and dict keys
+    safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", persona_name).strip("_")
+    return f"{PERSONA_ID_PREFIX}_{short_model}_{safe_name}"
 
 
 async def fetch_brainforge_models(auth: BrainForgeAuthManager, api_url: str) -> list:
@@ -81,8 +84,6 @@ def build_brainforge_personas(
 
             llm_client = ImprovedBrainForgeClient(
                 api_url=api_url,
-                username="",
-                password="",
                 model_id=model_id,
                 auth_manager=auth,
             )
@@ -137,8 +138,9 @@ async def async_sync_brainforge_personas(orchestrator) -> int:
 
     added = 0
     for persona in personas:
-        if persona.id not in orchestrator.personas:
-            orchestrator.register_persona(persona)
+        is_new = persona.id not in orchestrator.personas
+        orchestrator.register_persona(persona)
+        if is_new:
             added += 1
 
     if added or stale_ids:
