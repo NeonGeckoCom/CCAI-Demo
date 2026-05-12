@@ -70,6 +70,7 @@ const AppHeader = ({
         <div className="canvas-tabs chat-view-tabs">
           <button className={`tab ${isOnChat ? 'active' : ''}`} onClick={onNavigateToChat}>Chat</button>
           <button className={`tab ${tabActive('insights') ? 'active' : ''}`} onClick={() => goToCanvas('insights')}>Insights</button>
+          <button className={`tab ${tabActive('workspace') ? 'active' : ''}`} onClick={() => goToCanvas('workspace')}>Workspace</button>
         </div>
       )}
 
@@ -77,7 +78,7 @@ const AppHeader = ({
       {!isOnHome && (
         <select
           className="canvas-tabs-mobile"
-          value={isOnChat ? 'chat' : (canvasSub || 'insights')}
+          value={isOnChat ? 'chat' : (canvasSub || 'workspace')}
           onChange={(e) => {
             const v = e.target.value;
             if (v === 'chat') onNavigateToChat();
@@ -86,6 +87,7 @@ const AppHeader = ({
         >
           <option value="chat">Chat</option>
           <option value="insights">Insights</option>
+          <option value="workspace">Workspace</option>
         </select>
       )}
 

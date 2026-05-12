@@ -28,7 +28,6 @@ import {
   PaletteModal, CommandPaletteModal, GlobalSearchModal,
 } from '../components/canvas/CanvasModals';
 import CanvasWelcomeTour from '../components/canvas/CanvasWelcomeTour';
-import DeliverablesView, { TEMPLATES as DELIVERABLE_TEMPLATES } from '../components/canvas/CanvasDeliverables';
 import { MOD } from '../components/canvas/platform';
 import '../styles/CanvasPage.css';
 
@@ -817,7 +816,12 @@ function ToastStack() {
 const CanvasPage = ({ user, authToken, onNavigateToHome, onNavigateToChat, onSignOut }) => {
   const { theme, toggleTheme } = useTheme();
   useAppConfig();
-  const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'workspace');
+  // PR 3 will add 'deliverables'; until then, fall back to workspace if a stale
+  // 'deliverables' value lingers in storage from a future build.
+  const [view, setView] = useState(() => {
+    const saved = localStorage.getItem(VIEW_KEY);
+    return saved === 'insights' || saved === 'workspace' ? saved : 'workspace';
+  });
   const [modal, setModal] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -958,44 +962,6 @@ const CanvasPage = ({ user, authToken, onNavigateToHome, onNavigateToChat, onSig
     });
   }, [view, layout, widgetStates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Deliverables: list of projects with sections + history actions
-  const deliverableProjects = useMemo(() => {
-    try {
-      const dStore = JSON.parse(localStorage.getItem('canvas-deliverables-v2') || '{}');
-      const projects = Object.values(dStore.projects || {});
-      return projects.map(p => {
-        const t = DELIVERABLE_TEMPLATES.find(x => x.id === p.templateId);
-        return {
-          id: p.id,
-          name: p.name,
-          icon: t?.icon || 'book',
-          versions: p.versions?.length || 0,
-          isActive: p.id === dStore.activeProjectId,
-          sections: (t?.sections || []).map(s => ({
-            id: s.id,
-            name: s.name,
-            wc: ((p.sections || {})[s.id] || '').trim().split(/\s+/).filter(Boolean).length,
-            onClick: () => {
-              if (p.id !== dStore.activeProjectId) {
-                // Open this project first; section scroll happens after a tick.
-                const next = { ...dStore, activeProjectId: p.id };
-                localStorage.setItem('canvas-deliverables-v2', JSON.stringify(next));
-                window.dispatchEvent(new Event('storage'));
-              }
-              setTimeout(() => flashScrollTo(`#notion-section-${s.id}`), 80);
-            },
-          })),
-          onOpen: () => {
-            const next = { ...dStore, activeProjectId: p.id };
-            localStorage.setItem('canvas-deliverables-v2', JSON.stringify(next));
-            window.dispatchEvent(new Event('storage'));
-          },
-        };
-      });
-    } catch { return []; }
-    // re-derive when view or layout changes (layout proxy for "user did something")
-  }, [view, layout, widgetStates]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
     <div className="canvas-page-with-sidebar" data-canvas-theme={theme}>
       <Sidebar
@@ -1011,7 +977,6 @@ const CanvasPage = ({ user, authToken, onNavigateToHome, onNavigateToChat, onSig
         pageContext="canvas"
         canvasSubview={view}
         widgetGroups={widgetGroups}
-        deliverableProjects={deliverableProjects}
         insightSections={insightSections}
       />
       <div className={`canvas-main-area ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -1036,7 +1001,6 @@ const CanvasPage = ({ user, authToken, onNavigateToHome, onNavigateToChat, onSig
           <div className="canvas-content">
             {view === 'insights' && <InsightsView widgetStates={widgetStates} setWidgetStates={setWidgetStates} onNavigateToChat={onNavigateToChat}/>}
             {view === 'workspace' && <WorkspaceView openModal={openModal} layout={layout} setLayout={setLayout} widgetStates={widgetStates} setWidgetStates={setWidgetStates}/>}
-            {view === 'deliverables' && <DeliverablesView allStates={widgetStates}/>}
           </div>
         </div>
       </div>
