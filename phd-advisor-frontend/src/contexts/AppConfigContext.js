@@ -89,6 +89,12 @@ export const AppConfigProvider = ({ children }) => {
     try { return JSON.parse(localStorage.getItem('myCustomAvatars') || '[]'); }
     catch { return []; }
   });
+  // Per-user enable/disable for each advisor. Missing key = enabled by default
+  // so new advisors light up automatically when added on the backend.
+  const [disabledAdvisors, setDisabledAdvisors] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('disabledAdvisors') || '{}'); }
+    catch { return {}; }
+  });
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -125,6 +131,17 @@ export const AppConfigProvider = ({ children }) => {
     localStorage.setItem('myCustomAvatars', JSON.stringify(next));
   };
 
+  // Advisor enable/disable. Disabled advisors are filtered out of orchestrator
+  // calls (TODO backend wiring) and visually dimmed in the UI.
+  const isAdvisorEnabled = (id) => !disabledAdvisors[id];
+  const setAdvisorEnabled = (id, enabled) => {
+    const next = { ...disabledAdvisors };
+    if (enabled) delete next[id];
+    else next[id] = true;
+    setDisabledAdvisors(next);
+    localStorage.setItem('disabledAdvisors', JSON.stringify(next));
+  };
+
   // Inject the primary colour as a CSS custom property on <html> so it is
   // available everywhere without prop-drilling.
   useEffect(() => {
@@ -156,6 +173,9 @@ export const AppConfigProvider = ({ children }) => {
     setAdvisorAvatar,
     addMyAvatar,
     myCustomAvatars,
+    disabledAdvisors,
+    isAdvisorEnabled,
+    setAdvisorEnabled,
   };
 
   if (loading) {
