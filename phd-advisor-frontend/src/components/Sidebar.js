@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   MessageSquare,
   Plus,
+  SquarePen,
   Search,
   MoreVertical,
   Trash2,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import ConfirmDialog from './ConfirmDialog';
+import CopyrightNotice from './CopyrightNotice';
 import '../styles/Sidebar.css';
 
 const Sidebar = ({ 

@@ -19,6 +19,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import CopyrightNotice from '../components/CopyrightNotice';
 import ConfirmDialog from '../components/ConfirmDialog';
 import '../styles/CanvasPage.css';
 
