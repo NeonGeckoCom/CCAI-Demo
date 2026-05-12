@@ -327,7 +327,6 @@ class ImprovedChatOrchestrator:
         logger.warning("Falling back to rule-based clarification check")
         return self.needs_clarification(session, user_input)
 
-    
     async def generate_contextual_clarification(self, user_input: str,
                                                llm_client: LLMClient = None) -> Dict[str, Any]:
         """
