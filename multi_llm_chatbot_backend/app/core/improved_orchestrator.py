@@ -353,7 +353,9 @@ class ImprovedChatOrchestrator:
         )
 
         try:
-            llm = next(iter(self.personas.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
             raw = await llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
@@ -898,8 +900,9 @@ When analyzing the document context:
                 logger.warning("No personas available after filtering.")
                 return []
 
-            # Use the LLM from one of the existing persona objects
-            llm = next(iter(pool.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
 
             # Use recent conversation context (last 5 messages)
             recent_context = "\n".join(
