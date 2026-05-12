@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Icon from './CanvasIcon';
+import { MOD } from './platform';
 
 const TOUR_KEY = 'canvas-tour-seen-v1';
 
@@ -7,17 +8,22 @@ const STEPS = [
   {
     title: 'Welcome to your Canvas',
     icon: 'sparkles',
-    body: 'AI-summarized highlights from your research conversations live here. Each insight is a discrete task you can mark open, in-progress, completed, or abandoned.',
+    body: 'This is your research workspace. Two views — Insights (AI-summarized highlights from your chats) and Workspace (a customizable dashboard of widgets). It starts empty so you can build it the way you want.',
   },
   {
-    title: 'Filter, sort, pin',
+    title: 'Add widgets from the palette',
+    icon: 'plus',
+    body: `Click "Add widget" on the Workspace view, or hit ${MOD}+K and search. There are 30+ widgets — bibliography, kanban, pomodoro, writing tracker, plus three "anti-yes-man" widgets that push back on your thinking.`,
+  },
+  {
+    title: 'Make it yours',
     icon: 'layout',
-    body: 'Use the filter chips to narrow by status, category, or confidence. Pin the most important sections to keep them at the top. The Tasks view flattens everything into a single to-do list.',
+    body: 'Drag widget headers to reorder. Click the size pill (S/M/L) to resize. Hover and click trash to remove. Layout and content auto-save to your browser.',
   },
   {
-    title: 'Ask follow-up',
-    icon: 'message',
-    body: 'Each insight has an "Ask follow-up" action that opens a fresh chat with the relevant context preloaded — useful when a synthesis raises a new question worth digging into.',
+    title: 'Try the anti-yes-man widgets',
+    icon: 'gavel',
+    body: 'Reviewer 2, Devil\'s Advocate, and Scope Realism are tuned to push back, not validate. They\'re where the real work gets sharpened. Add them last — when you\'re ready for honest feedback.',
   },
 ];
 

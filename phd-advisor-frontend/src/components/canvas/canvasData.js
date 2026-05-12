@@ -122,3 +122,181 @@ export const INSIGHTS = [
     ],
   },
 ];
+
+export const WIDGET_CATALOG = [
+  { type: 'bibliography', name: 'Bibliography', desc: 'DOI lookup + BibTeX import; APA/MLA/Chicago/BibTeX export', icon: 'book', cat: 'research', defaultSize: 'M', enhanced: true },
+  { type: 'reading-queue', name: 'Reading Queue', desc: 'CrossRef title search + DOI resolve to auto-fill papers', icon: 'list', cat: 'research', defaultSize: 'S', enhanced: true },
+  { type: 'notes', name: 'Note Inbox', desc: 'Markdown rendering with full-text search', icon: 'notes', cat: 'research', defaultSize: 'S', enhanced: true },
+  { type: 'concept-map', name: 'Concept Map', desc: 'Drag papers as nodes, tag themes', icon: 'network', cat: 'research', defaultSize: 'M', stub: true },
+  { type: 'highlights', name: 'Highlights & Quotes', desc: 'Pulled quotes with citation key, copy-formatted', icon: 'cite', cat: 'research', defaultSize: 'M', enhanced: true },
+  { type: 'paper-tldr', name: 'Paper TL;DR', desc: 'PDF → claim / method / limits / gaps', icon: 'microscope', cat: 'research', defaultSize: 'M', stub: true },
+
+  { type: 'writing', name: 'Writing Tracker', desc: 'Inline writing pad, multi-chapter, 28-day heatmap', icon: 'pencil', cat: 'writing', defaultSize: 'M', enhanced: true },
+  { type: 'outline', name: 'Outline Builder', desc: 'Collapsible tree with indent / outdent / inline editing', icon: 'list', cat: 'writing', defaultSize: 'M', enhanced: true },
+  { type: 'latex', name: 'LaTeX Scratchpad', desc: 'Live KaTeX render-as-you-type with snippet chips', icon: 'flask', cat: 'writing', defaultSize: 'M', enhanced: true },
+  { type: 'draft-locker', name: 'Draft Locker', desc: 'Versioned chapter drafts', icon: 'shield', cat: 'writing', defaultSize: 'S', stub: true },
+
+  { type: 'kanban', name: 'Task Board', desc: 'Drag-to-move with priority filter chips and due-date sort', icon: 'kanban', cat: 'project', defaultSize: 'L', enhanced: true },
+  { type: 'deadlines', name: 'Deadlines', desc: 'Countdown plus per-deadline .ics calendar export', icon: 'calendar', cat: 'project', defaultSize: 'S', enhanced: true },
+  { type: 'pomodoro', name: 'Pomodoro', desc: 'Real timer with break cycle and session counter', icon: 'timer', cat: 'project', defaultSize: 'S', enhanced: true },
+  { type: 'gantt', name: 'Milestone Timeline', desc: 'Proposal → IRB → defense', icon: 'flag', cat: 'project', defaultSize: 'L', stub: true },
+  { type: 'meeting-log', name: 'Meeting Log', desc: 'Per-stakeholder, last contact, actions', icon: 'message', cat: 'project', defaultSize: 'M' },
+  { type: 'goals', name: 'Goals / OKRs', desc: 'Quarterly milestones with progress sliders', icon: 'bullseye', cat: 'project', defaultSize: 'M' },
+  { type: 'calendar', name: 'Calendar', desc: 'Month grid with deadlines and writing days', icon: 'calendar', cat: 'project', defaultSize: 'M', enhanced: true },
+  { type: 'activity', name: 'Activity Feed', desc: 'Chronological log of edits across widgets', icon: 'graph', cat: 'project', defaultSize: 'M', enhanced: true },
+  { type: 'documenter', name: 'Daily Documenter', desc: 'Date-stamped journal · AI weekly summary (LLM stub)', icon: 'pencil', cat: 'project', defaultSize: 'M', enhanced: true },
+  { type: 'phd-journey', name: 'PhD Journey', desc: 'Standard PhD milestones — courses → defense → ProQuest', icon: 'flag', cat: 'project', defaultSize: 'M', enhanced: true },
+  { type: 'phd-resources', name: 'PhD Resources', desc: 'Curated open-source tools, handbooks, and community links', icon: 'star', cat: 'research', defaultSize: 'M', enhanced: true },
+
+  { type: 'mood', name: 'Mood / Burnout Check-in', desc: 'Daily slider, trend graph', icon: 'smile', cat: 'wellness', defaultSize: 'S', stub: true },
+  { type: 'sleep', name: 'Sleep & Energy', desc: 'Correlate with productive days', icon: 'heart', cat: 'wellness', defaultSize: 'S', stub: true },
+  { type: 'habits', name: 'Habit Tracker', desc: 'Daily research practices', icon: 'flame', cat: 'wellness', defaultSize: 'S' },
+  { type: 'focus', name: 'Focus Playlist', desc: 'Ambient sounds & music', icon: 'music', cat: 'wellness', defaultSize: 'S', stub: true },
+
+  { type: 'cfp', name: 'Conference / CFP Tracker', desc: 'Deadlines, fit, submission status', icon: 'send', cat: 'career', defaultSize: 'M', stub: true },
+  { type: 'grants', name: 'Grant Tracker', desc: 'Applications, deadlines, awards', icon: 'award', cat: 'career', defaultSize: 'S', stub: true },
+  { type: 'crm', name: 'Networking CRM', desc: 'Collaborators, last touch', icon: 'network', cat: 'career', defaultSize: 'M', stub: true },
+  { type: 'cv', name: 'CV / Publications', desc: 'Track outputs, generate CV', icon: 'user', cat: 'career', defaultSize: 'S', stub: true },
+
+  { type: 'datasets', name: 'Dataset Library', desc: 'Public datasets by domain', icon: 'database', cat: 'data', defaultSize: 'M', stub: true },
+  { type: 'methods', name: 'Methods Cheat Sheet', desc: 'When to use what test', icon: 'flask', cat: 'data', defaultSize: 'M', stub: true },
+
+  { type: 'budget', name: 'Budget Tracker', desc: 'Research spend vs. cap', icon: 'wallet', cat: 'practical', defaultSize: 'S' },
+  { type: 'discounts', name: 'Student Discounts', desc: 'Software & services with edu pricing', icon: 'star', cat: 'practical', defaultSize: 'S', stub: true },
+
+  { type: 'reviewer-2', name: 'Reviewer 2 Simulator', desc: 'Paste a draft → harsh peer-review-style critique', icon: 'gavel', cat: 'critic', defaultSize: 'M', critic: true },
+  { type: 'devils-advocate', name: 'Devil\'s Advocate', desc: 'Strongest counter-arguments to your hypothesis', icon: 'scale', cat: 'critic', defaultSize: 'M', critic: true },
+  { type: 'scope-realism', name: 'Scope Realism Check', desc: 'Brutal feasibility verdict given timeline', icon: 'bullseye', cat: 'critic', defaultSize: 'M', critic: true },
+  { type: 'assumption', name: 'Assumption Excavator', desc: 'Names hidden assumptions, asks "what if wrong?"', icon: 'brain', cat: 'critic', defaultSize: 'M', critic: true, stub: true },
+  { type: 'whats-missing', name: '"What\'s Missing"', desc: 'Gap analysis on lit review or method', icon: 'alert', cat: 'critic', defaultSize: 'S', critic: true, stub: true },
+  { type: 'calibrator', name: 'Confidence Calibrator', desc: 'Challenges every "results show X" claim', icon: 'scale', cat: 'critic', defaultSize: 'S', critic: true, stub: true },
+];
+
+export const CATEGORIES = [
+  { id: 'all', label: 'All' },
+  { id: 'research', label: 'Research' },
+  { id: 'writing', label: 'Writing' },
+  { id: 'project', label: 'Project' },
+  { id: 'wellness', label: 'Wellness' },
+  { id: 'career', label: 'Career' },
+  { id: 'data', label: 'Data' },
+  { id: 'practical', label: 'Practical' },
+  { id: 'critic', label: 'Anti-yes-man', critic: true },
+];
+
+// Workspace starts empty — users add widgets from the palette or pick a preset.
+export const DEFAULT_LAYOUT = [];
+
+// Curated starter layouts. Each preset assigns its own widget IDs so reseeding
+// won't collide with manually-added widgets.
+const presetIds = (types) => types.map((t, i) => ({ id: `pre-${t.type}-${i}`, ...t }));
+export const WORKSPACE_PRESETS = [
+  {
+    id: 'day1-phd',
+    name: 'Day-1 PhD',
+    desc: 'Get oriented: reading queue, bibliography, notes, deadlines, kanban, pomodoro.',
+    icon: 'sparkles',
+    layout: presetIds([
+      { type: 'reading-queue', size: 'M' },
+      { type: 'bibliography', size: 'M' },
+      { type: 'notes', size: 'M' },
+      { type: 'deadlines', size: 'S' },
+      { type: 'pomodoro', size: 'S' },
+      { type: 'kanban', size: 'L' },
+    ]),
+  },
+  {
+    id: 'writing-sprint',
+    name: 'Writing Sprint',
+    desc: 'Focus mode for drafting: writing pad, outline, LaTeX, highlights, pomodoro.',
+    icon: 'pencil',
+    layout: presetIds([
+      { type: 'writing', size: 'M' },
+      { type: 'outline', size: 'M' },
+      { type: 'pomodoro', size: 'S' },
+      { type: 'latex', size: 'M' },
+      { type: 'highlights', size: 'M' },
+      { type: 'bibliography', size: 'M' },
+    ]),
+  },
+  {
+    id: 'quals-prep',
+    name: 'Quals Prep',
+    desc: 'Lit-review heavy: bibliography, reading queue, notes, highlights, kanban.',
+    icon: 'book',
+    layout: presetIds([
+      { type: 'bibliography', size: 'L' },
+      { type: 'reading-queue', size: 'M' },
+      { type: 'notes', size: 'M' },
+      { type: 'highlights', size: 'M' },
+      { type: 'kanban', size: 'M' },
+    ]),
+  },
+  {
+    id: 'defense-mode',
+    name: 'Defense Mode',
+    desc: 'Final stretch: writing, outline, anti-yes-man critics, deadlines.',
+    icon: 'gavel',
+    layout: presetIds([
+      { type: 'writing', size: 'M' },
+      { type: 'outline', size: 'M' },
+      { type: 'reviewer-2', size: 'M', critic: true },
+      { type: 'devils-advocate', size: 'M', critic: true },
+      { type: 'scope-realism', size: 'M', critic: true },
+      { type: 'deadlines', size: 'S' },
+    ]),
+  },
+];
+
+// Initial state when a widget is first added — minimal scaffolding, no demo content.
+export const EMPTY_STATE = {
+  bibliography: { format: 'APA', entries: [] },
+  kanban: {
+    cols: [
+      { id: 'todo', label: 'To Do' },
+      { id: 'doing', label: 'Doing' },
+      { id: 'stuck', label: 'Stuck' },
+      { id: 'done', label: 'Done' },
+    ],
+    cards: [],
+  },
+  pomodoro: { focus: 25, brk: 5, sessionsToday: 0 },
+  writing: {
+    chapters: [{ id: 'c-default', name: 'Untitled chapter', target: 500, draft: '' }],
+    activeChapterId: 'c-default',
+    dailyTotals: {},
+    target: 500,
+  },
+  deadlines: [],
+  budget: { cap: 1000, items: [] },
+  notes: { items: [] },
+  habits: { items: [] },
+  goals: { items: [] },
+  'meeting-log': { items: [] },
+  'reading-queue': [],
+  'reviewer-2': { lastDraft: '', lastReview: null },
+  'devils-advocate': { claim: '', counters: [] },
+  'scope-realism': {
+    target: '',
+    score: 0,
+    label: 'Set a target',
+    factors: [],
+    notes: '',
+  },
+  outline: { items: [], expanded: {} },
+  highlights: { items: [] },
+  latex: { source: '', displayMode: true },
+  calendar: { viewMonth: new Date().toISOString().slice(0, 7) },
+  activity: {},
+  documenter: { entries: [], lastSummary: null },
+  'phd-journey': {
+    // Status per milestone: 'open' | 'in-progress' | 'completed'
+    // Milestones come from the standard PhD journey (course selection → ProQuest)
+    statuses: {},
+    notes: {},
+  },
+  'phd-resources': {
+    customLinks: [],
+  },
+};
+
