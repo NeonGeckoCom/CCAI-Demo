@@ -102,6 +102,36 @@ class TestLoadSettings(unittest.TestCase):
             any("allowed_advisors is set to an empty list" in msg for msg in cm.output)
         )
 
+    def test_frontend_config_includes_all_when_no_whitelist(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "items": [
+                    {"id": "one", "name": "One"},
+                    {"id": "two", "name": "Two"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        frontend = settings.get_frontend_config()
+        ids = [p["id"] for p in frontend["personas"]["items"]]
+        self.assertEqual(ids, ["one", "two"])
+
+    def test_frontend_config_filters_by_whitelist(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "allowed_advisors": ["two"],
+                "items": [
+                    {"id": "one", "name": "One"},
+                    {"id": "two", "name": "Two"},
+                    {"id": "three", "name": "Three"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        frontend = settings.get_frontend_config()
+        ids = [p["id"] for p in frontend["personas"]["items"]]
+        self.assertEqual(ids, ["two"])
+
     def test_bad_persona_does_not_crash_everything(self):
         """Validates that a bad persona in the inline items list causes a
         validation error -- the directory loader solves this for file-based configs."""
