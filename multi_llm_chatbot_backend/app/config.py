@@ -337,6 +337,12 @@ class AppSettings(BaseModel):
     def get_frontend_config(self) -> dict:
         """Return the subset of configuration safe to expose to the frontend
         via ``GET /api/config``.  Secrets are excluded."""
+        allowed = self.personas.allowed_advisors
+        persona_items = self.personas.items
+        if allowed is not None:
+            allowed_set = set(allowed)
+            persona_items = [p for p in persona_items if p.id in allowed_set]
+
         return {
             "app": self.app.dict(),
             "homepage": self.homepage.dict(),
@@ -344,7 +350,7 @@ class AppSettings(BaseModel):
             "chat_page": self.chat_page.dict(),
             "onboarding": self.onboarding.dict(),
             "personas": {
-                "items": [p.to_frontend_config() for p in self.personas.items],
+                "items": [p.to_frontend_config() for p in persona_items],
             },
             "version": __version__,
         }
