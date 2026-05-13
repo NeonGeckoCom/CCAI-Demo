@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field
 from app.api.routes.chat_sessions import persist_message
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
+from app.config import get_settings
 from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
+from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
 from app.models.user import User
 
@@ -137,9 +139,17 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
+            # Filter personas by system whitelist and user preferences
+            available = get_available_persona_ids(
+                registered_ids=chat_orchestrator.list_personas(),
+                system_allowed=get_settings().personas.allowed_advisors,
+                user_disabled=current_user.disabled_advisors,
+            )
+
             # Get personas most relevant to the current session
             top_personas = await chat_orchestrator.get_top_personas(
                 session_id=sid,
+                allowed_ids=available,
             )
 
             done_queue: asyncio.Queue = asyncio.Queue()
