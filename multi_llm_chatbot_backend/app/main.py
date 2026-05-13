@@ -23,6 +23,7 @@ from app.api.routes import router as main_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
 from app.api.routes.phd_canvas import router as phd_canvas_router
+from app.api.routes.preferences import router as preferences_router
 
 import logging
 
@@ -61,6 +62,7 @@ app.include_router(main_router)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
+app.include_router(preferences_router, prefix="/api", tags=["preferences"])
 
 # Serve bundled avatar images
 _avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"
