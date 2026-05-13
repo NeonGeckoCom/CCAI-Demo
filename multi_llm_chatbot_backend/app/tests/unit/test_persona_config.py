@@ -63,6 +63,45 @@ class TestLoadSettings(unittest.TestCase):
         ids = {p.id for p in settings.personas.items}
         self.assertEqual(ids, {"one", "two"})
 
+    def test_allowed_advisors_defaults_to_none(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "items": [
+                    {"id": "a", "name": "A"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        self.assertIsNone(settings.personas.allowed_advisors)
+
+    def test_allowed_advisors_populated(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "allowed_advisors": ["one", "two"],
+                "items": [
+                    {"id": "one", "name": "One"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        self.assertEqual(settings.personas.allowed_advisors, ["one", "two"])
+
+    def test_allowed_advisors_empty_list_warns(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "allowed_advisors": [],
+                "items": [
+                    {"id": "a", "name": "A"},
+                ]
+            }
+        })
+        with self.assertLogs("app.config", level="WARNING") as cm:
+            settings = load_settings(cfg_path)
+        self.assertEqual(settings.personas.allowed_advisors, [])
+        self.assertTrue(
+            any("allowed_advisors is set to an empty list" in msg for msg in cm.output)
+        )
+
     def test_bad_persona_does_not_crash_everything(self):
         """Validates that a bad persona in the inline items list causes a
         validation error -- the directory loader solves this for file-based configs."""

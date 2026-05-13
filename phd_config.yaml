@@ -115,6 +115,12 @@ personas:
   # Individual persona files are loaded from this directory (relative to this file).
   personas_dir: "personas/phd_advisors"
 
+  # Optional whitelist of advisor IDs. When set, only these advisors are
+  # available. Omit or leave unset to allow all enabled personas.
+  # allowed_advisors:
+  #   - "pragmatist"
+  #   - "theorist"
+
 # ── Orchestrator / Clarification ───────────────────────────────────────────
 
 orchestrator:
