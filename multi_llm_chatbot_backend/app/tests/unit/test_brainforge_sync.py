@@ -158,7 +158,7 @@ def _make_mock_settings(api_url=FAKE_URL, username="user", password="pass"):
     settings.llm.brainforge.api_url = api_url
     settings.llm.brainforge.username = username
     settings.llm.brainforge.password = password
-    settings.llm.brainforge.sync_interval = 300
+    settings.llm.brainforge.sync_interval_seconds = 300
     return settings
 
 

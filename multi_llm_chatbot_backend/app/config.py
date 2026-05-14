@@ -283,10 +283,10 @@ class VllmConfig(BaseModel):
 
 
 class BrainForgeConfig(BaseModel):
-    api_url: str = Field(default=os.getenv("BRAINFORGE_API_URL", ""))
+    api_url: str = ""
     username: str = Field(default=os.getenv("BRAINFORGE_USERNAME", ""))
     password: str = Field(default=os.getenv("BRAINFORGE_PASSWORD", ""))
-    sync_interval: int = 600   # checks BrainForge for new personas every 10 minutes
+    sync_interval_seconds: int = 600
 
 
 class LLMConfig(BaseModel):

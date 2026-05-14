@@ -155,10 +155,10 @@ async def async_sync_brainforge_personas(orchestrator) -> int:
 async def periodic_sync_loop(orchestrator) -> None:
     """Background task that re-syncs BrainForge personas on a timer."""
     settings = get_settings()
-    interval = settings.llm.brainforge.sync_interval
+    interval = settings.llm.brainforge.sync_interval_seconds
 
     if interval <= 0:
-        logger.info("BrainForge periodic sync disabled (sync_interval=%d)", interval)
+        logger.info("BrainForge periodic sync disabled (sync_interval_seconds=%d)", interval)
         return
 
     logger.info("BrainForge periodic sync started (every %ds)", interval)
