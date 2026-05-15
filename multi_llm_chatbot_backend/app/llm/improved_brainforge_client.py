@@ -9,6 +9,22 @@ from app.core.context_manager import get_context_manager
 
 logger = logging.getLogger(__name__)
 
+_COMPACT_MARKDOWN_MARKER = "You must format your answer using GitHub-Flavored Markdown"
+
+_BRAINFORGE_MINIMAL_PROMPT = (
+    "Answer using exactly these three sections. "
+    "Each section MUST say something completely different.\n"
+    "\n"
+    "### Thought\n"
+    "One sentence about the topic.\n"
+    "\n"
+    "### What to do\n"
+    "Three bullet points using '-'. Each bullet is a different action.\n"
+    "\n"
+    "### Next step\n"
+    "One sentence — must be different from Thought."
+)
+
 
 class ImprovedBrainForgeClient(LLMClient):
     """LLM client for BrainForge via its OpenAI-compatible endpoint.
@@ -58,9 +74,12 @@ class ImprovedBrainForgeClient(LLMClient):
         response_mime_type: str = None,
     ) -> str:
         try:
+            marker_idx = system_prompt.find(_COMPACT_MARKDOWN_MARKER)
+            persona_identity = system_prompt[:marker_idx].strip() if marker_idx != -1 else system_prompt
+            augmented_system_prompt = f"{persona_identity}\n\n{_BRAINFORGE_MINIMAL_PROMPT}"
             context_window = self.context_manager.prepare_context_for_llm(
                 messages=context,
-                system_prompt=system_prompt,
+                system_prompt=augmented_system_prompt,
                 llm_provider="brainforge",
             )
 
