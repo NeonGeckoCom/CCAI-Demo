@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { X, User as UserIcon, Lock, Trash2, AlertTriangle, Users } from 'lucide-react';
 import Toggle from './Toggle';
@@ -69,7 +69,20 @@ const miniBtn = {
 
 const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) => {
   const [activeTab, setActiveTab] = useState('profile');
-  const { advisors, isAdvisorEnabled, setAdvisorEnabled } = useAppConfig();
+  const {
+    advisors,
+    isAdvisorEnabled,
+    setAdvisorEnabled,
+    setAllAdvisorsEnabled,
+    hydrateAdvisorPreferences,
+  } = useAppConfig();
+
+  // Reconcile with the backend whenever the user opens Settings (covers fresh
+  // logins and changes made on another device).
+  useEffect(() => {
+    hydrateAdvisorPreferences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Track where the mouse went DOWN so we don't close the modal when a user
   // drags to select text inside an input and the mouseup happens outside the modal.
@@ -240,9 +253,7 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
 
   const advisorEntries = Object.entries(advisors || {});
   const enabledCount = advisorEntries.filter(([id]) => isAdvisorEnabled(id)).length;
-  const setAll = (enabled) => {
-    advisorEntries.forEach(([id]) => setAdvisorEnabled(id, enabled));
-  };
+  const setAll = (enabled) => setAllAdvisorsEnabled(enabled);
 
   return ReactDOM.createPortal(
     <div style={overlay} onMouseDown={handleOverlayMouseDown} onMouseUp={handleOverlayMouseUp}>
