@@ -20,8 +20,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install setuptools
-        run: pip install setuptools
       - name: Get Version
         run: |
           VERSION=$(python multi_llm_chatbot_backend/app/version.py)
