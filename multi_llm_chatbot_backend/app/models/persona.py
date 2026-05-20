@@ -266,10 +266,6 @@ class Persona:
             max_tokens=max_tokens,
         )
 
-        # Skip post-processing if the LLM client already returned well-formed compact markdown
-        if raw_text and raw_text.startswith("### Thought\n"):
-            return raw_text
-
         compact = _ensure_compact_shape(raw_text or "", response_length)
 
         # Final safety: cap extreme length by trimming bullet lines further if necessary

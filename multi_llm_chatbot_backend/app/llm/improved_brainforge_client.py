@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 _STRUCTURED_OUTPUT_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
-        "thought": {"type": "string"},
+        "thought": {"type": "string", "maxLength": 225},
         "what_to_do": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {"type": "string", "maxLength": 160},
             "minItems": 3,
             "maxItems": 3,
         },
-        "next_step": {"type": "string"},
+        "next_step": {"type": "string", "maxLength": 225},
     },
     "required": ["thought", "what_to_do", "next_step"],
 }
