@@ -64,6 +64,28 @@ class ChatStreamLine(BaseModel):
         return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
 
 
+def build_advisor_persist_message(
+    persona_id: str,
+    persona_name: str,
+    content: str,
+    used_documents: bool = False,
+    document_chunks_used: int = 0,
+    **extra,
+) -> Dict[str, Any]:
+    """Build the dict persisted to MongoDB for an advisor/orchestrator response."""
+    msg = {
+        "id": str(ObjectId()),
+        "type": "advisor",
+        "persona_id": persona_id,
+        "advisorName": persona_name,
+        "content": content,
+        "used_documents": used_documents,
+        "document_chunks_used": document_chunks_used,
+    }
+    msg.update(extra)
+    return msg
+
+
 @router.post("/chat-stream")
 async def chat_stream(
     message: ChatMessage,
@@ -122,7 +144,17 @@ async def chat_stream(
             # directly and skip persona generation.
             tool_result = await chat_orchestrator.get_tool_response(message.user_input)
             if tool_result.used_tool:
+                # Append user message to in-memory session and persist to MongoDB
                 session.append_message("orchestrator", tool_result.text)
+                if message.chat_session_id:
+                    await persist_message(
+                        message.chat_session_id,
+                        build_advisor_persist_message(
+                            persona_id="orchestrator",
+                            persona_name="Orchestrator",
+                            content=tool_result.text,
+                        ),
+                    )
                 yield ChatStreamLine(
                     type="advisor",
                     data={
@@ -216,6 +248,17 @@ async def chat_stream(
 
             for _ in range(len(tasks)):
                 result = await done_queue.get()
+                if message.chat_session_id:
+                    await persist_message(
+                        message.chat_session_id,
+                        build_advisor_persist_message(
+                            persona_id=result["persona_id"],
+                            persona_name=result["persona_name"],
+                            content=result["response"],
+                            used_documents=result.get("used_documents", False),
+                            document_chunks_used=result.get("document_chunks_used", 0),
+                        ),
+                    )
                 line = ChatStreamLine(
                     type="advisor",
                     data={
