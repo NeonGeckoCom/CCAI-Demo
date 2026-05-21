@@ -117,7 +117,7 @@ class TestImprovedBrainForgeClient(unittest.TestCase):
         payload = call_args[1]["json"]
         self.assertEqual(payload["model"], FAKE_MODEL)
         self.assertEqual(payload["temperature"], 0.5)
-        self.assertEqual(payload["max_tokens"], 50)
+        self.assertEqual(payload["max_tokens"], 100)  # 50 * 2 (JSON overhead scaling)
 
     def test_generate_auto_discovers_model_when_none(self, mock_ctx, MockHttpClient):
         client = _make_client(model_id=None)
