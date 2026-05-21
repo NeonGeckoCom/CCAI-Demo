@@ -7,7 +7,6 @@ import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import SuggestionsPanel from '../components/SuggestionsPanel';
 import ThemeToggle from '../components/ThemeToggle';
-import WelcomeModelPicker from '../components/WelcomeModelPicker';
 import SettingsModal from '../components/SettingsModal';
 import ExportButton from '../components/ExportButton';
 import Sidebar from '../components/Sidebar';
@@ -130,16 +129,6 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
     } finally {
       setIsProviderSwitching(false);
     }
-  };
-
-  const handleProviderSwitch = async (newProvider) => {
-    if (isProviderSwitching) return;
-    if (llmConfig.mode === 'uniform' && newProvider === llmConfig.default_backend) return;
-
-    await submitProviderConfig(
-      { mode: 'uniform', default_backend: newProvider },
-      newProvider.charAt(0).toUpperCase() + newProvider.slice(1)
-    );
   };
 
   const handleHybridSubmit = async (hybridConfig) => {
@@ -870,14 +859,6 @@ const handleNewChat = async (sessionId = null) => {
           <div className="chat-content">
             {!hasMessages ? (
               <div className="welcome-state">
-                <WelcomeModelPicker
-                  advisors={advisors}
-                  availableBackends={availableBackends}
-                  llmConfig={llmConfig}
-                  isSwitching={isProviderSwitching}
-                  onSelectUniform={handleProviderSwitch}
-                  onSubmitHybrid={handleHybridSubmit}
-                />
                 <AdvisorCarousel />
                 <SuggestionsPanel onSuggestionClick={handleSendMessage} />
               </div>
@@ -1035,6 +1016,9 @@ const handleNewChat = async (sessionId = null) => {
       {isSettingsOpen && (
         <SettingsModal
           user={user}
+          authToken={authToken}
+          onUserUpdate={onUserUpdate}
+          onSignOut={onSignOut}
           advisors={advisors}
           availableBackends={availableBackends}
           llmConfig={llmConfig}
