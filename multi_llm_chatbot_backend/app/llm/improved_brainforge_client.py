@@ -74,6 +74,10 @@ class ImprovedBrainForgeClient(LLMClient):
         max_tokens: int,
         response_mime_type: str = None,
     ) -> str:
+        # JSON structured outputs need more tokens than plain text due to
+        # syntax overhead ({, ", :, [, etc.).  Scale up to avoid truncation.
+        max_tokens = int(max_tokens * 2)
+
         try:
             context_window = self.context_manager.prepare_context_for_llm(
                 messages=context,
@@ -147,8 +151,8 @@ class ImprovedBrainForgeClient(LLMClient):
                         + f"\n\n### Next step\n{parsed['next_step']}"
                     )
                     return md
-            except (json.JSONDecodeError, KeyError, TypeError):
-                pass
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                logger.warning("BrainForge JSON parse failed (%s): %s", type(exc).__name__, exc)
 
             # Fallback: plain text response (structured_outputs not active)
             return self._clean_response(text)
