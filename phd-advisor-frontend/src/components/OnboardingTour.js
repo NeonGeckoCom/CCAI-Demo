@@ -260,8 +260,8 @@ const OnboardingTour = ({ children }) => {
     features: buildFeatures(config, resolveIcon),
     advisorBody: buildAdvisorBody(advisors),
     canvas: {
-      title: config?.canvas?.tour_title || DEFAULT_CANVAS_STEP.title,
-      body: config?.canvas?.tour_body || DEFAULT_CANVAS_STEP.body,
+      title: config?.onboarding?.tour_title || DEFAULT_CANVAS_STEP.title,
+      body: config?.onboarding?.tour_body || DEFAULT_CANVAS_STEP.body,
     },
   }), [config, advisors, resolveIcon]);
 

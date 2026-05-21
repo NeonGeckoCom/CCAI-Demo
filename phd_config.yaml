@@ -94,8 +94,6 @@ onboarding:
       icon: "Paperclip"
     - title: "Track your PhD progress on a structured canvas"
       icon: "BarChart3"
-
-canvas:
   tour_title: "PhD Progress Canvas"
   tour_body: "A dashboard view of your PhD journey — research progress, methodology, next steps, all in one place."
 
