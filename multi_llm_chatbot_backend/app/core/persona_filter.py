@@ -21,11 +21,9 @@ def get_available_persona_ids(
     ids = list(registered_ids)
 
     if system_allowed is not None:
-        allowed_set = set(system_allowed)
-        ids = [pid for pid in ids if pid in allowed_set]
+        ids = [pid for pid in ids if pid in system_allowed]
 
     if user_disabled is not None:
-        disabled_set = set(user_disabled)
-        ids = [pid for pid in ids if pid not in disabled_set]
+        ids = [pid for pid in ids if pid not in user_disabled]
 
     return ids
