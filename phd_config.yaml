@@ -118,15 +118,6 @@ personas:
   # Optional whitelist of advisor IDs. When set, only these advisors are
   # available. Omit or leave unset to allow all enabled personas.
   allowed_advisors:
-    - "critic"
-    - "empathetic"
-    - "methodologist"
-    - "minimalist"
-    - "motivator"
-    - "pragmatist"
-    - "socratic"
-    - "storyteller"
-    - "theorist"
 
 # ── Orchestrator / Clarification ───────────────────────────────────────────
 
