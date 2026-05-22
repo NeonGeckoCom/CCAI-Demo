@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.brainforge_sync import (
     BRAINFORGE_PERSONA_PREFIX,
-    SKIP_PERSONA_NAMES,
+    _SKIP_PERSONA_NAMES,
     _make_persona_id,
     build_brainforge_personas,
     async_sync_brainforge_personas,
@@ -98,7 +98,7 @@ class TestBuildBrainforgePersonas(unittest.TestCase):
         personas = build_brainforge_personas(SAMPLE_MODELS, mock_auth, FAKE_URL)
 
         names = {p.name for p in personas}
-        for skip_name in SKIP_PERSONA_NAMES:
+        for skip_name in _SKIP_PERSONA_NAMES:
             self.assertNotIn(skip_name, names)
 
     def test_skips_disabled_persona(self, mock_ctx):

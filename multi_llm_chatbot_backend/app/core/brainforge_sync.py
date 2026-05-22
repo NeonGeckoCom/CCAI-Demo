@@ -19,7 +19,7 @@ from app.models.persona import Persona
 logger = logging.getLogger(__name__)
 
 BRAINFORGE_PERSONA_PREFIX = "bf"
-SKIP_PERSONA_NAMES = {"vanilla"}
+_SKIP_PERSONA_NAMES = {"vanilla"}
 
 
 def _make_persona_id(model_name: str, persona_name: str) -> str:
@@ -67,7 +67,7 @@ def build_brainforge_personas(
         for p in model.get("personas", []):
             persona_name = p.get("persona_name", "")
 
-            if persona_name.lower() in SKIP_PERSONA_NAMES:
+            if persona_name.lower() in _SKIP_PERSONA_NAMES:
                 continue
 
             if not p.get("enabled", True):
