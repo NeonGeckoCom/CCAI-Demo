@@ -3,6 +3,7 @@ import os
 import tempfile
 import yaml
 import app.config
+from pydantic import ValidationError
 from app.config import load_settings, load_personas_from_dir, PersonasConfig
 
 
@@ -86,7 +87,7 @@ class TestLoadSettings(unittest.TestCase):
         settings = load_settings(cfg_path)
         self.assertEqual(settings.personas.allowed_advisors, ["one", "two"])
 
-    def test_allowed_advisors_empty_list_warns(self):
+    def test_allowed_advisors_empty_list_raises(self):
         cfg_path = _write_config(self.tmp_path, {
             "personas": {
                 "allowed_advisors": [],
@@ -95,12 +96,8 @@ class TestLoadSettings(unittest.TestCase):
                 ]
             }
         })
-        with self.assertLogs("app.config", level="WARNING") as cm:
-            settings = load_settings(cfg_path)
-        self.assertEqual(settings.personas.allowed_advisors, [])
-        self.assertTrue(
-            any("allowed_advisors is set to an empty list" in msg for msg in cm.output)
-        )
+        with self.assertRaises(ValidationError):
+            load_settings(cfg_path)
 
     def test_frontend_config_includes_all_when_no_whitelist(self):
         cfg_path = _write_config(self.tmp_path, {

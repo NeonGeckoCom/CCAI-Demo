@@ -179,10 +179,11 @@ class PersonasConfig(BaseModel):
     allowed_advisors: Optional[List[str]] = None
 
     @model_validator(mode='after')
-    def _warn_empty_allowed_advisors(self):
+    def _validate_allowed_advisors(self):
         if self.allowed_advisors is not None and len(self.allowed_advisors) == 0:
-            logger.warning(
-                "allowed_advisors is set to an empty list; no advisors will be available"
+            raise ValueError(
+                "allowed_advisors must not be an empty list; "
+                "omit the setting or set to null to allow all advisors"
             )
         return self
 
