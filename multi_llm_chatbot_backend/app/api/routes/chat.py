@@ -64,6 +64,20 @@ class ChatStreamLine(BaseModel):
         return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
 
 
+def build_user_persist_message(
+    content: str,
+    **extra,
+) -> Dict[str, Any]:
+    """Build the dict persisted to MongoDB for a user message."""
+    msg = {
+        "id": str(ObjectId()),
+        "type": "user",
+        "content": content,
+    }
+    msg.update(extra)
+    return msg
+
+
 def build_advisor_persist_message(
     persona_id: str,
     persona_name: str,
@@ -119,11 +133,10 @@ async def chat_stream(
             # Append user message to in-memory session and persist to MongoDB
             session.append_message("user", message.user_input)
             if message.chat_session_id:
-                await persist_message(message.chat_session_id, {
-                    "id": str(ObjectId()),
-                    "type": "user",
-                    "content": message.user_input,
-                })
+                await persist_message(
+                    message.chat_session_id,
+                    build_user_persist_message(content=message.user_input),
+                )
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
@@ -465,7 +478,19 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
             session_id = await get_or_create_session_for_request_async(request)
         
         session = session_manager.get_session(session_id)
-        
+
+        if reply.chat_session_id:
+            await persist_message(
+                reply.chat_session_id,
+                build_user_persist_message(
+                    content=reply.user_input,
+                    replyTo={
+                        "advisorId": reply.advisor_id,
+                        "messageId": reply.original_message_id,
+                    },
+                ),
+            )
+
         # Find the original message being replied to for context
         original_message = None
         if reply.original_message_id:
@@ -488,6 +513,16 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         # Handle response structure
         if result.get("type") == "single_persona_response" and "persona" in result:
             persona_data = result["persona"]
+            if reply.chat_session_id:
+                await persist_message(
+                    reply.chat_session_id,
+                    build_advisor_persist_message(
+                        persona_id=persona_data["persona_id"],
+                        persona_name=persona_data["persona_name"],
+                        content=persona_data["response"],
+                        isReply=True,
+                    ),
+                )
             return {
                 "type": "advisor_reply",
                 "persona": persona_data["persona_name"],
@@ -496,6 +531,16 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                 "original_message_id": reply.original_message_id
             }
         elif "persona_id" in result and "response" in result:
+            if reply.chat_session_id:
+                await persist_message(
+                    reply.chat_session_id,
+                    build_advisor_persist_message(
+                        persona_id=result["persona_id"],
+                        persona_name=result["persona_name"],
+                        content=result["response"],
+                        isReply=True,
+                    ),
+                )
             return {
                 "type": "advisor_reply",
                 "persona": result["persona_name"],
