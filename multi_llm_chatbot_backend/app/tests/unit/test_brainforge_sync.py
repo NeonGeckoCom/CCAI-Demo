@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.brainforge_sync import (
-    PERSONA_ID_PREFIX,
+    BRAINFORGE_PERSONA_PREFIX,
     SKIP_PERSONA_NAMES,
     _make_persona_id,
     build_brainforge_personas,
@@ -58,7 +58,7 @@ class TestMakePersonaId(unittest.TestCase):
 
     def test_slugifies_special_characters(self):
         pid = _make_persona_id("BrainForge/test-model", "Dr. Smith's Bot!")
-        self.assertTrue(pid.startswith(f"{PERSONA_ID_PREFIX}_"))
+        self.assertTrue(pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"))
         self.assertNotIn(" ", pid)
         self.assertNotIn(".", pid)
         self.assertNotIn("'", pid)
@@ -75,7 +75,7 @@ class TestMakePersonaId(unittest.TestCase):
 
     def test_prefix_is_correct(self):
         pid = _make_persona_id("BrainForge/neonai", "NeonAI")
-        self.assertTrue(pid.startswith(f"{PERSONA_ID_PREFIX}_"))
+        self.assertTrue(pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"))
 
 
 @patch("app.llm.improved_brainforge_client.get_context_manager")
@@ -91,7 +91,7 @@ class TestBuildBrainforgePersonas(unittest.TestCase):
         self.assertIn("Nucleotidings", names)
 
         for p in personas:
-            self.assertTrue(p.id.startswith(f"{PERSONA_ID_PREFIX}_"))
+            self.assertTrue(p.id.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"))
 
     def test_skips_vanilla_persona(self, mock_ctx):
         mock_auth = AsyncMock()
@@ -178,7 +178,7 @@ class TestAsyncSyncBrainforgePersonas(unittest.TestCase):
         self.assertEqual(count, 2)
         self.assertEqual(orch.register_persona.call_count, 2)
         registered_ids = {call.args[0].id for call in orch.register_persona.call_args_list}
-        self.assertTrue(all(pid.startswith(f"{PERSONA_ID_PREFIX}_") for pid in registered_ids))
+        self.assertTrue(all(pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_") for pid in registered_ids))
 
     def test_sync_removes_stale_personas(self, mock_settings, mock_fetch, mock_ctx):
         mock_settings.return_value = _make_mock_settings()

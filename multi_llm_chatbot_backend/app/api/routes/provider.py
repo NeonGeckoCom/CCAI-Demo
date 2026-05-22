@@ -5,7 +5,7 @@ from app.llm.improved_ollama_client import ImprovedOllamaClient
 from app.llm.improved_vllm_client import ImprovedVllmClient
 from app.models.default_personas import get_default_personas
 from app.core.bootstrap import chat_orchestrator, llm, current_provider, available_providers
-from app.core.brainforge_sync import PERSONA_ID_PREFIX
+from app.core.brainforge_sync import BRAINFORGE_PERSONA_PREFIX
 from pydantic import BaseModel
 import os
 import logging
@@ -74,7 +74,7 @@ async def switch_provider(provider_data: ProviderSwitch):
 
         new_personas = get_default_personas(new_llm)
         # Clear only non-BrainForge personas; BF advisors have their own LLM clients
-        non_bf_ids = [pid for pid in chat_orchestrator.personas if not pid.startswith(f"{PERSONA_ID_PREFIX}_")]
+        non_bf_ids = [pid for pid in chat_orchestrator.personas if not pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_")]
         for pid in non_bf_ids:
             chat_orchestrator.unregister_persona(pid)
         for persona in new_personas:

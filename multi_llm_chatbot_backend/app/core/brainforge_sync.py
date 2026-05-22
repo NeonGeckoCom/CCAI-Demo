@@ -18,7 +18,7 @@ from app.models.persona import Persona
 
 logger = logging.getLogger(__name__)
 
-PERSONA_ID_PREFIX = "bf"
+BRAINFORGE_PERSONA_PREFIX = "bf"
 SKIP_PERSONA_NAMES = {"vanilla"}
 
 
@@ -27,7 +27,7 @@ def _make_persona_id(model_name: str, persona_name: str) -> str:
     short_model = model_name.rsplit("/", 1)[-1].lower()
     # Sanitize persona name for use in URLs and dict keys
     safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", persona_name).strip("_")
-    return f"{PERSONA_ID_PREFIX}_{short_model}_{safe_name}"
+    return f"{BRAINFORGE_PERSONA_PREFIX}_{short_model}_{safe_name}"
 
 
 async def fetch_brainforge_models(auth: BrainForgeAuthManager, api_url: str) -> list:
@@ -131,7 +131,7 @@ async def async_sync_brainforge_personas(orchestrator) -> int:
 
     stale_ids = [
         pid for pid in orchestrator.personas
-        if pid.startswith(f"{PERSONA_ID_PREFIX}_") and pid not in fresh_ids
+        if pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_") and pid not in fresh_ids
     ]
     for pid in stale_ids:
         orchestrator.unregister_persona(pid)

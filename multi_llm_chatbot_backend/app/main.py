@@ -93,14 +93,14 @@ def get_public_config():
     """
     from app.core.bootstrap import chat_orchestrator
     from app.config import generate_persona_colors
-    from app.core.brainforge_sync import PERSONA_ID_PREFIX
+    from app.core.brainforge_sync import BRAINFORGE_PERSONA_PREFIX
 
     config = settings.get_frontend_config()
 
     static_ids = {p["id"] for p in config["personas"]["items"]}
 
     for pid, persona in chat_orchestrator.personas.items():
-        if not pid.startswith(f"{PERSONA_ID_PREFIX}_"):
+        if not pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"):
             continue
         if pid in static_ids:
             continue
