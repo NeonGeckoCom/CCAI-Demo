@@ -27,6 +27,7 @@ session_manager = get_session_manager()
 # Enhanced data models
 class UserInput(BaseModel):
     user_input: str
+    chat_session_id: Optional[str] = None
 
 class ChatMessage(BaseModel):
     user_input: str
@@ -428,7 +429,16 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
 
         # Use async session management
         session_id = await get_or_create_session_for_request_async(request)
-        
+
+        if input.chat_session_id:
+            await persist_message(
+                input.chat_session_id,
+                build_user_persist_message(
+                    content=input.user_input,
+                    isExpandRequest=True,
+                ),
+            )
+
         result = await chat_orchestrator.chat_with_persona(
             user_input=input.user_input,
             persona_id=persona_id,
@@ -438,12 +448,32 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
         # Handle response structure
         if result.get("type") == "single_persona_response" and "persona" in result:
             persona_data = result["persona"]
+            if input.chat_session_id:
+                await persist_message(
+                    input.chat_session_id,
+                    build_advisor_persist_message(
+                        persona_id=persona_data["persona_id"],
+                        persona_name=persona_data["persona_name"],
+                        content=persona_data["response"],
+                        isExpansion=True,
+                    ),
+                )
             return {
                 "persona": persona_data["persona_name"],
                 "persona_id": persona_data["persona_id"],
                 "response": persona_data["response"]
             }
         elif "persona_id" in result and "response" in result:
+            if input.chat_session_id:
+                await persist_message(
+                    input.chat_session_id,
+                    build_advisor_persist_message(
+                        persona_id=result["persona_id"],
+                        persona_name=result["persona_name"],
+                        content=result["response"],
+                        isExpansion=True,
+                    ),
+                )
             return {
                 "persona": result["persona_name"],
                 "persona_id": result["persona_id"],

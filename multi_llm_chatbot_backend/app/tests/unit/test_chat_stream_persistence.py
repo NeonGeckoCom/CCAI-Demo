@@ -104,6 +104,17 @@ class TestBuildAdvisorPersistMessage(unittest.TestCase):
         self.assertEqual(msg["content"], "Tool output here")
         self.assertEqual(msg["type"], "advisor")
 
+    def test_expansion_flag_included(self):
+        msg = build_advisor_persist_message(
+            persona_id="theorist",
+            persona_name="Dr. Theory",
+            content="Here is a deeper explanation...",
+            isExpansion=True,
+        )
+        self.assertEqual(msg["type"], "advisor")
+        self.assertTrue(msg["isExpansion"])
+        self.assertEqual(msg["persona_id"], "theorist")
+
 
 # ------------------------------------------------------------------
 # build_user_persist_message
@@ -152,3 +163,11 @@ class TestBuildUserPersistMessage(unittest.TestCase):
     def test_plain_message_has_no_replyTo(self):
         msg = build_user_persist_message(content="hello")
         self.assertNotIn("replyTo", msg)
+
+    def test_expand_request_shape(self):
+        msg = build_user_persist_message(
+            content="Please expand on your previous response...",
+            isExpandRequest=True,
+        )
+        self.assertEqual(msg["type"], "user")
+        self.assertTrue(msg["isExpandRequest"])
