@@ -246,6 +246,9 @@ async def update_chat_session(
             detail="Could not update chat session"
         )
 
+# TODO: Deprecate this endpoint – the frontend no longer calls it.
+#       All message persistence is now handled by the backend endpoints
+#       (/chat-stream, /reply-to-advisor, /chat/{persona_id}, /upload-document).
 @router.post("/chat-sessions/{session_id}/messages")
 async def save_message_to_session(
     session_id: str,
