@@ -427,8 +427,11 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
         if persona_id not in chat_orchestrator.personas:
             raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
 
-        # Use async session management
-        session_id = await get_or_create_session_for_request_async(request)
+        # Handle session management for existing chats
+        if input.chat_session_id:
+            session_id = f"chat_{input.chat_session_id}"
+        else:
+            session_id = await get_or_create_session_for_request_async(request)
 
         if input.chat_session_id:
             await persist_message(
