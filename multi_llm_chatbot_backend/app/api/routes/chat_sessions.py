@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Optional
 from datetime import datetime
 from bson import ObjectId
-from app.models.user import User, ChatSession, ChatSessionResponse
+from app.models.user import User, ChatSession, ChatSessionResponse, PersistMessage
 from app.core.auth import get_current_active_user
 from app.core.database import get_database
 from pydantic import BaseModel
@@ -23,10 +23,10 @@ class SaveMessageRequest(BaseModel):
     session_id: str
     message: dict
 
-async def persist_message(session_id: str, message: dict):
+async def persist_message(session_id: str, message: PersistMessage):
     """Write a single message to a MongoDB chat session."""
     db = get_database()
-    msg = message.copy()
+    msg = message.model_dump(exclude_none=True)
     if "timestamp" not in msg:
         msg["timestamp"] = datetime.utcnow().isoformat()
     await db.chat_sessions.update_one(

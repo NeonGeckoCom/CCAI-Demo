@@ -23,7 +23,7 @@ from app.api.routes.chat_sessions import (  # noqa: E402
     delete_all_chat_sessions,
     delete_chat_session,
 )
-from app.models.user import User  # noqa: E402
+from app.models.user import PersistMessage, User  # noqa: E402
 
 FAKE_USER_ID = ObjectId()
 OTHER_USER_ID = ObjectId()
@@ -92,7 +92,7 @@ class TestPersistMessage(unittest.TestCase):
         db = _mock_db()
         mock_get_db.return_value = db
 
-        msg = {"type": "user", "content": "hello"}
+        msg = PersistMessage(type="user", content="hello")
         asyncio.run(persist_message(str(FAKE_SESSION_ID), msg))
 
         args = db.chat_sessions.update_one.call_args
@@ -105,7 +105,7 @@ class TestPersistMessage(unittest.TestCase):
         db = _mock_db()
         mock_get_db.return_value = db
 
-        msg = {"type": "user", "content": "hi", "timestamp": "2025-01-01T00:00:00"}
+        msg = PersistMessage(type="user", content="hi", timestamp="2025-01-01T00:00:00")
         asyncio.run(persist_message(str(FAKE_SESSION_ID), msg))
 
         pushed = db.chat_sessions.update_one.call_args[0][1]["$push"]["messages"]

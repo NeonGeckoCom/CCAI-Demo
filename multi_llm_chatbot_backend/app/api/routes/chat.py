@@ -17,7 +17,7 @@ from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
-from app.models.user import User
+from app.models.user import PersistMessage, User
 
 logger = logging.getLogger(__name__)
 
@@ -65,42 +65,6 @@ class ChatStreamLine(BaseModel):
         return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
 
 
-def build_user_persist_message(
-    content: str,
-    **extra,
-) -> Dict[str, Any]:
-    """Build the dict persisted to MongoDB for a user message."""
-    msg = {
-        "id": str(ObjectId()),
-        "type": "user",
-        "content": content,
-    }
-    msg.update(extra)
-    return msg
-
-
-def build_advisor_persist_message(
-    persona_id: str,
-    persona_name: str,
-    content: str,
-    used_documents: bool = False,
-    document_chunks_used: int = 0,
-    **extra,
-) -> Dict[str, Any]:
-    """Build the dict persisted to MongoDB for an advisor/orchestrator response."""
-    msg = {
-        "id": str(ObjectId()),
-        "type": "advisor",
-        "persona_id": persona_id,
-        "advisorName": persona_name,
-        "content": content,
-        "used_documents": used_documents,
-        "document_chunks_used": document_chunks_used,
-    }
-    msg.update(extra)
-    return msg
-
-
 @router.post("/chat-stream")
 async def chat_stream(
     message: ChatMessage,
@@ -136,7 +100,7 @@ async def chat_stream(
             if message.chat_session_id:
                 await persist_message(
                     message.chat_session_id,
-                    build_user_persist_message(content=message.user_input),
+                    PersistMessage(type="user", content=message.user_input),
                 )
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
@@ -163,7 +127,8 @@ async def chat_stream(
                 if message.chat_session_id:
                     await persist_message(
                         message.chat_session_id,
-                        build_advisor_persist_message(
+                        PersistMessage(
+                            type="advisor",
                             persona_id="orchestrator",
                             persona_name="Orchestrator",
                             content=tool_result.text,
@@ -265,7 +230,8 @@ async def chat_stream(
                 if message.chat_session_id:
                     await persist_message(
                         message.chat_session_id,
-                        build_advisor_persist_message(
+                        PersistMessage(
+                            type="advisor",
                             persona_id=result["persona_id"],
                             persona_name=result["persona_name"],
                             content=result["response"],
@@ -436,7 +402,8 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
         if input.chat_session_id:
             await persist_message(
                 input.chat_session_id,
-                build_user_persist_message(
+                PersistMessage(
+                    type="user",
                     content=input.user_input,
                     isExpandRequest=True,
                 ),
@@ -454,7 +421,8 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
             if input.chat_session_id:
                 await persist_message(
                     input.chat_session_id,
-                    build_advisor_persist_message(
+                    PersistMessage(
+                        type="advisor",
                         persona_id=persona_data["persona_id"],
                         persona_name=persona_data["persona_name"],
                         content=persona_data["response"],
@@ -470,7 +438,8 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
             if input.chat_session_id:
                 await persist_message(
                     input.chat_session_id,
-                    build_advisor_persist_message(
+                    PersistMessage(
+                        type="advisor",
                         persona_id=result["persona_id"],
                         persona_name=result["persona_name"],
                         content=result["response"],
@@ -515,7 +484,8 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         if reply.chat_session_id:
             await persist_message(
                 reply.chat_session_id,
-                build_user_persist_message(
+                PersistMessage(
+                    type="user",
                     content=reply.user_input,
                     replyTo={
                         "advisorId": reply.advisor_id,
@@ -549,7 +519,8 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
             if reply.chat_session_id:
                 await persist_message(
                     reply.chat_session_id,
-                    build_advisor_persist_message(
+                    PersistMessage(
+                        type="advisor",
                         persona_id=persona_data["persona_id"],
                         persona_name=persona_data["persona_name"],
                         content=persona_data["response"],
@@ -567,7 +538,8 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
             if reply.chat_session_id:
                 await persist_message(
                     reply.chat_session_id,
-                    build_advisor_persist_message(
+                    PersistMessage(
+                        type="advisor",
                         persona_id=result["persona_id"],
                         persona_name=result["persona_name"],
                         content=result["response"],
