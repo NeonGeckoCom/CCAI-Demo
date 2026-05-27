@@ -452,18 +452,30 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
                 "response": result["response"]
             }
         else:
+            error_content = "Sorry, I received an unexpected response format. Please try again."
+            if input.chat_session_id:
+                await persist_message(
+                    input.chat_session_id,
+                    PersistMessage(type="error", content=error_content),
+                )
             return {
                 "persona": "System",
-                "response": "I'm having trouble generating a response right now. Please try again."
+                "response": error_content,
             }
             
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in chat_with_specific_advisor: {e}")
+        error_content = "Sorry, I encountered an error while expanding the message. Please try again."
+        if input.chat_session_id:
+            await persist_message(
+                input.chat_session_id,
+                PersistMessage(type="error", content=error_content),
+            )
         return {
             "persona": "System",
-            "response": "I'm having trouble generating a response right now. Please try again."
+            "response": error_content,
         }
 
 @router.post("/reply-to-advisor")
@@ -564,10 +576,16 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error in reply_to_advisor: {e}")
+        error_content = "Sorry, I encountered an error with your reply. Please try again."
+        if reply.chat_session_id:
+            await persist_message(
+                reply.chat_session_id,
+                PersistMessage(type="error", content=error_content),
+            )
         return {
             "type": "error",
             "persona": "System",
-            "response": "I'm having trouble generating a reply right now. Please try again."
+            "response": error_content,
         }
 
 @router.post("/ask/")
