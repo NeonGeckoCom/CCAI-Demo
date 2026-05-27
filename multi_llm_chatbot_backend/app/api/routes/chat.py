@@ -152,6 +152,24 @@ async def chat_stream(
                 allowed_ids=available,
             )
 
+            # Guard against race condition where all selected advisors
+            # become unavailable (e.g. service update) between preference
+            # save and chat request.
+            if not top_personas:
+                yield ChatStreamLine(
+                    type="error",
+                    data={
+                        "code": "NO_ADVISORS_AVAILABLE",
+                        "detail": "None of your selected advisors are currently available. "
+                                  "Please check your advisor settings and try again.",
+                    },
+                ).to_ndjson()
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "complete"},
+                ).to_ndjson()
+                return
+
             done_queue: asyncio.Queue = asyncio.Queue()
 
             async def _run(pid: str) -> None:
