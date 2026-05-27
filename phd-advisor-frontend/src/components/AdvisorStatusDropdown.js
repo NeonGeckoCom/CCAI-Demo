@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ChevronDown, Pencil } from 'lucide-react';
+import ReactDOM from 'react-dom';
+import { Users, ChevronDown, Pencil, AlertTriangle, X } from 'lucide-react';
 import AvatarPickerModal from './AvatarPickerModal';
 import Toggle from './Toggle';
 import { useAppConfig } from '../contexts/AppConfigContext';
@@ -8,6 +9,7 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState(null);
   const [pickerAdvisor, setPickerAdvisor] = useState(null);
+  const [pendingDisableId, setPendingDisableId] = useState(null);
   const { isAdvisorEnabled, setAdvisorEnabled } = useAppConfig();
   
   // Close dropdown when clicking outside
@@ -37,6 +39,19 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
     setIsOpen(!isOpen);
   };
 
+  const handleAdvisorToggle = (id, next) => {
+    if (!next && enabledCount === 1 && isAdvisorEnabled(id)) {
+      setPendingDisableId(id);
+      return;
+    }
+    setAdvisorEnabled(id, next);
+  };
+
+  const confirmDisable = () => {
+    if (pendingDisableId) setAdvisorEnabled(pendingDisableId, false);
+    setPendingDisableId(null);
+  };
+
   return (
     <div className="advisor-status-dropdown">
       <button 
@@ -63,6 +78,37 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
           advisorName={pickerAdvisor.name}
           onClose={() => setPickerAdvisor(null)}
         />
+      )}
+
+      {pendingDisableId && ReactDOM.createPortal(
+        <div
+          className="disable-all-overlay"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setPendingDisableId(null); }}
+        >
+          <div className="disable-all-modal">
+            <div className="disable-all-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <AlertTriangle size={18} style={{ color: '#dc2626' }} />
+                <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 16 }}>Disable all advisors?</h3>
+              </div>
+              <button
+                onClick={() => setPendingDisableId(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, display: 'flex' }}
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="disable-all-body">
+              Disabling all advisors makes it so chat won't work. You'll need to re-enable at least one advisor before you can have a conversation.
+            </div>
+            <div className="disable-all-actions">
+              <button onClick={() => setPendingDisableId(null)} className="disable-all-secondary">Go back</button>
+              <button onClick={confirmDisable} className="disable-all-danger">Continue</button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
       {isOpen && (
         <div className="advisor-dropdown-panel">
@@ -108,7 +154,7 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
                   </div>
                   <Toggle
                     checked={enabled}
-                    onChange={(next) => setAdvisorEnabled(id, next)}
+                    onChange={(next) => handleAdvisorToggle(id, next)}
                     size="sm"
                     label={`Toggle ${advisor.name}`}
                   />
@@ -339,6 +385,72 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.7; }
+        }
+
+        .disable-all-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1100;
+        }
+
+        .disable-all-modal {
+          background: var(--bg-primary);
+          border-radius: 16px;
+          width: 420px;
+          max-width: 95vw;
+          box-shadow: var(--shadow-xl, 0 24px 48px rgba(0,0,0,0.25));
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+
+        .disable-all-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-primary);
+        }
+
+        .disable-all-body {
+          padding: 20px;
+          font-size: 14px;
+          color: var(--text-primary);
+          line-height: 1.5;
+        }
+
+        .disable-all-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          padding: 0 20px 20px;
+        }
+
+        .disable-all-secondary {
+          background: transparent;
+          border: 1px solid var(--border-primary);
+          color: var(--text-secondary);
+          font-size: 13px;
+          padding: 8px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+
+        .disable-all-danger {
+          background: #dc2626;
+          color: #fff;
+          border: none;
+          font-size: 13px;
+          padding: 8px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-family: inherit;
+          font-weight: 500;
         }
         
         /* Responsive Design */

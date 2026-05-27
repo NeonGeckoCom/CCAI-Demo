@@ -255,6 +255,33 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
   const enabledCount = advisorEntries.filter(([id]) => isAdvisorEnabled(id)).length;
   const setAll = (enabled) => setAllAdvisorsEnabled(enabled);
 
+  // pendingDisable: { type: 'all' } | { type: 'single', id } — set when the
+  // user is about to leave zero advisors enabled. Confirming runs the action;
+  // "Go back" leaves state untouched.
+  const [pendingDisable, setPendingDisable] = useState(null);
+
+  const handleDisableAllClick = () => {
+    if (enabledCount === 0) return;
+    setPendingDisable({ type: 'all' });
+  };
+
+  const handleAdvisorToggle = (id, next) => {
+    if (!next && enabledCount === 1 && isAdvisorEnabled(id)) {
+      setPendingDisable({ type: 'single', id });
+      return;
+    }
+    setAdvisorEnabled(id, next);
+  };
+
+  const confirmPendingDisable = () => {
+    if (pendingDisable?.type === 'all') {
+      setAll(false);
+    } else if (pendingDisable?.type === 'single') {
+      setAdvisorEnabled(pendingDisable.id, false);
+    }
+    setPendingDisable(null);
+  };
+
   return ReactDOM.createPortal(
     <div style={overlay} onMouseDown={handleOverlayMouseDown} onMouseUp={handleOverlayMouseUp}>
       <div style={modal}>
@@ -338,7 +365,7 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={() => setAll(true)} style={miniBtn}>Enable all</button>
-                  <button onClick={() => setAll(false)} style={miniBtn}>Disable all</button>
+                  <button onClick={handleDisableAllClick} style={miniBtn}>Disable all</button>
                 </div>
               </div>
 
@@ -386,7 +413,7 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
                       </div>
                       <Toggle
                         checked={enabled}
-                        onChange={(next) => setAdvisorEnabled(id, next)}
+                        onChange={(next) => handleAdvisorToggle(id, next)}
                         label={`Toggle ${advisor.name}`}
                       />
                     </div>
@@ -422,6 +449,34 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
             </form>
           )}
         </div>
+
+        {pendingDisable && (
+          <div
+            style={{ ...overlay, zIndex: 1100 }}
+            onMouseDown={(e) => { if (e.target === e.currentTarget) setPendingDisable(null); }}
+          >
+            <div style={{ ...modal, width: 420 }}>
+              <div style={header}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <AlertTriangle size={18} style={{ color: '#dc2626' }} />
+                  <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 16 }}>Disable all advisors?</h3>
+                </div>
+                <button onClick={() => setPendingDisable(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, display: 'flex' }} aria-label="Close">
+                  <X size={20} />
+                </button>
+              </div>
+              <div style={body}>
+                <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                  Disabling all advisors makes it so chat won't work. You'll need to re-enable at least one advisor before you can have a conversation.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+                  <button onClick={() => setPendingDisable(null)} style={miniBtn}>Go back</button>
+                  <button onClick={confirmPendingDisable} style={dangerBtn}>Continue</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body
