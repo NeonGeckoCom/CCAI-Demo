@@ -156,12 +156,21 @@ async def chat_stream(
             # become unavailable (e.g. service update) between preference
             # save and chat request.
             if not top_personas:
+                error_detail = (
+                    "None of your selected advisors are currently available. "
+                    "Please check your advisor settings and try again."
+                )
+                if message.chat_session_id:
+                    await persist_message(message.chat_session_id, {
+                        "id": str(ObjectId()),
+                        "type": "error",
+                        "content": error_detail,
+                    })
                 yield ChatStreamLine(
                     type="error",
                     data={
                         "code": "NO_ADVISORS_AVAILABLE",
-                        "detail": "None of your selected advisors are currently available. "
-                                  "Please check your advisor settings and try again.",
+                        "detail": error_detail,
                     },
                 ).to_ndjson()
                 yield ChatStreamLine(
