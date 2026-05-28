@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.1a4](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a4) (2026-05-28)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a3...2.0.1a4)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Disable Specific Personas [\#64](https://github.com/NeonGeckoCom/CCAI-Demo/issues/64)
+- \[FEAT\] User Tutorial [\#29](https://github.com/NeonGeckoCom/CCAI-Demo/issues/29)
+
+**Merged pull requests:**
+
+- Disable Specific User Personas [\#65](https://github.com/NeonGeckoCom/CCAI-Demo/pull/65) ([NeonRyan](https://github.com/NeonRyan))
+
 ## [2.0.1a3](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a3) (2026-05-21)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a2...2.0.1a3)
