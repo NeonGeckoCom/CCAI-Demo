@@ -12,14 +12,12 @@ from fastapi import HTTPException
 from app.api.routes.chat_sessions import (  # noqa: E402
     CreateChatSessionRequest,
     UpdateChatSessionRequest,
-    SaveMessageRequest,
     persist_message,
     create_chat_session,
     get_user_chat_sessions,
     get_chat_sessions_count,
     get_chat_session,
     update_chat_session,
-    save_message_to_session,
     delete_all_chat_sessions,
     delete_chat_session,
 )
@@ -298,48 +296,6 @@ class TestUpdateChatSession(unittest.TestCase):
 # POST /chat-sessions/{session_id}/messages
 # ------------------------------------------------------------------
 
-
-@patch("app.api.routes.chat_sessions.get_database")
-class TestSaveMessageToSession(unittest.TestCase):
-
-    def test_saves_message_to_valid_session(self, mock_get_db):
-        db = _mock_db()
-        db.chat_sessions.find_one.return_value = _make_session_doc()
-        mock_get_db.return_value = db
-
-        user = _make_fake_user()
-        req = SaveMessageRequest(
-            session_id=str(FAKE_SESSION_ID),
-            message={"type": "user", "content": "test"},
-        )
-
-        result = asyncio.run(
-            save_message_to_session(
-                session_id=str(FAKE_SESSION_ID), request=req, current_user=user
-            )
-        )
-
-        self.assertEqual(result["message"], "Message saved successfully")
-
-    def test_returns_404_for_nonexistent_session(self, mock_get_db):
-        db = _mock_db()
-        db.chat_sessions.find_one.return_value = None
-        mock_get_db.return_value = db
-
-        user = _make_fake_user()
-        req = SaveMessageRequest(
-            session_id=str(FAKE_SESSION_ID),
-            message={"type": "user", "content": "test"},
-        )
-
-        with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(
-                save_message_to_session(
-                    session_id=str(FAKE_SESSION_ID), request=req, current_user=user
-                )
-            )
-
-        self.assertEqual(ctx.exception.status_code, 404)
 
 
 # ------------------------------------------------------------------

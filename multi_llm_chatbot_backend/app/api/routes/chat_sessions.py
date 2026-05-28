@@ -19,9 +19,6 @@ class UpdateChatSessionRequest(BaseModel):
     title: Optional[str] = None
     messages: Optional[List[dict]] = None
 
-class SaveMessageRequest(BaseModel):
-    session_id: str
-    message: dict
 
 async def persist_message(session_id: str, message: PersistMessage):
     """Write a single message to a MongoDB chat session."""
@@ -246,51 +243,6 @@ async def update_chat_session(
             detail="Could not update chat session"
         )
 
-# TODO: Deprecate this endpoint – the frontend no longer calls it.
-#       All message persistence is now handled by the backend endpoints
-#       (/chat-stream, /reply-to-advisor, /chat/{persona_id}, /upload-document).
-@router.post("/chat-sessions/{session_id}/messages")
-async def save_message_to_session(
-    session_id: str,
-    request: SaveMessageRequest,
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Add a message to a chat session.
-    @param session_id: MongoDB ObjectId of the chat session
-    @param request: SaveMessageRequest with the message dict
-    @param current_user: Authenticated user from dependency injection
-    @return: Dict with a confirmation message
-    """
-    try:
-        db = get_database()
-        
-        # Verify session belongs to user
-        session_data = await db.chat_sessions.find_one({
-            "_id": ObjectId(session_id),
-            "user_id": current_user.id,
-            "is_active": True
-        })
-        
-        if not session_data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Chat session not found"
-            )
-        
-        await persist_message(session_id, request.message)
-        
-        return {"message": "Message saved successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error saving message: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not save message"
-        )
-    
 
 
 @router.delete("/chat-sessions")
