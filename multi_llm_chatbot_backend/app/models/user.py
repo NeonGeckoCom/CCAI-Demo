@@ -47,6 +47,7 @@ class User(BaseModel):
     hashed_password: str
     academicStage: Optional[str] = None
     researchArea: Optional[str] = None
+    disabled_advisors: Optional[List[str]] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
     is_active: bool = True

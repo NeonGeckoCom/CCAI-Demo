@@ -871,20 +871,27 @@ When analyzing the document context:
             }
         
 
-    async def get_top_personas(self, session_id: str, k: int = 3) -> List[str]:
+    async def get_top_personas(self, session_id: str, k: int = 3,
+                              allowed_ids: Optional[List[str]] = None) -> List[str]:
         """
         Use the LLM to rank personas based on current session context.
         Falls back to default persona order if LLM fails or returns invalid data.
+
+        When *allowed_ids* is provided, only those personas are considered
+        (for system-level and user-level filtering).
         """
+        pool_ids = allowed_ids if allowed_ids is not None else list(self.personas.keys())
+        pool = {pid: self.personas[pid] for pid in pool_ids if pid in self.personas}
+
         try:
             session = self.session_manager.get_session(session_id)
 
-            if not self.personas:
-                logger.warning("No personas registered.")
+            if not pool:
+                logger.warning("No personas available after filtering.")
                 return []
 
             # Use the LLM from one of the existing persona objects
-            llm = next(iter(self.personas.values())).llm
+            llm = next(iter(pool.values())).llm
 
             # Use recent conversation context (last 5 messages)
             recent_context = "\n".join(
@@ -894,11 +901,11 @@ When analyzing the document context:
             # Format available persona descriptions
             persona_descriptions = "\n".join([
                 f"- ID: {p.id}\n  Name: {p.name}\n  Prompt: {p.system_prompt.strip()}"
-                for p in self.personas.values()
+                for p in pool.values()
             ])
 
             # Ensure k does not exceed the number of available personas
-            k = min(k, len(self.personas))
+            k = min(k, len(pool))
 
             app_title = get_settings().app.title
 
@@ -935,15 +942,15 @@ When analyzing the document context:
             if isinstance(top_ids, dict):
                 top_ids = next(iter(top_ids.values()), [])
 
-            # Step 3: Filter valid persona IDs
-            valid_ids = [pid for pid in top_ids if pid in self.personas]
+            # Step 3: Filter valid persona IDs against the allowed pool
+            valid_ids = [pid for pid in top_ids if pid in pool]
 
             if len(valid_ids) < k:
                 logger.warning(f"LLM returned insufficient or invalid IDs. Got: {valid_ids}")
-                return list(self.personas.keys())[:k]
+                return list(pool.keys())[:k]
 
             return valid_ids[:k]
 
         except Exception as e:
             logger.error(f"Error selecting top personas: {e}")
-            return list(self.personas.keys())[:k]
+            return list(pool.keys())[:k]

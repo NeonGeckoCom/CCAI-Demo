@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field
 from app.api.routes.chat_sessions import persist_message
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
+from app.config import get_settings
 from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
+from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
 from app.models.user import User
 
@@ -137,10 +139,45 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
+            # Filter personas by system whitelist and user preferences
+            available = get_available_persona_ids(
+                registered_ids=chat_orchestrator.list_personas(),
+                system_allowed=get_settings().personas.allowed_advisors,
+                user_disabled=current_user.disabled_advisors,
+            )
+
             # Get personas most relevant to the current session
             top_personas = await chat_orchestrator.get_top_personas(
                 session_id=sid,
+                allowed_ids=available,
             )
+
+            # Guard against race condition where all selected advisors
+            # become unavailable (e.g. service update) between preference
+            # save and chat request.
+            if not top_personas:
+                error_detail = (
+                    "None of your selected advisors are currently available. "
+                    "Please check your advisor settings and try again."
+                )
+                if message.chat_session_id:
+                    await persist_message(message.chat_session_id, {
+                        "id": str(ObjectId()),
+                        "type": "error",
+                        "content": error_detail,
+                    })
+                yield ChatStreamLine(
+                    type="error",
+                    data={
+                        "code": "NO_ADVISORS_AVAILABLE",
+                        "detail": error_detail,
+                    },
+                ).to_ndjson()
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "complete"},
+                ).to_ndjson()
+                return
 
             done_queue: asyncio.Queue = asyncio.Queue()
 

@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ChevronDown, Pencil } from 'lucide-react';
+import ReactDOM from 'react-dom';
+import { Users, ChevronDown, Pencil, AlertTriangle, X } from 'lucide-react';
 import AvatarPickerModal from './AvatarPickerModal';
+import Toggle from './Toggle';
+import { useAppConfig } from '../contexts/AppConfigContext';
 
 const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, isDark }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState(null);
   const [pickerAdvisor, setPickerAdvisor] = useState(null);
+  const [pendingDisableId, setPendingDisableId] = useState(null);
+  const { isAdvisorEnabled, setAdvisorEnabled } = useAppConfig();
   
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -24,13 +29,27 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
   }
   
   const advisorEntries = Object.entries(advisors);
-  const thinkingCount = Array.isArray(thinkingAdvisors) 
-    ? thinkingAdvisors.filter(id => id !== 'system').length 
+  const thinkingCount = Array.isArray(thinkingAdvisors)
+    ? thinkingAdvisors.filter(id => id !== 'system').length
     : 0;
   const totalAdvisors = advisorEntries.length;
+  const enabledCount = advisorEntries.filter(([id]) => isAdvisorEnabled(id)).length;
 
   const handleToggle = () => {
     setIsOpen(!isOpen);
+  };
+
+  const handleAdvisorToggle = (id, next) => {
+    if (!next && enabledCount === 1 && isAdvisorEnabled(id)) {
+      setPendingDisableId(id);
+      return;
+    }
+    setAdvisorEnabled(id, next);
+  };
+
+  const confirmDisable = () => {
+    if (pendingDisableId) setAdvisorEnabled(pendingDisableId, false);
+    setPendingDisableId(null);
   };
 
   return (
@@ -42,7 +61,7 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         <div className="advisor-status-info">
           <Users size={16} />
           <span className="advisor-count">
-            {totalAdvisors} Advisor{totalAdvisors !== 1 ? 's' : ''}
+            {enabledCount} of {totalAdvisors} Advisor{totalAdvisors !== 1 ? 's' : ''}
           </span>
           {thinkingCount > 0 && (
             <div className="thinking-badge">
@@ -60,6 +79,37 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
           onClose={() => setPickerAdvisor(null)}
         />
       )}
+
+      {pendingDisableId && ReactDOM.createPortal(
+        <div
+          className="disable-all-overlay"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setPendingDisableId(null); }}
+        >
+          <div className="disable-all-modal">
+            <div className="disable-all-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <AlertTriangle size={18} style={{ color: '#dc2626' }} />
+                <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 16 }}>Disable all advisors?</h3>
+              </div>
+              <button
+                onClick={() => setPendingDisableId(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, display: 'flex' }}
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="disable-all-body">
+              Disabling all advisors makes it so chat won't work. You'll need to re-enable at least one advisor before you can have a conversation.
+            </div>
+            <div className="disable-all-actions">
+              <button onClick={() => setPendingDisableId(null)} className="disable-all-secondary">Go back</button>
+              <button onClick={confirmDisable} className="disable-all-danger">Continue</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {isOpen && (
         <div className="advisor-dropdown-panel">
           <div className="advisor-list">
@@ -67,11 +117,12 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
               const IconComponent = advisor.icon;
               const colors = getAdvisorColors(id, isDark);
               const isThinking = Array.isArray(thinkingAdvisors) && thinkingAdvisors.includes(id);
-              
+              const enabled = isAdvisorEnabled(id);
+
               return (
                 <div
                   key={id}
-                  className={`advisor-item ${isThinking ? 'thinking' : ''}`}
+                  className={`advisor-item ${isThinking ? 'thinking' : ''} ${enabled ? '' : 'disabled'}`}
                   style={{ '--advisor-color': colors.color, '--advisor-bg': colors.bgColor }}
                 >
                   <div
@@ -93,21 +144,20 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
                   </div>
                   <div className="advisor-details">
                     <div className="advisor-name">{advisor.name}</div>
-                    <div className="advisor-description">{advisor.description}</div>
+                    <div className="advisor-description">
+                      {!enabled
+                        ? <span className="advisor-off-label">Off — won't reply</span>
+                        : isThinking
+                          ? <span className="advisor-thinking-label">Thinking…</span>
+                          : advisor.description}
+                    </div>
                   </div>
-                  <div className="advisor-status">
-                    {isThinking ? (
-                      <div className="status-thinking">
-                        <div className="thinking-dots">
-                          <div className="dot"></div>
-                          <div className="dot"></div>
-                          <div className="dot"></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="status-ready">Ready</div>
-                    )}
-                  </div>
+                  <Toggle
+                    checked={enabled}
+                    onChange={(next) => handleAdvisorToggle(id, next)}
+                    size="sm"
+                    label={`Toggle ${advisor.name}`}
+                  />
                 </div>
               );
             })}
@@ -240,6 +290,25 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         .advisor-item.thinking {
           background: var(--advisor-bg);
         }
+
+        .advisor-item.disabled .advisor-icon,
+        .advisor-item.disabled .advisor-name {
+          opacity: 0.45;
+        }
+
+        .advisor-item.disabled .advisor-description {
+          opacity: 0.7;
+        }
+
+        .advisor-off-label {
+          color: var(--text-tertiary, #9ca3af);
+          font-style: italic;
+        }
+
+        .advisor-thinking-label {
+          color: var(--advisor-color);
+          font-weight: 500;
+        }
         
         .advisor-icon {
           width: 32px;
@@ -316,6 +385,72 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.7; }
+        }
+
+        .disable-all-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1100;
+        }
+
+        .disable-all-modal {
+          background: var(--bg-primary);
+          border-radius: 16px;
+          width: 420px;
+          max-width: 95vw;
+          box-shadow: var(--shadow-xl, 0 24px 48px rgba(0,0,0,0.25));
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+
+        .disable-all-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-primary);
+        }
+
+        .disable-all-body {
+          padding: 20px;
+          font-size: 14px;
+          color: var(--text-primary);
+          line-height: 1.5;
+        }
+
+        .disable-all-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          padding: 0 20px 20px;
+        }
+
+        .disable-all-secondary {
+          background: transparent;
+          border: 1px solid var(--border-primary);
+          color: var(--text-secondary);
+          font-size: 13px;
+          padding: 8px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+
+        .disable-all-danger {
+          background: #dc2626;
+          color: #fff;
+          border: none;
+          font-size: 13px;
+          padding: 8px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-family: inherit;
+          font-weight: 500;
         }
         
         /* Responsive Design */
