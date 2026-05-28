@@ -10,7 +10,7 @@ from app.models.user import PersistMessage
 # ------------------------------------------------------------------
 
 
-ADVISOR_REQUIRED_FIELDS = {"id", "type", "persona_id", "persona_name", "content",
+ADVISOR_REQUIRED_FIELDS = {"id", "type", "persona_id", "advisorName", "content",
                            "used_documents", "document_chunks_used"}
 
 
@@ -20,7 +20,7 @@ class TestAdvisorPersistMessage(unittest.TestCase):
         msg = PersistMessage(
             type="advisor",
             persona_id="advisor_a",
-            persona_name="Advisor A",
+            advisorName="Advisor A",
             content="Some advice.",
         ).model_dump(exclude_none=True)
         self.assertTrue(ADVISOR_REQUIRED_FIELDS.issubset(msg.keys()),
@@ -28,23 +28,23 @@ class TestAdvisorPersistMessage(unittest.TestCase):
 
     def test_type_is_advisor(self):
         msg = PersistMessage(
-            type="advisor", persona_id="x", persona_name="X", content="c",
+            type="advisor", persona_id="x", advisorName="X", content="c",
         )
         self.assertEqual(msg.type, "advisor")
 
-    def test_persona_name_stored(self):
+    def test_advisor_name_stored(self):
         msg = PersistMessage(
             type="advisor",
             persona_id="methodologist",
-            persona_name="Dr. Method",
+            advisorName="Dr. Method",
             content="content",
         )
-        self.assertEqual(msg.persona_name, "Dr. Method")
+        self.assertEqual(msg.advisorName, "Dr. Method")
         self.assertEqual(msg.persona_id, "methodologist")
 
     def test_defaults_for_document_fields(self):
         msg = PersistMessage(
-            type="advisor", persona_id="x", persona_name="X", content="c",
+            type="advisor", persona_id="x", advisorName="X", content="c",
         )
         self.assertFalse(msg.used_documents)
         self.assertEqual(msg.document_chunks_used, 0)
@@ -53,7 +53,7 @@ class TestAdvisorPersistMessage(unittest.TestCase):
         msg = PersistMessage(
             type="advisor",
             persona_id="x",
-            persona_name="X",
+            advisorName="X",
             content="c",
             used_documents=True,
             document_chunks_used=5,
@@ -63,14 +63,14 @@ class TestAdvisorPersistMessage(unittest.TestCase):
 
     def test_id_is_valid_objectid_string(self):
         msg = PersistMessage(
-            type="advisor", persona_id="x", persona_name="X", content="c",
+            type="advisor", persona_id="x", advisorName="X", content="c",
         )
         ObjectId(msg.id)
 
     def test_each_call_generates_unique_id(self):
         ids = {
             PersistMessage(
-                type="advisor", persona_id="x", persona_name="X", content="c",
+                type="advisor", persona_id="x", advisorName="X", content="c",
             ).id
             for _ in range(10)
         }
@@ -80,7 +80,7 @@ class TestAdvisorPersistMessage(unittest.TestCase):
         msg = PersistMessage(
             type="advisor",
             persona_id="x",
-            persona_name="X",
+            advisorName="X",
             content="c",
             isReply=True,
         )
@@ -90,11 +90,11 @@ class TestAdvisorPersistMessage(unittest.TestCase):
         msg = PersistMessage(
             type="advisor",
             persona_id="orchestrator",
-            persona_name="Orchestrator",
+            advisorName="Orchestrator",
             content="Tool output here",
         )
         self.assertEqual(msg.persona_id, "orchestrator")
-        self.assertEqual(msg.persona_name, "Orchestrator")
+        self.assertEqual(msg.advisorName, "Orchestrator")
         self.assertEqual(msg.content, "Tool output here")
         self.assertEqual(msg.type, "advisor")
 
@@ -102,7 +102,7 @@ class TestAdvisorPersistMessage(unittest.TestCase):
         msg = PersistMessage(
             type="advisor",
             persona_id="theorist",
-            persona_name="Dr. Theory",
+            advisorName="Dr. Theory",
             content="Here is a deeper explanation...",
             isExpansion=True,
         )

@@ -188,8 +188,7 @@ const loadChatSession = async (sessionId) => {
         const formattedMessages = result.context.messages.map(msg => ({
           ...msg,
           timestamp: new Date(msg.timestamp),
-          persona_id: msg.persona_id || msg.advisor || msg.advisorId,
-          advisorName: msg.advisorName || msg.persona_name || 'Advisor'
+          persona_id: msg.persona_id || msg.advisor || msg.advisorId
         }));
         
         setMessages(formattedMessages);

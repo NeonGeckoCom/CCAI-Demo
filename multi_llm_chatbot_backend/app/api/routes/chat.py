@@ -130,7 +130,7 @@ async def chat_stream(
                         PersistMessage(
                             type="advisor",
                             persona_id="orchestrator",
-                            persona_name="Orchestrator",
+                            advisorName="Orchestrator",
                             content=tool_result.text,
                         ),
                     )
@@ -233,7 +233,7 @@ async def chat_stream(
                         PersistMessage(
                             type="advisor",
                             persona_id=result["persona_id"],
-                            persona_name=result["persona_name"],
+                            advisorName=result["persona_name"],
                             content=result["response"],
                             used_documents=result.get("used_documents", False),
                             document_chunks_used=result.get("document_chunks_used", 0),
@@ -421,7 +421,7 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
                     PersistMessage(
                         type="advisor",
                         persona_id=persona_data["persona_id"],
-                        persona_name=persona_data["persona_name"],
+                        advisorName=persona_data["persona_name"],
                         content=persona_data["response"],
                         isExpansion=True,
                     ),
@@ -438,7 +438,7 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
                     PersistMessage(
                         type="advisor",
                         persona_id=result["persona_id"],
-                        persona_name=result["persona_name"],
+                        advisorName=result["persona_name"],
                         content=result["response"],
                         isExpansion=True,
                     ),
@@ -498,6 +498,7 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                     content=reply.user_input,
                     replyTo={
                         "advisorId": reply.advisor_id,
+                        "advisorName": chat_orchestrator.get_persona(reply.advisor_id).name,
                         "messageId": reply.original_message_id,
                     },
                 ),
@@ -531,7 +532,7 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                     PersistMessage(
                         type="advisor",
                         persona_id=persona_data["persona_id"],
-                        persona_name=persona_data["persona_name"],
+                        advisorName=persona_data["persona_name"],
                         content=persona_data["response"],
                         isReply=True,
                     ),
@@ -550,7 +551,7 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                     PersistMessage(
                         type="advisor",
                         persona_id=result["persona_id"],
-                        persona_name=result["persona_name"],
+                        advisorName=result["persona_name"],
                         content=result["response"],
                         isReply=True,
                     ),

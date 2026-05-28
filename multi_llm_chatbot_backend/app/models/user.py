@@ -75,7 +75,7 @@ class PersistMessage(BaseModel):
     timestamp: Optional[str] = None
     # Advisor-specific
     persona_id: Optional[str] = None
-    persona_name: Optional[str] = None
+    advisorName: Optional[str] = None
     used_documents: bool = False
     document_chunks_used: int = 0
     # Error-specific
