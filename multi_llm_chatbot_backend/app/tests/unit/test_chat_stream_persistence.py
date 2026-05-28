@@ -2,7 +2,7 @@ import unittest
 
 from bson import ObjectId
 
-from app.models.user import PersistMessage
+from app.models.user import PersistMessage, ReplyToRef
 
 
 # ------------------------------------------------------------------
@@ -149,13 +149,15 @@ class TestUserPersistMessage(unittest.TestCase):
         msg = PersistMessage(
             type="user",
             content="I disagree",
-            replyTo={
-                "advisorId": "methodologist",
-                "messageId": "msg_123",
-            },
+            replyTo=ReplyToRef(
+                advisorId="methodologist",
+                advisorName="Dr. Method",
+                messageId="msg_123",
+            ),
         )
-        self.assertEqual(msg.replyTo["advisorId"], "methodologist")
-        self.assertEqual(msg.replyTo["messageId"], "msg_123")
+        self.assertEqual(msg.replyTo.advisorId, "methodologist")
+        self.assertEqual(msg.replyTo.advisorName, "Dr. Method")
+        self.assertEqual(msg.replyTo.messageId, "msg_123")
 
     def test_plain_message_has_no_replyTo(self):
         msg = PersistMessage(type="user", content="hello").model_dump(exclude_none=True)
@@ -182,18 +184,6 @@ class TestErrorPersistMessage(unittest.TestCase):
         msg = PersistMessage(type="error", content="Something went wrong")
         self.assertEqual(msg.type, "error")
 
-    def test_error_code(self):
-        msg = PersistMessage(
-            type="error",
-            content="No advisors available",
-            code="NO_ADVISORS_AVAILABLE",
-        )
-        self.assertEqual(msg.code, "NO_ADVISORS_AVAILABLE")
-
-    def test_error_without_code(self):
-        msg = PersistMessage(type="error", content="Generic error")
-        self.assertIsNone(msg.code)
-
 
 # ------------------------------------------------------------------
 # PersistMessage – type validation
@@ -208,6 +198,47 @@ class TestPersistMessageTypeValidation(unittest.TestCase):
             PersistMessage(type="bogus", content="hello")
 
     def test_all_valid_types_accepted(self):
-        for t in ("user", "advisor", "error", "clarification", "document_upload", "system"):
-            msg = PersistMessage(type=t, content="test")
+        valid = {
+            "user": {},
+            "advisor": {"persona_id": "x", "advisorName": "X"},
+            "error": {},
+            "clarification": {"suggestions": ["Try this"]},
+            "document_upload": {},
+            "system": {},
+        }
+        for t, kwargs in valid.items():
+            msg = PersistMessage(type=t, content="test", **kwargs)
             self.assertEqual(msg.type, t)
+
+
+# ------------------------------------------------------------------
+# PersistMessage – model validators
+# ------------------------------------------------------------------
+
+
+class TestPersistMessageValidators(unittest.TestCase):
+
+    def test_advisor_without_persona_id_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            PersistMessage(type="advisor", advisorName="X", content="c")
+
+    def test_advisor_without_advisor_name_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            PersistMessage(type="advisor", persona_id="x", content="c")
+
+    def test_advisor_without_both_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            PersistMessage(type="advisor", content="c")
+
+    def test_clarification_without_suggestions_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            PersistMessage(type="clarification", content="Need more info")
+
+    def test_clarification_with_empty_suggestions_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            PersistMessage(type="clarification", content="Need more info", suggestions=[])

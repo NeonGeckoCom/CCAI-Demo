@@ -17,7 +17,7 @@ from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
-from app.models.user import PersistMessage, User
+from app.models.user import PersistMessage, ReplyToRef, User
 
 logger = logging.getLogger(__name__)
 
@@ -496,11 +496,11 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                 PersistMessage(
                     type="user",
                     content=reply.user_input,
-                    replyTo={
-                        "advisorId": reply.advisor_id,
-                        "advisorName": chat_orchestrator.get_persona(reply.advisor_id).name,
-                        "messageId": reply.original_message_id,
-                    },
+                    replyTo=ReplyToRef(
+                        advisorId=reply.advisor_id,
+                        advisorName=chat_orchestrator.get_persona(reply.advisor_id).name,
+                        messageId=reply.original_message_id,
+                    ),
                 ),
             )
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 from typing import Literal, Optional, List, Any
 from datetime import datetime
 from bson import ObjectId
@@ -67,6 +67,13 @@ MessageType = Literal[
 ]
 
 
+class ReplyToRef(BaseModel):
+    """Reference to the advisor message being replied to."""
+    advisorId: str
+    advisorName: str
+    messageId: str
+
+
 class PersistMessage(BaseModel):
     """Schema for a single message stored in a ChatSession's messages array."""
     id: str = Field(default_factory=lambda: str(ObjectId()))
@@ -78,15 +85,25 @@ class PersistMessage(BaseModel):
     advisorName: Optional[str] = None
     used_documents: bool = False
     document_chunks_used: int = 0
-    # Error-specific
-    code: Optional[str] = None
     # Clarification-specific
     suggestions: Optional[List[str]] = None
     # Reply/expand metadata
     isReply: bool = False
     isExpansion: bool = False
     isExpandRequest: bool = False
-    replyTo: Optional[dict] = None
+    replyTo: Optional[ReplyToRef] = None
+
+    @model_validator(mode='after')
+    def check_type_constraints(self):
+        if self.type == 'advisor':
+            if not self.persona_id:
+                raise ValueError("persona_id is required for advisor messages")
+            if not self.advisorName:
+                raise ValueError("advisorName is required for advisor messages")
+        elif self.type == 'clarification':
+            if not self.suggestions:
+                raise ValueError("a non-empty suggestions list is required for clarification messages")
+        return self
 
 
 class ChatSession(BaseModel):
