@@ -1,7 +1,79 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as LucideIcons from 'lucide-react';
+import { ADVISORS } from '../data/canvasData';
 
 const AppConfigContext = createContext(null);
+
+// Built-in fallback used when the backend `/api/config` endpoint is unreachable
+// (e.g. running the front end on mock data with no backend). Lets the whole app
+// — including the PhD Canvas — render instead of hard-failing on a blank screen.
+const FALLBACK_PERSONAS = ADVISORS.map((a) => ({
+  id: a.id,
+  name: a.name,
+  role: a.role,
+  summary: a.summary,
+  color: a.color,
+  bg_color: a.bg,
+  image: `icon://${a.icon}`,
+}));
+
+// Mirrors the public-facing shape of phd_config.yaml (what /api/config serves).
+const FALLBACK_CONFIG = {
+  app: {
+    title: 'PhD Advisory Panel',
+    subtitle: 'AI-Powered Academic Guidance',
+    primary_color: '#6366F1',
+    footer_text: '© 2025 University of Colorado Boulder. All rights reserved.',
+  },
+  app_settings: { app_name: 'PhD Advisory Panel' },
+  homepage: {
+    headline_prefix: 'Get Guidance from',
+    headline_highlight: 'Advisor Personas',
+    description:
+      'Receive diverse perspectives on your PhD journey from our specialized AI advisors, each bringing unique insights to help you succeed.',
+    features_title: 'Why Choose Our Advisory Panel?',
+    features: [
+      { title: 'Multiple Perspectives', description: 'Get varied viewpoints from different advisory styles', icon: 'Users' },
+      { title: 'AI-Powered Insights', description: 'Leverage advanced AI for comprehensive guidance', icon: 'Brain' },
+      { title: 'Focused Advice', description: 'Receive targeted recommendations for your specific needs', icon: 'Target' },
+    ],
+  },
+  login: {
+    subtitle: 'Sign in to continue your PhD research journey',
+    signup_subtitle: 'Create your account to get personalized PhD guidance from expert advisors',
+    academic_stages: [
+      { value: '', label: 'Select your stage' },
+      { value: 'prospective', label: 'Prospective PhD Student' },
+      { value: 'first-year', label: 'First Year PhD' },
+      { value: 'coursework', label: 'Coursework Phase' },
+      { value: 'qualifying', label: 'Qualifying Exams' },
+      { value: 'dissertation', label: 'Dissertation Phase' },
+      { value: 'writing', label: 'Writing & Defense' },
+      { value: 'postdoc', label: 'Postdoc' },
+      { value: 'faculty', label: 'Faculty/Researcher' },
+    ],
+  },
+  chat_page: {
+    placeholder: 'Ask your advisors anything about your PhD journey...',
+    examples: [
+      { title: 'Orientation & Guidance', icon: 'BookOpen', color: '#3B82F6', bg_color: '#EFF6FF', suggestions: ['How do I choose a research topic that\'s interesting and doable?', 'Meeting and Presentation Prep', 'What should I be doing my first semester?'] },
+      { title: 'Research Design & Academic Skills', icon: 'FlaskConical', color: '#8B5CF6', bg_color: '#F3E8FF', suggestions: ['Should I use qualitative, quantitative, or mixed methods for my research?', 'Is my research question too broad?', 'How do I defend a non-traditional methodology to my committee?'] },
+      { title: 'Writing & Communication', icon: 'PenTool', color: '#10B981', bg_color: '#ECFDF5', suggestions: ['What\'s the right tone for an introduction? Persuasive, cautious, or bold?', 'How should I respond when reviewers give conflicting feedback?', 'Should I prioritize journal articles or dissertation chapters when I write?'] },
+      { title: 'Mental Health & Hidden Curriculum', icon: 'Heart', color: '#F59E0B', bg_color: '#FFFBEB', suggestions: ['How do I cope when I feel behind compared to others in my cohort?', 'Should I speak up about unclear expectations or just try to figure it out quietly?', 'What are the unspoken expectations no one tells you about?'] },
+    ],
+  },
+  onboarding: {
+    features: [
+      { title: 'Get advice from specialized AI advisors', icon: 'GraduationCap' },
+      { title: 'Save and revisit every conversation', icon: 'MessageCircle' },
+      { title: 'Upload PDFs for context-aware answers', icon: 'Paperclip' },
+      { title: 'Track your PhD progress on a structured canvas', icon: 'BarChart3' },
+    ],
+    tour_title: 'PhD Progress Canvas',
+    tour_body: 'A dashboard view of your PhD journey — research progress, methodology, next steps, all in one place.',
+  },
+  personas: { items: FALLBACK_PERSONAS },
+};
 
 /**
  * Resolve a Lucide icon name string (e.g. "BookOpen") to the actual React
@@ -99,8 +171,12 @@ export const AppConfigProvider = ({ children }) => {
         setConfig(data);
         setPersonaItems(data.personas?.items || []);
       } catch (err) {
-        console.error('Failed to load app config:', err);
-        setError(err.message);
+        // No backend (or it returned non-JSON like an index.html fallback).
+        // Degrade gracefully to built-in defaults so the app still renders.
+        console.warn('App config fetch failed; using built-in defaults (no backend?).', err);
+        setConfig(FALLBACK_CONFIG);
+        setPersonaItems(FALLBACK_CONFIG.personas.items);
+        setError(null);
       } finally {
         setLoading(false);
       }

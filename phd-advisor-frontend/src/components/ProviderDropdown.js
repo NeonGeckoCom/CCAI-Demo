@@ -1,12 +1,10 @@
 // src/components/ProviderDropdown.js
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Cpu, Cloud, Server, Loader2 } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
 
 const ProviderDropdown = ({ currentProvider, onProviderChange, isLoading = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
-  const { isDark } = useTheme();
 
   const providers = [
     {
