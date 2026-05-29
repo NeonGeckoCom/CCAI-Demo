@@ -290,7 +290,9 @@ class ImprovedChatOrchestrator:
         raw = None
 
         try:
-            llm = next(iter(self.personas.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
             raw = await llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
