@@ -25,10 +25,18 @@ class ImprovedChatOrchestrator:
         self.context_manager = get_context_manager()
     
     def register_persona(self, persona: Persona):
-        """Register a persona with the orchestrator"""
+        """Register or update a persona in the orchestrator."""
+        is_new = persona.id not in self.personas
         self.personas[persona.id] = persona
-        logger.info(f"Registered persona: {persona.id} ({persona.name})")
+        if is_new:
+            logger.info(f"Registered persona: {persona.id} ({persona.name})")
     
+    def unregister_persona(self, persona_id: str):
+        """Remove a persona from the orchestrator."""
+        removed = self.personas.pop(persona_id, None)
+        if removed:
+            logger.info(f"Unregistered persona: {persona_id} ({removed.name})")
+
     def get_persona(self, persona_id: str) -> Optional[Persona]:
         """Get a specific persona"""
         return self.personas.get(persona_id)
@@ -282,7 +290,9 @@ class ImprovedChatOrchestrator:
         raw = None
 
         try:
-            llm = next(iter(self.personas.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
             raw = await llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
@@ -345,7 +355,9 @@ class ImprovedChatOrchestrator:
         )
 
         try:
-            llm = next(iter(self.personas.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
             raw = await llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
@@ -890,8 +902,9 @@ When analyzing the document context:
                 logger.warning("No personas available after filtering.")
                 return []
 
-            # Use the LLM from one of the existing persona objects
-            llm = next(iter(pool.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
 
             # Use recent conversation context (last 5 messages)
             recent_context = "\n".join(

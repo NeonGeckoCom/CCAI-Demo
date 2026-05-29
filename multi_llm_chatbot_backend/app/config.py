@@ -282,10 +282,18 @@ class VllmConfig(BaseModel):
     api_key: str = Field(default=os.getenv("VLLM_API_KEY", ""))
 
 
+class BrainForgeConfig(BaseModel):
+    api_url: str = ""
+    username: str = Field(default=os.getenv("BRAINFORGE_USERNAME", ""))
+    password: str = Field(default=os.getenv("BRAINFORGE_PASSWORD", ""))
+    sync_interval_seconds: int = 600
+
+
 class LLMConfig(BaseModel):
     gemini: GeminiConfig = GeminiConfig()
     ollama: OllamaConfig = OllamaConfig()
     vllm: VllmConfig = VllmConfig()
+    brainforge: BrainForgeConfig = BrainForgeConfig()
 
 
 class RAGConfig(BaseModel):

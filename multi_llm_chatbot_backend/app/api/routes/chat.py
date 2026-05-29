@@ -183,7 +183,19 @@ async def chat_stream(
 
             async def _run(pid: str) -> None:
                 try:
+                    # Guard against the persona being removed mid-request — return a
+                    # fallback response instead of crashing and hanging the stream.
                     persona = chat_orchestrator.get_persona(pid)
+                    if persona is None:
+                        logger.warning("Persona %s was unregistered before response generation", pid)
+                        await done_queue.put({
+                            "persona_id": pid,
+                            "persona_name": pid,
+                            "response": "This advisor is temporarily unavailable. Please try again.",
+                            "used_documents": False,
+                            "document_chunks_used": 0,
+                        })
+                        return
                     result = await chat_orchestrator.generate_single_persona_response(
                         session, persona,
                         message.response_length or "medium",
@@ -193,8 +205,8 @@ async def chat_stream(
                 except Exception as e:
                     logger.exception(f"chat-stream _run failed for {pid}: {e}")
                     await done_queue.put({
-                        "persona_id": persona.id,
-                        "persona_name": persona.name,
+                        "persona_id": pid,
+                        "persona_name": getattr(persona, "name", pid),
                         "response": f"I ran into a technical issue. Please try again. ({e!s})",
                         "used_documents": False,
                         "document_chunks_used": 0,
