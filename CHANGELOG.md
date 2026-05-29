@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.1a6](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a6) (2026-05-29)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a5...2.0.1a6)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Support BrainForge LLM Backend [\#49](https://github.com/NeonGeckoCom/CCAI-Demo/issues/49)
+
+**Merged pull requests:**
+
+- BrainForge LLM Integration [\#62](https://github.com/NeonGeckoCom/CCAI-Demo/pull/62) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
 ## [2.0.1a5](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a5) (2026-05-29)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a4...2.0.1a5)
