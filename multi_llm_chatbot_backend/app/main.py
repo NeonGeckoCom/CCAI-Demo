@@ -98,11 +98,14 @@ def get_public_config():
     config = settings.get_frontend_config()
 
     static_ids = {p["id"] for p in config["personas"]["items"]}
+    allowed = settings.personas.allowed_advisors
 
     for pid, persona in chat_orchestrator.personas.items():
         if not pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"):
             continue
         if pid in static_ids:
+            continue
+        if allowed is not None and pid not in allowed:
             continue
 
         colors = generate_persona_colors(persona.name)
