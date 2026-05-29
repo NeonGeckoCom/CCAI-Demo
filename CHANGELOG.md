@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.1a5](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a5) (2026-05-29)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a4...2.0.1a5)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Evaluate old\_routes.py for deprecation [\#74](https://github.com/NeonGeckoCom/CCAI-Demo/issues/74)
+
+**Merged pull requests:**
+
+- deprecated old\_routes.py [\#77](https://github.com/NeonGeckoCom/CCAI-Demo/pull/77) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
 ## [2.0.1a4](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a4) (2026-05-28)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a3...2.0.1a4)
