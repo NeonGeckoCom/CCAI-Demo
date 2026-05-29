@@ -400,6 +400,7 @@ const handleNewChat = async (sessionId = null) => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let refreshedForUserMessage = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -412,6 +413,11 @@ const handleNewChat = async (sessionId = null) => {
         for (const line of lines) {
           if (!line.trim()) continue;
           const payload = JSON.parse(line);
+
+          if (!refreshedForUserMessage) {
+            setSidebarRefreshTrigger(prev => prev + 1);
+            refreshedForUserMessage = true;
+          }
 
           const d = payload.data || {};
 
@@ -551,6 +557,7 @@ const handleNewChat = async (sessionId = null) => {
 
   setIsLoading(false);
   setThinkingAdvisors([]);
+  setSidebarRefreshTrigger(prev => prev + 1);
 };
 
   const handleCopyMessage = (messageId, content) => {
@@ -634,6 +641,7 @@ const handleNewChat = async (sessionId = null) => {
 
     setIsLoading(false);
     setThinkingAdvisors([]);
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleReplyToMessage = (message) => {

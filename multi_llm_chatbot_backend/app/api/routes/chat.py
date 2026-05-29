@@ -102,6 +102,9 @@ async def chat_stream(
                     message.chat_session_id,
                     PersistMessage(type="user", content=message.user_input),
                 )
+                yield ChatStreamLine(
+                    type="progress", data={"phase": "received"},
+                ).to_ndjson()
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
@@ -535,6 +538,11 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                         advisorName=persona_data["persona_name"],
                         content=persona_data["response"],
                         isReply=True,
+                        replyTo=ReplyToRef(
+                            advisorId=reply.advisor_id,
+                            advisorName=persona_data["persona_name"],
+                            messageId=reply.original_message_id,
+                        ),
                     ),
                 )
             return {
@@ -554,6 +562,11 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                         advisorName=result["persona_name"],
                         content=result["response"],
                         isReply=True,
+                        replyTo=ReplyToRef(
+                            advisorId=reply.advisor_id,
+                            advisorName=result["persona_name"],
+                            messageId=reply.original_message_id,
+                        ),
                     ),
                 )
             return {
