@@ -83,8 +83,12 @@ class TestAdvisorPersistMessage(unittest.TestCase):
             advisorName="X",
             content="c",
             isReply=True,
+            replyTo=ReplyToRef(
+                advisorId="y", advisorName="Y", messageId="msg_1",
+            ),
         )
         self.assertTrue(msg.isReply)
+        self.assertIsNotNone(msg.replyTo)
 
     def test_orchestrator_message_shape(self):
         msg = PersistMessage(
@@ -242,3 +246,14 @@ class TestPersistMessageValidators(unittest.TestCase):
         from pydantic import ValidationError
         with self.assertRaises(ValidationError):
             PersistMessage(type="clarification", content="Need more info", suggestions=[])
+
+    def test_reply_without_reply_to_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            PersistMessage(
+                type="advisor",
+                persona_id="x",
+                advisorName="X",
+                content="c",
+                isReply=True,
+            )

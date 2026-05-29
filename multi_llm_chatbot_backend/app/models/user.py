@@ -105,6 +105,12 @@ class PersistMessage(BaseModel):
                 raise ValueError("a non-empty suggestions list is required for clarification messages")
         return self
 
+    @model_validator(mode='after')
+    def check_reply_metadata(self):
+        if self.isReply and not self.replyTo:
+            raise ValueError("replyTo is required when isReply is True")
+        return self
+
 
 class ChatSession(BaseModel):
     model_config = ConfigDict(
