@@ -417,7 +417,7 @@ const handleNewChat = async (sessionId = null) => {
         body: JSON.stringify({
           user_input: inputMessage,
           response_length: 'medium',
-          chat_session_id: currentSessionId // Include current session ID
+          chat_session_id: sessionId
         }),
       });
 
