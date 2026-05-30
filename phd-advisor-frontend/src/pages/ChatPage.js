@@ -507,7 +507,8 @@ const handleNewChat = async (sessionId = null) => {
   };
 
   setMessages(prev => [...prev, replyMessage]);
-  
+  setSidebarRefreshTrigger(prev => prev + 1);
+
   setIsLoading(true);
   setThinkingAdvisors([replyContext.persona_id]);
 
@@ -583,7 +584,8 @@ const handleNewChat = async (sessionId = null) => {
       expandsMessageId: messageId
     };
     setMessages(prev => [...prev, expandMessage]);
-    
+    setSidebarRefreshTrigger(prev => prev + 1);
+
     setIsLoading(true);
     setThinkingAdvisors([advisorId]);
 
