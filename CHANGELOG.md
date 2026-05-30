@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.1a7](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a7) (2026-05-30)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a6...2.0.1a7)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Move all message persistence from frontend to backend [\#46](https://github.com/NeonGeckoCom/CCAI-Demo/issues/46)
+
+**Merged pull requests:**
+
+- persist advisor responses to db in /chat-stream endpoint. [\#78](https://github.com/NeonGeckoCom/CCAI-Demo/pull/78) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
 ## [2.0.1a6](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a6) (2026-05-29)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a5...2.0.1a6)
