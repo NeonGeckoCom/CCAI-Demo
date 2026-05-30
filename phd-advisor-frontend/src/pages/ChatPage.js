@@ -215,30 +215,6 @@ const loadChatSession = async (sessionId) => {
   }
 };
 
-// Save a message to the current session
-const saveMessageToSession = async (message) => {
-  if (!currentSessionId || !authToken) return;
-
-  try {
-    await fetch(`${process.env.REACT_APP_API_URL}/api/chat-sessions/${currentSessionId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        session_id: currentSessionId,
-        message: {
-          ...message,
-          timestamp: message.timestamp.toISOString()
-        }
-      })
-    });
-  } catch (error) {
-    console.error('Error saving message to session:', error);
-  }
-};
-
 // Update session title based on first message
 const updateSessionTitle = async (sessionId, newTitle) => {
   if (!sessionId || !authToken) return;
@@ -364,10 +340,6 @@ const handleNewChat = async (sessionId = null) => {
       current_session_id: currentSessionId
     });
     
-    // Save document upload message to database if we have a current session
-    if (currentSessionId) {
-      await saveMessageToSession(documentMessage);
-    }
   };
 
 
@@ -428,6 +400,7 @@ const handleNewChat = async (sessionId = null) => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let refreshedForUserMessage = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -440,6 +413,11 @@ const handleNewChat = async (sessionId = null) => {
         for (const line of lines) {
           if (!line.trim()) continue;
           const payload = JSON.parse(line);
+
+          if (!refreshedForUserMessage) {
+            setSidebarRefreshTrigger(prev => prev + 1);
+            refreshedForUserMessage = true;
+          }
 
           const d = payload.data || {};
 
@@ -457,7 +435,6 @@ const handleNewChat = async (sessionId = null) => {
               };
               setMessages(prev => [...prev, msg]);
               setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
-              await saveMessageToSession(msg);
               break;
             }
             case 'clarification':
@@ -530,10 +507,8 @@ const handleNewChat = async (sessionId = null) => {
   };
 
   setMessages(prev => [...prev, replyMessage]);
-  
-  // Save reply message to database with explicit session ID
-  await saveMessageToSession(replyMessage, sessionId);
-  
+  setSidebarRefreshTrigger(prev => prev + 1);
+
   setIsLoading(true);
   setThinkingAdvisors([replyContext.persona_id]);
 
@@ -568,9 +543,6 @@ const handleNewChat = async (sessionId = null) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, replyResponseMessage]);
-      
-      // Save advisor reply to database
-      await saveMessageToSession(replyResponseMessage, sessionId);
     }
 
   } catch (error) {
@@ -582,13 +554,11 @@ const handleNewChat = async (sessionId = null) => {
       timestamp: new Date()
     };
     setMessages(prev => [...prev, errorMessage]);
-    
-    // Save error message to database
-    await saveMessageToSession(errorMessage, sessionId);
   }
 
   setIsLoading(false);
   setThinkingAdvisors([]);
+  setSidebarRefreshTrigger(prev => prev + 1);
 };
 
   const handleCopyMessage = (messageId, content) => {
@@ -614,10 +584,8 @@ const handleNewChat = async (sessionId = null) => {
       expandsMessageId: messageId
     };
     setMessages(prev => [...prev, expandMessage]);
-    
-    // Save expand request to database
-    await saveMessageToSession(expandMessage);
-    
+    setSidebarRefreshTrigger(prev => prev + 1);
+
     setIsLoading(true);
     setThinkingAdvisors([advisorId]);
 
@@ -629,7 +597,8 @@ const handleNewChat = async (sessionId = null) => {
         },
         body: JSON.stringify({
           user_input: expandPrompt,
-          response_length: 'long'
+          response_length: 'long',
+          chat_session_id: currentSessionId
         }),
       });
 
@@ -651,9 +620,6 @@ const handleNewChat = async (sessionId = null) => {
           timestamp: new Date()
         };
         setMessages(prev => [...prev, expandedMessage]);
-        
-        // Save expanded response to database
-        await saveMessageToSession(expandedMessage);
       } else {
         const errorMessage = {
           id: generateMessageId(),
@@ -662,9 +628,6 @@ const handleNewChat = async (sessionId = null) => {
           timestamp: new Date()
         };
         setMessages(prev => [...prev, errorMessage]);
-        
-        // Save error message to database
-        await saveMessageToSession(errorMessage);
       }
 
     } catch (error) {
@@ -676,13 +639,11 @@ const handleNewChat = async (sessionId = null) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
-      
-      // Save error message to database
-      await saveMessageToSession(errorMessage);
     }
 
     setIsLoading(false);
     setThinkingAdvisors([]);
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleReplyToMessage = (message) => {

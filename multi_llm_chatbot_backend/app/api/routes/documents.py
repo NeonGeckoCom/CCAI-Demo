@@ -9,9 +9,10 @@ from app.utils.chat_summary import generate_summary_from_messages, parse_summary
 from app.utils.file_export import prepare_export_response, generate_pdf_file_from_blocks
 from app.core.session_manager import get_session_manager
 from app.core.bootstrap import chat_orchestrator
+from app.api.routes.chat_sessions import persist_message
 from app.core.auth import get_current_active_user
 from app.core.database import get_database
-from app.models.user import User
+from app.models.user import PersistMessage, User
 from bson import ObjectId
 import logging
 import re
@@ -216,6 +217,12 @@ async def upload_document(
             "system", 
             f"Document uploaded: '{doc_title}' ({file.filename}) - {rag_result['chunks_created']} sections processed, ~{rag_result['total_tokens']} tokens analyzed. You can now ask questions about this document by referencing it by name."
         )
+
+        if chat_session_id:
+            await persist_message(chat_session_id, PersistMessage(
+                type="document_upload",
+                content=f"Document uploaded: {file.filename} ({rag_result['chunks_created']} sections processed)",
+            ))
 
         # Return session info for frontend tracking
         return {

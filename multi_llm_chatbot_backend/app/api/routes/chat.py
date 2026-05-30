@@ -17,7 +17,7 @@ from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
-from app.models.user import User
+from app.models.user import PersistMessage, ReplyToRef, User
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ session_manager = get_session_manager()
 # Enhanced data models
 class UserInput(BaseModel):
     user_input: str
+    chat_session_id: Optional[str] = None
 
 class ChatMessage(BaseModel):
     user_input: str
@@ -97,11 +98,13 @@ async def chat_stream(
             # Append user message to in-memory session and persist to MongoDB
             session.append_message("user", message.user_input)
             if message.chat_session_id:
-                await persist_message(message.chat_session_id, {
-                    "id": str(ObjectId()),
-                    "type": "user",
-                    "content": message.user_input,
-                })
+                await persist_message(
+                    message.chat_session_id,
+                    PersistMessage(type="user", content=message.user_input),
+                )
+                yield ChatStreamLine(
+                    type="progress", data={"phase": "received"},
+                ).to_ndjson()
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
@@ -122,7 +125,18 @@ async def chat_stream(
             # directly and skip persona generation.
             tool_result = await chat_orchestrator.get_tool_response(message.user_input)
             if tool_result.used_tool:
+                # Append user message to in-memory session and persist to MongoDB
                 session.append_message("orchestrator", tool_result.text)
+                if message.chat_session_id:
+                    await persist_message(
+                        message.chat_session_id,
+                        PersistMessage(
+                            type="advisor",
+                            persona_id="orchestrator",
+                            advisorName="Orchestrator",
+                            content=tool_result.text,
+                        ),
+                    )
                 yield ChatStreamLine(
                     type="advisor",
                     data={
@@ -216,6 +230,18 @@ async def chat_stream(
 
             for _ in range(len(tasks)):
                 result = await done_queue.get()
+                if message.chat_session_id:
+                    await persist_message(
+                        message.chat_session_id,
+                        PersistMessage(
+                            type="advisor",
+                            persona_id=result["persona_id"],
+                            advisorName=result["persona_name"],
+                            content=result["response"],
+                            used_documents=result.get("used_documents", False),
+                            document_chunks_used=result.get("document_chunks_used", 0),
+                        ),
+                    )
                 line = ChatStreamLine(
                     type="advisor",
                     data={
@@ -372,7 +398,17 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
 
         # Use async session management
         session_id = await get_or_create_session_for_request_async(request)
-        
+
+        if input.chat_session_id:
+            await persist_message(
+                input.chat_session_id,
+                PersistMessage(
+                    type="user",
+                    content=input.user_input,
+                    isExpandRequest=True,
+                ),
+            )
+
         result = await chat_orchestrator.chat_with_persona(
             user_input=input.user_input,
             persona_id=persona_id,
@@ -382,30 +418,64 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
         # Handle response structure
         if result.get("type") == "single_persona_response" and "persona" in result:
             persona_data = result["persona"]
+            if input.chat_session_id:
+                await persist_message(
+                    input.chat_session_id,
+                    PersistMessage(
+                        type="advisor",
+                        persona_id=persona_data["persona_id"],
+                        advisorName=persona_data["persona_name"],
+                        content=persona_data["response"],
+                        isExpansion=True,
+                    ),
+                )
             return {
                 "persona": persona_data["persona_name"],
                 "persona_id": persona_data["persona_id"],
                 "response": persona_data["response"]
             }
         elif "persona_id" in result and "response" in result:
+            if input.chat_session_id:
+                await persist_message(
+                    input.chat_session_id,
+                    PersistMessage(
+                        type="advisor",
+                        persona_id=result["persona_id"],
+                        advisorName=result["persona_name"],
+                        content=result["response"],
+                        isExpansion=True,
+                    ),
+                )
             return {
                 "persona": result["persona_name"],
                 "persona_id": result["persona_id"],
                 "response": result["response"]
             }
         else:
+            error_content = "Sorry, I received an unexpected response format. Please try again."
+            if input.chat_session_id:
+                await persist_message(
+                    input.chat_session_id,
+                    PersistMessage(type="error", content=error_content),
+                )
             return {
                 "persona": "System",
-                "response": "I'm having trouble generating a response right now. Please try again."
+                "response": error_content,
             }
             
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in chat_with_specific_advisor: {e}")
+        error_content = "Sorry, I encountered an error while expanding the message. Please try again."
+        if input.chat_session_id:
+            await persist_message(
+                input.chat_session_id,
+                PersistMessage(type="error", content=error_content),
+            )
         return {
             "persona": "System",
-            "response": "I'm having trouble generating a response right now. Please try again."
+            "response": error_content,
         }
 
 @router.post("/reply-to-advisor")
@@ -422,7 +492,21 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
             session_id = await get_or_create_session_for_request_async(request)
         
         session = session_manager.get_session(session_id)
-        
+
+        if reply.chat_session_id:
+            await persist_message(
+                reply.chat_session_id,
+                PersistMessage(
+                    type="user",
+                    content=reply.user_input,
+                    replyTo=ReplyToRef(
+                        advisorId=reply.advisor_id,
+                        advisorName=chat_orchestrator.get_persona(reply.advisor_id).name,
+                        messageId=reply.original_message_id,
+                    ),
+                ),
+            )
+
         # Find the original message being replied to for context
         original_message = None
         if reply.original_message_id:
@@ -445,6 +529,22 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         # Handle response structure
         if result.get("type") == "single_persona_response" and "persona" in result:
             persona_data = result["persona"]
+            if reply.chat_session_id:
+                await persist_message(
+                    reply.chat_session_id,
+                    PersistMessage(
+                        type="advisor",
+                        persona_id=persona_data["persona_id"],
+                        advisorName=persona_data["persona_name"],
+                        content=persona_data["response"],
+                        isReply=True,
+                        replyTo=ReplyToRef(
+                            advisorId=reply.advisor_id,
+                            advisorName=persona_data["persona_name"],
+                            messageId=reply.original_message_id,
+                        ),
+                    ),
+                )
             return {
                 "type": "advisor_reply",
                 "persona": persona_data["persona_name"],
@@ -453,6 +553,22 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                 "original_message_id": reply.original_message_id
             }
         elif "persona_id" in result and "response" in result:
+            if reply.chat_session_id:
+                await persist_message(
+                    reply.chat_session_id,
+                    PersistMessage(
+                        type="advisor",
+                        persona_id=result["persona_id"],
+                        advisorName=result["persona_name"],
+                        content=result["response"],
+                        isReply=True,
+                        replyTo=ReplyToRef(
+                            advisorId=reply.advisor_id,
+                            advisorName=result["persona_name"],
+                            messageId=reply.original_message_id,
+                        ),
+                    ),
+                )
             return {
                 "type": "advisor_reply",
                 "persona": result["persona_name"],
@@ -471,10 +587,16 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error in reply_to_advisor: {e}")
+        error_content = "Sorry, I encountered an error with your reply. Please try again."
+        if reply.chat_session_id:
+            await persist_message(
+                reply.chat_session_id,
+                PersistMessage(type="error", content=error_content),
+            )
         return {
             "type": "error",
             "persona": "System",
-            "response": "I'm having trouble generating a reply right now. Please try again."
+            "response": error_content,
         }
 
 @router.post("/ask/")
