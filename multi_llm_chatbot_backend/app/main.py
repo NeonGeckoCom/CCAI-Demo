@@ -124,6 +124,8 @@ def get_public_config():
             "dark_color": colors["dark_color"],
             "dark_bg_color": colors["dark_bg_color"],
             "image": "icon://Brain",
+            "backend_locked": True,
+            "default_backend": "brainforge",
         })
 
     return config

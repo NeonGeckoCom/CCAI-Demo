@@ -142,14 +142,19 @@ const AdvisorConfigPanel = ({
                 {advisor?.role || id}{locked ? ' · backend locked' : ''}
               </div>
             </div>
-            <select
-              style={{ ...selectStyle, opacity: locked ? 0.6 : 1 }}
-              value={personaValue}
-              disabled={locked}
-              onChange={(e) => setPersona(id, e.target.value)}
-            >
-              {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            {locked ? (
+              <div style={{ ...selectStyle, opacity: 0.6, cursor: 'not-allowed' }}>
+                {personaValue}
+              </div>
+            ) : (
+              <select
+                style={selectStyle}
+                value={personaValue}
+                onChange={(e) => setPersona(id, e.target.value)}
+              >
+                {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            )}
           </div>
         );
       })}
