@@ -15,7 +15,7 @@ const modal = {
 };
 
 const seedConfig = (initialConfig, personaIds, availableBackends) => {
-  const fallback = initialConfig?.default_backend || availableBackends[0] || 'gemini';
+  const fallback = initialConfig?.default_backend || availableBackends[0];
   const seedPersonas = initialConfig?.persona_backends || {};
   const personas = {};
   for (const id of personaIds) {

@@ -27,11 +27,11 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [replyingTo, setReplyingTo] = useState(null);
   const [llmConfig, setLlmConfig] = useState({
     mode: 'uniform',
-    default_backend: 'gemini',
+    default_backend: null,
     orchestrator_backend: null,
     persona_backends: null,
   });
-  const [availableBackends, setAvailableBackends] = useState(['gemini', 'ollama', 'vllm']);
+  const [availableBackends, setAvailableBackends] = useState([]);
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);

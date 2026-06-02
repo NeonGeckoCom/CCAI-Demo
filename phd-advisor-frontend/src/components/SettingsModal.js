@@ -117,7 +117,7 @@ const SettingsModal = ({
 
   const personaIds = useMemo(() => Object.keys(advisors || {}), [advisors]);
   const [modelDraft, setModelDraft] = useState(() => {
-    const fallback = llmConfig?.default_backend || availableBackends?.[0] || 'gemini';
+    const fallback = llmConfig?.default_backend || availableBackends?.[0];
     const seed = llmConfig?.persona_backends || {};
     const personas = {};
     for (const id of personaIds) personas[id] = seed[id] || fallback;

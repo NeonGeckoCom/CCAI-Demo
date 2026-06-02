@@ -54,8 +54,8 @@ const WelcomeModelPicker = ({
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(llmConfig?.mode === 'hybrid');
   const [draft, setDraft] = useState(() => ({
-    default_backend: llmConfig?.default_backend || availableBackends[0] || 'gemini',
-    orchestrator_backend: llmConfig?.orchestrator_backend || llmConfig?.default_backend || availableBackends[0] || 'gemini',
+    default_backend: llmConfig?.default_backend || availableBackends[0],
+    orchestrator_backend: llmConfig?.orchestrator_backend || llmConfig?.default_backend || availableBackends[0],
     persona_backends: llmConfig?.persona_backends || {},
   }));
 

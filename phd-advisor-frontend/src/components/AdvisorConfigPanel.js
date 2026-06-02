@@ -24,7 +24,7 @@ const selectStyle = {
 };
 
 const buildInitial = (initialConfig, personaIds, availableBackends) => {
-  const fallback = initialConfig?.default_backend || availableBackends[0] || 'gemini';
+  const fallback = initialConfig?.default_backend || availableBackends[0];
   const seed = initialConfig?.persona_backends || {};
   const personas = {};
   for (const id of personaIds) {
@@ -59,7 +59,7 @@ const AdvisorConfigPanel = ({
     setInternal(prev => {
       const next = { ...prev.persona_backends };
       let changed = false;
-      const fallback = prev.default_backend || availableBackends[0] || 'gemini';
+      const fallback = prev.default_backend || availableBackends[0];
       for (const id of personaIds) {
         if (next[id] === undefined) {
           next[id] = fallback;
