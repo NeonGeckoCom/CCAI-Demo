@@ -1,9 +1,8 @@
-from typing import List
-from app.llm.llm_client import LLMClient
+from typing import Dict, List
+from app.llm.clients.llm_client import LLMClient
 from app.config import get_settings
 import logging
 import re
-from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,7 @@ def parse_summary_to_blocks(summary_text: str) -> List[Dict]:
             current_block = None
             continue
 
-        # Match bullet list items (*, •, or -)
+        # Match bullet list items (*, bullet, or -)
         bullet_match = re.match(r'^[*•-]\s+(.+)', line)
         if bullet_match:
             if current_block is None or current_block["type"] != "list" or current_block.get("style") != "bullet":

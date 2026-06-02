@@ -16,7 +16,7 @@ from colorhash import ColorHash
 
 import httpx
 import yaml
-from pydantic import BaseModel, validator, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.utils.avatar_helpers import get_bundled_avatar_path
 from app.version import __version__
@@ -299,6 +299,9 @@ class LLMConfig(BaseModel):
 class RAGConfig(BaseModel):
     embedding_model: str = "all-MiniLM-L6-v2"
     chroma_collection: str = "phd_advisor_documents"
+    # Document chunking (RecursiveCharacterTextSplitter), sizes in characters
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
 
 
 class ToolsConfig(BaseModel):

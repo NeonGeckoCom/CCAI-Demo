@@ -1,36 +1,15 @@
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
-from typing import Dict, Optional
-from datetime import datetime
 import logging
 from bson import ObjectId
 
 from app.models.user import User
-from app.models.phd_canvas import PhdCanvas, CanvasResponse, UpdateCanvasRequest
+from app.models.phd_canvas import CanvasResponse, UpdateCanvasRequest, CanvasStatsResponse, PrintCanvasResponse
 from app.core.auth import get_current_active_user
 from app.core.database import get_database
-
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Request/Response models
-class CanvasStatsResponse(BaseModel):
-    total_insights: int
-    total_sections: int
-    last_updated: Optional[str] = None
-    last_chat_processed: Optional[str] = None
-    created_at: Optional[str] = None
-    auto_update: bool = True
-    sections_breakdown: Dict = {}
-
-class PrintCanvasResponse(BaseModel):
-    user_id: str
-    generated_at: str
-    total_insights: int
-    last_updated: Optional[str] = None
-    sections: list
-    metadata: Dict
 
 def get_canvas_manager():
     """Lazy import to avoid circular dependency"""

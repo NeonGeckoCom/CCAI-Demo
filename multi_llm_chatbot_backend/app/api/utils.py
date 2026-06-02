@@ -128,3 +128,31 @@ async def get_or_create_session_for_request_async(
     new_session_id = session_manager.create_session()
     logger.info(f"Created new session: {new_session_id}")
     return new_session_id
+
+
+def get_or_create_session_for_request(
+    request: Request,
+    session_id_override: Optional[str] = None,
+) -> str:
+    """
+    Get or create a session for a request using multiple strategies:
+    1. Use the provided session_id if given
+    2. Use the X-Session-ID header if present
+    3. Use the client IP as a fallback for backward compatibility
+    4. Create a new session if nothing else is available
+    """
+    # Strategy 1: Explicit session ID (for new clients)
+    if session_id_override:
+        return session_id_override
+
+    # Strategy 2: Check for a session header (optional for the frontend)
+    session_header = request.headers.get("X-Session-ID")
+    if session_header:
+        return session_header
+
+    # Strategy 3: Use client IP for backward compatibility — each client IP
+    # gets its own persistent session.
+    client_ip = request.client.host if request.client else "unknown"
+    ip_session_id = f"ip_{client_ip}"
+    session = session_manager.get_session(ip_session_id)
+    return session.session_id

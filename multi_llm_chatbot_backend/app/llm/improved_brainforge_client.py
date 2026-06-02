@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
-from app.llm.llm_client import LLMClient, ToolCallResult
+from app.llm.clients.llm_client import LLMClient, ToolCallResult
 from app.llm.brainforge_auth import BrainForgeAuthManager
 from app.core.context_manager import get_context_manager
 

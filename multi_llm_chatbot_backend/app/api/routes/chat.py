@@ -1,13 +1,10 @@
 import asyncio
-import json
 import logging
 import traceback
-from typing import Any, Dict, List, Literal, Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from app.api.routes.chat_sessions import persist_message
 from app.api.utils import get_or_create_session_for_request_async
@@ -18,52 +15,20 @@ from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
 from app.models.user import PersistMessage, ReplyToRef, User
+from app.models.chat import (
+    ChatMessage,
+    ChatStreamLine,
+    NewChatRequest,
+    PersonaQuery,
+    ReplyToAdvisor,
+    SwitchChatRequest,
+    UserInput,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 session_manager = get_session_manager()
-
-# Enhanced data models
-class UserInput(BaseModel):
-    user_input: str
-    chat_session_id: Optional[str] = None
-
-class ChatMessage(BaseModel):
-    user_input: str
-    session_id: Optional[str] = None
-    chat_session_id: Optional[str] = None  # MongoDB chat session ID
-    response_length: str = "medium"
-    active_advisors: Optional[List[str]] = None
-
-class ReplyToAdvisor(BaseModel):
-    user_input: str
-    advisor_id: str
-    original_message_id: str = None
-    chat_session_id: Optional[str] = None
-
-class PersonaQuery(BaseModel):
-    question: str
-    persona: str
-
-class SwitchChatRequest(BaseModel):
-    chat_session_id: str
-
-class NewChatRequest(BaseModel):
-    title: Optional[str] = "New Chat"
-
-ChatStreamEventType = Literal["error", "progress", "clarification", "advisor"]
-
-
-class ChatStreamLine(BaseModel):
-    """One NDJSON line from ``/chat-stream``."""
-
-    type: ChatStreamEventType
-    data: Dict[str, Any] = Field(default_factory=dict)
-
-    def to_ndjson(self) -> str:
-        return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
-
 
 @router.post("/chat-stream")
 async def chat_stream(
@@ -100,7 +65,11 @@ async def chat_stream(
             if message.chat_session_id:
                 await persist_message(
                     message.chat_session_id,
-                    PersistMessage(type="user", content=message.user_input),
+                    PersistMessage(
+                        id=message.user_message_id or str(ObjectId()),
+                        type="user",
+                        content=message.user_input,
+                    ),
                 )
                 yield ChatStreamLine(
                     type="progress", data={"phase": "received"},
@@ -108,6 +77,14 @@ async def chat_stream(
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
+                clarification_message = {
+                    "id": str(ObjectId()),
+                    "type": "clarification",
+                    "content": clar["question"],
+                    "suggestions": clar["suggestions"],
+                }
+                if message.chat_session_id:
+                    await persist_message(message.chat_session_id, clarification_message)
                 yield ChatStreamLine(
                     type="clarification",
                     data={

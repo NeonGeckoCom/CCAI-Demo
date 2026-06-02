@@ -1,4 +1,4 @@
-from app.llm.llm_client import LLMClient
+from app.llm.clients.llm_client import LLMClient
 from typing import List, Dict
 
 SENTINEL = "</END>"
@@ -24,9 +24,9 @@ COMPACT_MARKDOWN_V1 = (
 
 # Soft structure guidance per response_length
 STRUCTURE_HINTS = {
-    "short": "Keep it very concise: Thought as one short sentence; bullets ≤ 12 words; next step one short sentence.",
-    "medium": "Be concise but clear: Thought one sentence; bullets ≤ 18 words; next step one sentence.",
-    "long": "Provide slightly more detail while staying compact: Thought one sentence; bullets ≤ 24 words; next step one sentence.",
+    "short": "Keep it very concise: Thought as one short sentence; bullets <= 12 words; next step one short sentence.",
+    "medium": "Be concise but clear: Thought one sentence; bullets <= 18 words; next step one sentence.",
+    "long": "Provide slightly more detail while staying compact: Thought one sentence; bullets <= 24 words; next step one sentence.",
 }
 
 # Conservative token ceilings (kept close to prior behavior to avoid breaking changes)
@@ -96,7 +96,7 @@ def _truncate_words(s: str, limit: int) -> str:
     words = s.strip().split()
     if len(words) <= limit:
         return s.strip()
-    return " ".join(words[:limit]) + "…"
+    return " ".join(words[:limit]) + "..."
 
 def _first_sentence(text: str, max_words: int) -> str:
     import re
@@ -275,41 +275,3 @@ class Persona:
             compact = _ensure_compact_shape(compact, "short")
 
         return compact
-
-
-"""from app.llm.llm_client import LLMClient
-
-class Persona:
-    def __init__(self, id, name, system_prompt, llm, temperature=5):
-        self.id = id
-        self.name = name
-        self.system_prompt = system_prompt
-        self.llm = llm
-        self.temperature = temperature
-    
-    async def respond(self, context: list[dict], response_length: str = "medium") -> str:
-        max_tokens_map = {
-            "short": 300,
-            "medium": 500,
-            "long": 800
-        }
-
-        response_style_map = {
-            "short": "Respond in 20-30 words.",
-            "medium": "Respond in 40-50 words.",
-            "long": "Respond in 50-60 words."
-        }
-
-        max_tokens = max_tokens_map.get(response_length, 500)
-        response_instruction = response_style_map.get(response_length, "medium")
-        temp_scaled = round(self.temperature / 10, 2)
-
-        full_prompt = f"{self.system_prompt}\n\n{response_instruction}"
-
-        return await self.llm.generate(
-            system_prompt=full_prompt,
-            context=context,
-            temperature=temp_scaled,
-            max_tokens=max_tokens
-        )
-"""

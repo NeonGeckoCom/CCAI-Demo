@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from datetime import datetime
 from bson import ObjectId
 from app.models.user import PyObjectId
@@ -148,3 +148,22 @@ class UpdateCanvasRequest(BaseModel):
     force_full_update: bool = Field(default=False)
     include_chat_sessions: Optional[List[str]] = None  # Specific sessions to include
     exclude_sections: Optional[List[str]] = None  # Sections to skip updating
+
+
+class CanvasStatsResponse(BaseModel):
+    total_insights: int
+    total_sections: int
+    last_updated: Optional[str] = None
+    last_chat_processed: Optional[str] = None
+    created_at: Optional[str] = None
+    auto_update: bool = True
+    sections_breakdown: Dict = {}
+
+
+class PrintCanvasResponse(BaseModel):
+    user_id: str
+    generated_at: str
+    total_insights: int
+    last_updated: Optional[str] = None
+    sections: list
+    metadata: Dict

@@ -83,7 +83,7 @@ if _avatars_dir.is_dir():
 # ---------------------------------------------------------------------------
 # Public configuration endpoint — serves the frontend-safe subset
 # ---------------------------------------------------------------------------
-@app.get("/api/config")
+@app.get("/api/config", tags=["meta"])
 def get_public_config():
     """Return the public (non-secret) application configuration.
 

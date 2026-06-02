@@ -1,10 +1,9 @@
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import uuid
-from dataclasses import dataclass, field
-import asyncio
+from dataclasses import dataclass
 from threading import Lock
-from app.core.rag_manager import get_rag_manager
+from app.rag.manager import get_rag_manager
 
 @dataclass
 class ConversationContext:

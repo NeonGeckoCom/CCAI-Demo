@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
-from typing import Literal, Optional, List, Any
+from typing import Literal, Optional, List
 from datetime import datetime
 from bson import ObjectId
 

@@ -1,0 +1,168 @@
+"""Document chunking for the RAG pipeline.
+
+Turns raw document text into clean, section-aware chunks ready for
+embedding: whitespace/encoding preprocessing, document-level metadata
+extraction, logical section splitting, and recursive character chunking
+of large sections.
+"""
+
+import logging
+import re
+from typing import Any, Dict, List
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+class DocumentChunker:
+    """Preprocesses and chunks document text for the vector store."""
+
+    def __init__(self):
+        settings = get_settings()
+        # Recursive character text splitter for document chunking
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.rag.chunk_size,
+            chunk_overlap=settings.rag.chunk_overlap,
+        )
+
+    def preprocess_content(self, content: str) -> str:
+        """Clean and preprocess document content"""
+        # Remove excessive whitespace
+        content = re.sub(r'\s+', ' ', content)
+
+        # Remove page numbers and headers/footers
+        content = re.sub(r'\n\s*\d+\s*\n', '\n', content)
+
+        # Clean up encoding issues
+        content = content.replace('\\ufffd', ' ')
+
+        return content.strip()
+
+    def extract_document_metadata(self, content: str, filename: str, file_type: str) -> Dict[str, Any]:
+        """Extract metadata from document content"""
+        lines = content.split('\n')
+
+        # Try to find title (usually first significant line)
+        title = filename
+        for line in lines[:10]:
+            if line.strip() and len(line.strip()) > 10 and len(line.strip()) < 100:
+                if not line.strip().startswith(('Abstract', 'Introduction', '1.', 'Chapter')):
+                    title = line.strip()
+                    break
+
+        # Extract other metadata
+        word_count = len(content.split())
+        has_sections = bool(re.search(r'(?:Chapter|Section|\d+\.)', content))
+
+        return {
+            "title": title,
+            "word_count": word_count,
+            "has_sections": has_sections,
+            "file_type": file_type,
+            "estimated_pages": word_count // 250  # Rough estimate
+        }
+
+    def create_chunks(self, content: str) -> List[Dict[str, Any]]:
+        """Create intelligent, section-aware chunks with context preservation"""
+        # Split into logical sections first
+        sections = self._split_into_sections(content)
+
+        chunks = []
+        for section_data in sections:
+            section_text = section_data["text"]
+            section_type = section_data["type"]
+
+            # Split large sections with the recursive character text splitter
+            if len(section_text.split()) > 300:  # Large section, needs chunking
+                section_chunks = self.text_splitter.split_text(section_text)
+                for chunk_text in section_chunks:
+                    chunks.append({
+                        "text": chunk_text,
+                        "section": section_type,
+                        "type": "content",
+                        "keywords": self._extract_keywords(chunk_text)
+                    })
+            else:
+                # Small section, keep as single chunk
+                chunks.append({
+                    "text": section_text,
+                    "section": section_type,
+                    "type": section_type,
+                    "keywords": self._extract_keywords(section_text)
+                })
+
+        return chunks
+
+    def _split_into_sections(self, content: str) -> List[Dict[str, Any]]:
+        """Split content into logical sections"""
+        lines = content.split('\n')
+        sections = []
+        current_section = []
+        current_type = "introduction"
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check if this line starts a new section
+            section_match = re.match(r'(?:Chapter|Section|\d+\.?\s+)(.+)', line, re.IGNORECASE)
+            if section_match:
+                # Save previous section
+                if current_section:
+                    sections.append({
+                        "text": '\n'.join(current_section),
+                        "type": current_type
+                    })
+
+                # Start new section
+                current_section = [line]
+                section_title = section_match.group(1).lower()
+                current_type = self._classify_section_type(section_title)
+            else:
+                current_section.append(line)
+
+        # Add final section
+        if current_section:
+            sections.append({
+                "text": '\n'.join(current_section),
+                "type": current_type
+            })
+
+        return sections if sections else [{"text": content, "type": "content"}]
+
+    def _classify_section_type(self, section_title: str) -> str:
+        """Classify section type based on title"""
+        title_lower = section_title.lower()
+
+        if any(word in title_lower for word in ['method', 'approach', 'design', 'procedure']):
+            return "methodology"
+        elif any(word in title_lower for word in ['theory', 'framework', 'literature', 'review']):
+            return "theory"
+        elif any(word in title_lower for word in ['result', 'finding', 'analysis', 'data']):
+            return "results"
+        elif any(word in title_lower for word in ['conclusion', 'discussion', 'implication']):
+            return "conclusion"
+        elif any(word in title_lower for word in ['introduction', 'background', 'abstract']):
+            return "introduction"
+        else:
+            return "content"
+
+    def _extract_keywords(self, text: str) -> str:
+        """Extract key terms from text chunk"""
+        # Simple keyword extraction - could be enhanced with NLP
+        words = text.lower().split()
+
+        # Academic keywords to prioritize
+        academic_terms = set([
+            'methodology', 'theory', 'analysis', 'research', 'study', 'data',
+            'framework', 'approach', 'method', 'findings', 'results', 'literature',
+            'hypothesis', 'experiment', 'survey', 'interview', 'observation',
+            'qualitative', 'quantitative', 'mixed-methods', 'case study'
+        ])
+
+        found_keywords = [word for word in words if word in academic_terms]
+        return ' '.join(found_keywords[:5])  # Top 5 keywords

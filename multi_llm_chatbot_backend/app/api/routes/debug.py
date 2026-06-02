@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Query
 from app.core.session_manager import get_session_manager
-from app.core.rag_manager import get_rag_manager
+from app.rag.manager import get_rag_manager
 from app.core.bootstrap import chat_orchestrator
 import logging
 
@@ -66,7 +66,7 @@ async def debug_rag_status(request: Request):
         rag_manager = get_rag_manager()
         session_stats = session_manager.get_session_stats(session_id)
 
-        test_search = rag_manager.search_documents(
+        test_search = rag_manager.search_documents_with_context(
             query="test methodology research",
             session_id=session_id,
             persona_context="",
