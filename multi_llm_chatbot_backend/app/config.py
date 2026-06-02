@@ -253,6 +253,7 @@ class MongoDBConfig(BaseModel):
 
 
 class GeminiConfig(BaseModel):
+    enabled: bool = True
     api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
     model: str = "gemini-2.5-flash"
 
@@ -272,12 +273,14 @@ class GeminiConfig(BaseModel):
 
 
 class OllamaConfig(BaseModel):
+    enabled: bool = True
     model: str = "llama3.2:1b"
     # TODO: Drop support for `OLLAMA_BASE_URL` envvar handling
     base_url: str = Field(default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
 
 
 class VllmConfig(BaseModel):
+    enabled: bool = True
     api_url: str = ""
     api_key: str = Field(default=os.getenv("VLLM_API_KEY", ""))
 

@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.auth import get_current_active_user
-from app.core.bootstrap import chat_orchestrator, get_llm_client, AVAILABLE_BACKENDS
+from app.core.bootstrap import (
+    chat_orchestrator, get_llm_client, AVAILABLE_BACKENDS, _is_backend_enabled,
+)
 from app.core.database import get_database
 from app.models.user import User, UserLLMConfig
 import logging
@@ -45,6 +47,11 @@ async def switch_provider(
         backends_to_check.update(llm_config.persona_backends.values())
 
     for backend in backends_to_check:
+        if not _is_backend_enabled(backend):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Backend {backend!r} is disabled by the administrator.",
+            )
         try:
             get_llm_client(backend)
         except Exception as exc:

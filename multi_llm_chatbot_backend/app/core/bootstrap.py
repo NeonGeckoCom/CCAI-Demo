@@ -12,13 +12,12 @@ from app.llm.llm_client import LLMClient
 
 settings = get_settings()
 
-DEFAULT_BACKEND = "gemini"
-
+_PREFERRED_BACKEND = "gemini"
 
 _client_cache = {}
 
 
-def create_llm_client(backend: str = DEFAULT_BACKEND):
+def create_llm_client(backend: str = _PREFERRED_BACKEND):
     """Create an LLM client for the given backend name."""
     if backend not in LLM_BACKENDS:
         raise ValueError(
@@ -47,10 +46,18 @@ def get_llm_client(backend: str) -> LLMClient:
     return _client_cache[backend]
 
 
+def _is_backend_enabled(backend: str) -> bool:
+    """Check whether *backend* is enabled in the admin config."""
+    backend_config = getattr(settings.llm, backend, None)
+    return getattr(backend_config, "enabled", True)
+
+
 def get_available_backends() -> list:
-    """Return backends that are properly configured (sync, used at startup)."""
+    """Return backends that are enabled and properly configured (sync, used at startup)."""
     available = []
     for backend in LLM_BACKENDS:
+        if not _is_backend_enabled(backend):
+            continue
         try:
             get_llm_client(backend)
             available.append(backend)
@@ -60,9 +67,11 @@ def get_available_backends() -> list:
 
 
 async def refresh_available_backends():
-    """Re-check which backends are configured and reachable."""
+    """Re-check which backends are enabled, configured, and reachable."""
     available = []
     for backend in LLM_BACKENDS:
+        if not _is_backend_enabled(backend):
+            continue
         try:
             client = get_llm_client(backend)
             if await client.health_check():
@@ -80,9 +89,19 @@ async def _backend_health_loop():
         await asyncio.sleep(interval)
 
 
-llm = create_llm_client()
-_client_cache[DEFAULT_BACKEND] = llm
+# Resolve the default backend: prefer _PREFERRED_BACKEND, but fall back to the first available.
 AVAILABLE_BACKENDS = get_available_backends()
+if _PREFERRED_BACKEND in AVAILABLE_BACKENDS:
+    DEFAULT_BACKEND = _PREFERRED_BACKEND
+elif AVAILABLE_BACKENDS:
+    DEFAULT_BACKEND = AVAILABLE_BACKENDS[0]
+else:
+    raise RuntimeError(
+        "No LLM backends are available. Check your config.yaml — "
+        "at least one backend must be enabled and properly configured."
+    )
+llm = create_llm_client(DEFAULT_BACKEND)
+_client_cache[DEFAULT_BACKEND] = llm
 chat_orchestrator = ImprovedChatOrchestrator(llm_client=llm)
 
 DEFAULT_PERSONAS = get_default_personas(llm)
