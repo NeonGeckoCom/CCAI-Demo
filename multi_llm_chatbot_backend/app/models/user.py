@@ -25,10 +25,7 @@ class UserLLMConfig(BaseModel):
     def _validate_hybrid_fields(self):
         if self.mode == "hybrid":
             if not self.orchestrator_backend and not self.persona_backends:
-                raise ValueError(
-                    "hybrid mode requires at least one of "
-                    "orchestrator_backend or persona_backends"
-                )
+                self.orchestrator_backend = self.default_backend
         else:
             self.orchestrator_backend = None
             self.persona_backends = None

@@ -50,10 +50,10 @@ class TestUserLLMConfig(unittest.TestCase):
         self.assertIsNone(cfg.orchestrator_backend)
         self.assertIsNone(cfg.persona_backends)
 
-    def test_hybrid_requires_at_least_one_override(self):
-        with self.assertRaises(ValidationError) as ctx:
-            UserLLMConfig(mode="hybrid", default_backend="gemini")
-        self.assertIn("hybrid mode requires", str(ctx.exception))
+    def test_hybrid_without_overrides_falls_back_to_default(self):
+        cfg = UserLLMConfig(mode="hybrid", default_backend="gemini")
+        self.assertEqual(cfg.orchestrator_backend, "gemini")
+        self.assertIsNone(cfg.persona_backends)
 
     def test_hybrid_with_orchestrator_only(self):
         cfg = UserLLMConfig(
