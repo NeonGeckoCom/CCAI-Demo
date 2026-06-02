@@ -30,6 +30,16 @@ class TestGetAvailableBackends(unittest.TestCase):
         self.assertEqual(result, ["gemini", "ollama"])
 
     @patch("app.core.bootstrap.get_llm_client")
+    def test_gemini_not_configured(self, mock_get_client):
+        def side_effect(backend):
+            if backend == "gemini":
+                raise ValueError("No Gemini endpoint configured.")
+            return MagicMock()
+        mock_get_client.side_effect = side_effect
+        result = get_available_backends()
+        self.assertEqual(result, ["ollama", "vllm"])
+
+    @patch("app.core.bootstrap.get_llm_client")
     def test_none_configured(self, mock_get_client):
         mock_get_client.side_effect = ValueError("not configured")
         result = get_available_backends()
@@ -85,6 +95,19 @@ class TestRefreshAvailableBackends(unittest.TestCase):
 
         asyncio.run(refresh_available_backends())
         self.assertEqual(list(AVAILABLE_BACKENDS), ["gemini", "ollama"])
+
+    @patch("app.core.bootstrap.get_llm_client")
+    def test_gemini_unconfigured_excluded(self, mock_get_client):
+        def side_effect(backend):
+            if backend == "gemini":
+                raise ValueError("No Gemini endpoint configured.")
+            client = MagicMock()
+            client.health_check = AsyncMock(return_value=True)
+            return client
+        mock_get_client.side_effect = side_effect
+
+        asyncio.run(refresh_available_backends())
+        self.assertEqual(list(AVAILABLE_BACKENDS), ["ollama", "vllm"])
 
 
 if __name__ == "__main__":
