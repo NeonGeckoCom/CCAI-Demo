@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, FileText, X, Trash2, Download, Mic, MicOff, MessageCircle, ClipboardList, Loader2, Columns3, FileOutput } from 'lucide-react';
+import { Send, Paperclip, FileText, X, Trash2, Mic, MicOff, MessageCircle, ClipboardList, Loader2, Columns3, FileOutput } from 'lucide-react';
 import FileUpload from './FileUpload';
 
 const EnhancedChatInput = ({ 

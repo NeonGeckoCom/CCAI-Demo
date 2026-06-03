@@ -6,7 +6,6 @@ import {
   Search,
   MoreVertical,
   Trash2,
-  Edit3,
   LogOut,
   User,
   Settings,
@@ -51,6 +50,7 @@ const Sidebar = ({
     if (authToken) {
       fetchChatSessions();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken]);
 
   useEffect(() => {
@@ -83,6 +83,7 @@ const Sidebar = ({
       }, 200);
       return () => clearTimeout(timer);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionId, authToken]);
 
   // Refresh session list when parent signals a message exchange completed
@@ -90,6 +91,7 @@ const Sidebar = ({
     if (refreshTrigger > 0 && authToken) {
       fetchChatSessions();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);
 
 

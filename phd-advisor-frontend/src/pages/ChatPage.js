@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
-import { Home, MessageCircle, Reply, X, Sparkles, Users, Settings2, FileText, Menu, HelpCircle } from 'lucide-react';
+import { Home, MessageCircle, Reply, X, Users, FileText, Menu, HelpCircle } from 'lucide-react';
 
 import EnhancedChatInput from '../components/EnhancedChatInput';
-import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import SuggestionsPanel from '../components/SuggestionsPanel';
 import ThemeToggle from '../components/ThemeToggle';
@@ -23,7 +22,6 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [thinkingAdvisors, setThinkingAdvisors] = useState([]);
-  const [collectedInfo, setCollectedInfo] = useState({});
   const [replyingTo, setReplyingTo] = useState(null);
   const [currentProvider, setCurrentProvider] = useState('gemini');
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
@@ -33,7 +31,6 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
 
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [currentSessionTitle, setCurrentSessionTitle] = useState('');
-  const [isSavingSession, setIsSavingSession] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
@@ -87,7 +84,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
       });
 
       if (response.ok) {
-        const data = await response.json();
+        await response.json();
         setCurrentProvider(newProvider);
         
         const switchMessage = {
@@ -561,6 +558,7 @@ const handleNewChat = async (sessionId = null) => {
   setSidebarRefreshTrigger(prev => prev + 1);
 };
 
+  // eslint-disable-next-line no-unused-vars
   const handleCopyMessage = (messageId, content) => {
     // Optional: Show a toast notification or add to message history
     console.log(`Copied message ${messageId}: ${content.substring(0, 50)}...`);

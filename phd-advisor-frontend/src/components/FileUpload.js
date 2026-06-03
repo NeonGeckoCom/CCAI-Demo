@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, File, X, CheckCircle, AlertCircle } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
 import '../styles/FileUpload.css'
 
 const FileUpload = ({ onFileUploaded, isUploading, onUploadStart, currentChatSessionId = null, authToken = null  }) => {
@@ -9,7 +8,6 @@ const FileUpload = ({ onFileUploaded, isUploading, onUploadStart, currentChatSes
   const [uploadMessage, setUploadMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
-  const { isDark } = useTheme();
 
   const supportedTypes = {
     'application/pdf': { ext: 'PDF', icon: FileText, color: '#EF4444' },
@@ -159,6 +157,7 @@ const FileUpload = ({ onFileUploaded, isUploading, onUploadStart, currentChatSes
     setUploadMessage('');
   };
 
+  // eslint-disable-next-line no-unused-vars
   const getFileIcon = (file) => {
     const fileInfo = supportedTypes[file.type];
     if (fileInfo) {

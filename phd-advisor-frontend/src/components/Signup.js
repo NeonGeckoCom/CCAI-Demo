@@ -117,8 +117,16 @@ const Signup = ({ onNavigateToLogin, onNavigateToHome }) => {
       }
       
     } catch (error) {
-      console.error('Signup error:', error);
-      setErrors({ submit: 'Signup failed. Please try again.' });
+      // No backend configured (REACT_APP_API_URL unset) → mock-data demo mode.
+      // Create a local session so the app is fully usable offline. In a real
+      // deployment REACT_APP_API_URL is set, so genuine errors still surface.
+      if (!process.env.REACT_APP_API_URL) {
+        const name = `${formData.firstName} ${formData.lastName}`.trim() || formData.email;
+        onNavigateToHome?.({ email: formData.email, name, stage: formData.academicStage }, 'mock-token');
+      } else {
+        console.error('Signup error:', error);
+        setErrors({ submit: 'Signup failed. Please try again.' });
+      }
     } finally {
       setIsLoading(false);
     }

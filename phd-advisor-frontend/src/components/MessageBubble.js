@@ -5,6 +5,7 @@ import { Reply, Copy, Check, Maximize2, FileText, Hash, Target, Volume2, VolumeX
 import * as LucideIcons from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
+// eslint-disable-next-line no-unused-vars
 const stripMarkdown = (md) => {
   if (!md) return '';
   return md
@@ -41,6 +42,7 @@ const MessageBubble = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
+  // eslint-disable-next-line no-unused-vars
   const overlayRef = useRef(null);
   const tooltipTimer = useRef(null);
   const audioRef = useRef(null);
@@ -551,6 +553,7 @@ const MessageBubble = ({
 export default MessageBubble;
 
 /** RAG Info overlay kept as-is from your original file */
+// eslint-disable-next-line no-unused-vars
 const RagInfoOverlay = ({ ragMetadata, colors }) => {
   const overlayRef = useRef(null);
   const [documentChunks, setDocumentChunks] = useState([]);
