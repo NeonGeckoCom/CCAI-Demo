@@ -293,11 +293,12 @@ class BrainForgeConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
+    default_backend: str = ""
     gemini: GeminiConfig = GeminiConfig()
     ollama: OllamaConfig = OllamaConfig()
     vllm: VllmConfig = VllmConfig()
     brainforge: BrainForgeConfig = BrainForgeConfig()
-    health_check_interval: int = 300
+    health_check_interval_seconds: int = 300
 
 
 class RAGConfig(BaseModel):

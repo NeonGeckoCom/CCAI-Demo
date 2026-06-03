@@ -173,6 +173,7 @@ mongodb:
   database_name: "phd_advisor"
 
 llm:
+  default_backend: gemini
   gemini:
     enabled: true
     model: "gemini-2.5-flash"

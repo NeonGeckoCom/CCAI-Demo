@@ -1,5 +1,6 @@
 # app/core/bootstrap.py
 import asyncio
+import logging
 
 from app.config import get_settings
 from app.llm.improved_gemini_client import ImprovedGeminiClient
@@ -10,15 +11,17 @@ from app.models.default_personas import get_default_personas
 from app.models.user import LLM_BACKENDS
 from app.llm.llm_client import LLMClient
 
-settings = get_settings()
+logger = logging.getLogger(__name__)
 
-_PREFERRED_BACKEND = "gemini"
+settings = get_settings()
 
 _client_cache = {}
 
 
-def create_llm_client(backend: str = _PREFERRED_BACKEND):
+def create_llm_client(backend: str = None):
     """Create an LLM client for the given backend name."""
+    if backend is None:
+        backend = settings.llm.default_backend
     if backend not in LLM_BACKENDS:
         raise ValueError(
             f"Unknown backend {backend!r}. Must be one of {LLM_BACKENDS}"
@@ -83,18 +86,22 @@ async def refresh_available_backends():
 
 async def _backend_health_loop():
     """Background task that periodically refreshes AVAILABLE_BACKENDS."""
-    interval = settings.llm.health_check_interval
+    interval = settings.llm.health_check_interval_seconds
     while True:
         await refresh_available_backends()
         await asyncio.sleep(interval)
 
 
-# Resolve the default backend: prefer _PREFERRED_BACKEND, but fall back to the first available.
+# Resolve the default backend: prefer the configured default, fall back to the first available.
 AVAILABLE_BACKENDS = get_available_backends()
-if _PREFERRED_BACKEND in AVAILABLE_BACKENDS:
-    DEFAULT_BACKEND = _PREFERRED_BACKEND
+if settings.llm.default_backend in AVAILABLE_BACKENDS:
+    DEFAULT_BACKEND = settings.llm.default_backend
 elif AVAILABLE_BACKENDS:
     DEFAULT_BACKEND = AVAILABLE_BACKENDS[0]
+    logger.warning(
+        "Configured default_backend %r is not available; falling back to %r",
+        settings.llm.default_backend, DEFAULT_BACKEND,
+    )
 else:
     raise RuntimeError(
         "No LLM backends are available. Check your config.yaml — "
