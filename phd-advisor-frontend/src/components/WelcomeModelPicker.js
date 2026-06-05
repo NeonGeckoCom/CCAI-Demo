@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Cloud, Cpu, Server, ChevronDown, Settings2 } from 'lucide-react';
-import AdvisorConfigPanel from './AdvisorConfigPanel';
+import AdvisorConfigPanel, { DEFAULT_BACKEND, stripDefaultBackends } from './AdvisorConfigPanel';
 
 // Welcome-state model picker. Lets a new user pick a uniform default backend
 // (Gemini / Ollama / vLLM) and optionally drill into per-advisor overrides.
@@ -55,7 +55,7 @@ const WelcomeModelPicker = ({
   const [advancedOpen, setAdvancedOpen] = useState(llmConfig?.mode === 'hybrid');
   const [draft, setDraft] = useState(() => ({
     default_backend: llmConfig?.default_backend || availableBackends[0],
-    orchestrator_backend: llmConfig?.orchestrator_backend || llmConfig?.default_backend || availableBackends[0],
+    orchestrator_backend: llmConfig?.orchestrator_backend || DEFAULT_BACKEND,
     persona_backends: llmConfig?.persona_backends || {},
   }));
 
@@ -142,7 +142,7 @@ const WelcomeModelPicker = ({
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
             <button
               type="button"
-              onClick={() => onSubmitHybrid(draft)}
+              onClick={() => onSubmitHybrid(stripDefaultBackends(draft))}
               disabled={isSwitching}
               style={{
                 padding: '8px 14px', borderRadius: 8, border: 'none',

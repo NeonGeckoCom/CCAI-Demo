@@ -11,6 +11,27 @@ import React, { useEffect, useMemo, useState } from 'react';
 //
 // Shape of `value`:
 //   { default_backend, orchestrator_backend, persona_backends: { [personaId]: backend } }
+//
+// The orchestrator and each advisor can be set to DEFAULT_BACKEND ("Default"),
+// meaning "follow default_backend". Call stripDefaultBackends() before persisting:
+// it drops those sentinels so the backend falls through to default_backend (and
+// moves them automatically when the default changes).
+
+export const DEFAULT_BACKEND = '__default__';
+
+export const stripDefaultBackends = (config) => {
+  if (!config) return config;
+  const source = config.persona_backends || {};
+  const cleaned = {};
+  for (const [id, backend] of Object.entries(source)) {
+    if (backend && backend !== DEFAULT_BACKEND) cleaned[id] = backend;
+  }
+  const orchestrator =
+    config.orchestrator_backend && config.orchestrator_backend !== DEFAULT_BACKEND
+      ? config.orchestrator_backend
+      : null;
+  return { ...config, orchestrator_backend: orchestrator, persona_backends: cleaned };
+};
 
 const rowStyle = {
   display: 'grid', gridTemplateColumns: '1fr 180px', alignItems: 'center',
@@ -20,19 +41,25 @@ const rowStyle = {
 const selectStyle = {
   padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-primary)',
   background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13.5,
-  width: '100%',
+  width: '100%', colorScheme: 'light dark',
 };
+
+// Native dropdown option list ignores the <select> colors in several browsers,
+// so set the themed background/text explicitly on each <option>.
+const optionStyle = { background: 'var(--bg-secondary)', color: 'var(--text-primary)' };
+
+const titleStyle = { fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' };
 
 const buildInitial = (initialConfig, personaIds, availableBackends) => {
   const fallback = initialConfig?.default_backend || availableBackends[0];
   const seed = initialConfig?.persona_backends || {};
   const personas = {};
   for (const id of personaIds) {
-    personas[id] = seed[id] || fallback;
+    personas[id] = seed[id] || DEFAULT_BACKEND;
   }
   return {
     default_backend: fallback,
-    orchestrator_backend: initialConfig?.orchestrator_backend || fallback,
+    orchestrator_backend: initialConfig?.orchestrator_backend || DEFAULT_BACKEND,
     persona_backends: personas,
   };
 };
@@ -59,10 +86,9 @@ const AdvisorConfigPanel = ({
     setInternal(prev => {
       const next = { ...prev.persona_backends };
       let changed = false;
-      const fallback = prev.default_backend || availableBackends[0];
       for (const id of personaIds) {
         if (next[id] === undefined) {
-          next[id] = fallback;
+          next[id] = DEFAULT_BACKEND;
           changed = true;
         }
       }
@@ -95,7 +121,7 @@ const AdvisorConfigPanel = ({
       {!hideDefault && (
         <div style={rowStyle}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Default backend</div>
+            <div style={titleStyle}>Default backend</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Used when no specific override is set.
             </div>
@@ -105,7 +131,7 @@ const AdvisorConfigPanel = ({
             value={config.default_backend}
             onChange={(e) => setDefault(e.target.value)}
           >
-            {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
+            {availableBackends.map(b => <option key={b} value={b} style={optionStyle}>{b}</option>)}
           </select>
         </div>
       )}
@@ -113,7 +139,7 @@ const AdvisorConfigPanel = ({
       {!hideOrchestrator && (
         <div style={rowStyle}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Orchestrator</div>
+            <div style={titleStyle}>Orchestrator</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Routes user input across advisors.
             </div>
@@ -123,7 +149,8 @@ const AdvisorConfigPanel = ({
             value={config.orchestrator_backend}
             onChange={(e) => setOrchestrator(e.target.value)}
           >
-            {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
+            <option value={DEFAULT_BACKEND} style={optionStyle}>Default</option>
+            {availableBackends.map(b => <option key={b} value={b} style={optionStyle}>{b}</option>)}
           </select>
         </div>
       )}
@@ -133,11 +160,11 @@ const AdvisorConfigPanel = ({
         const locked = advisor?.backendLocked;
         const personaValue = locked && advisor?.defaultBackend
           ? advisor.defaultBackend
-          : (config.persona_backends?.[id] || config.default_backend);
+          : (config.persona_backends?.[id] || DEFAULT_BACKEND);
         return (
           <div style={rowStyle} key={id}>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{advisor?.name || id}</div>
+              <div style={titleStyle}>{advisor?.name || id}</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 {advisor?.role || id}{locked ? ' · backend locked' : ''}
               </div>
@@ -152,7 +179,8 @@ const AdvisorConfigPanel = ({
                 value={personaValue}
                 onChange={(e) => setPersona(id, e.target.value)}
               >
-                {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
+                <option value={DEFAULT_BACKEND} style={optionStyle}>Default</option>
+                {availableBackends.map(b => <option key={b} value={b} style={optionStyle}>{b}</option>)}
               </select>
             )}
           </div>

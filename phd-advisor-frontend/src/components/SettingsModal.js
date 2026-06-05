@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { X, User as UserIcon, Lock, Trash2, AlertTriangle, Users, Layers } from 'lucide-react';
 import Toggle from './Toggle';
 import { useAppConfig } from '../contexts/AppConfigContext';
-import AdvisorConfigPanel from './AdvisorConfigPanel';
+import AdvisorConfigPanel, { DEFAULT_BACKEND, stripDefaultBackends } from './AdvisorConfigPanel';
 
 const overlay = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
@@ -120,10 +120,10 @@ const SettingsModal = ({
     const fallback = llmConfig?.default_backend || availableBackends?.[0];
     const seed = llmConfig?.persona_backends || {};
     const personas = {};
-    for (const id of personaIds) personas[id] = seed[id] || fallback;
+    for (const id of personaIds) personas[id] = seed[id] || DEFAULT_BACKEND;
     return {
       default_backend: fallback,
-      orchestrator_backend: llmConfig?.orchestrator_backend || fallback,
+      orchestrator_backend: llmConfig?.orchestrator_backend || DEFAULT_BACKEND,
       persona_backends: personas,
     };
   });
@@ -250,7 +250,7 @@ const SettingsModal = ({
 
   const handleModelSave = async () => {
     if (!onSubmitConfig) return;
-    await onSubmitConfig(modelDraft);
+    await onSubmitConfig(stripDefaultBackends(modelDraft));
   };
 
   const messageStyle = (type) => ({
