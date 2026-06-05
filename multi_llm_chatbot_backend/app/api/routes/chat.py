@@ -64,12 +64,16 @@ class UserInput(BaseModel):
     user_input: str
     chat_session_id: Optional[str] = None
 
+ResponseMode = Literal["panel", "aggregated"]
+
+
 class ChatMessage(BaseModel):
     user_input: str
     session_id: Optional[str] = None
     chat_session_id: Optional[str] = None  # MongoDB chat session ID
     response_length: str = "medium"
     active_advisors: Optional[List[str]] = None
+    response_mode: ResponseMode = "panel"
 
 class ReplyToAdvisor(BaseModel):
     user_input: str
