@@ -103,7 +103,7 @@ class ChatStreamLine(BaseModel):
     def to_ndjson(self) -> str:
         return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
 
-
+# TODO: Refactor this function into smaller composable helpers so it's more readable and maintainable.
 @router.post("/chat-stream")
 async def chat_stream(
     message: ChatMessage,
@@ -140,11 +140,16 @@ async def chat_stream(
             session = session_manager.get_session(sid)
 
             # Append user message to in-memory session and persist to MongoDB
+            response_group_id = str(ObjectId())
             session.append_message("user", message.user_input)
             if message.chat_session_id:
                 await persist_message(
                     message.chat_session_id,
-                    PersistMessage(type="user", content=message.user_input),
+                    PersistMessage(
+                        type="user",
+                        content=message.user_input,
+                        response_group_id=response_group_id,
+                    ),
                 )
                 yield ChatStreamLine(
                     type="progress", data={"phase": "received"},
@@ -279,33 +284,116 @@ async def chat_stream(
 
             tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
 
-            for _ in range(len(tasks)):
-                result = await done_queue.get()
-                if message.chat_session_id:
-                    await persist_message(
-                        message.chat_session_id,
-                        PersistMessage(
-                            type="advisor",
-                            persona_id=result["persona_id"],
-                            advisorName=result["persona_name"],
-                            content=result["response"],
-                            used_documents=result.get("used_documents", False),
-                            document_chunks_used=result.get("document_chunks_used", 0),
-                        ),
-                    )
-                line = ChatStreamLine(
-                    type="advisor",
-                    data={
-                        "persona_id": result["persona_id"],
-                        "persona_name": result["persona_name"],
-                        "content": result["response"],
-                        "used_documents": result.get("used_documents", False),
-                        "document_chunks_used": result.get("document_chunks_used", 0),
-                    },
-                )
-                yield line.to_ndjson()
+            if message.response_mode == "panel":
+                # ---- Panel mode: yield each advisor response as it arrives ----
+                for _ in range(len(tasks)):
+                    result = await done_queue.get()
+                    if message.chat_session_id:
+                        await persist_message(
+                            message.chat_session_id,
+                            PersistMessage(
+                                type="advisor",
+                                persona_id=result["persona_id"],
+                                advisorName=result["persona_name"],
+                                content=result["response"],
+                                used_documents=result.get("used_documents", False),
+                                document_chunks_used=result.get("document_chunks_used", 0),
+                                response_group_id=response_group_id,
+                            ),
+                        )
+                    yield ChatStreamLine(
+                        type="advisor",
+                        data={
+                            "persona_id": result["persona_id"],
+                            "persona_name": result["persona_name"],
+                            "content": result["response"],
+                            "used_documents": result.get("used_documents", False),
+                            "document_chunks_used": result.get("document_chunks_used", 0),
+                            "response_group_id": response_group_id,
+                        },
+                    ).to_ndjson()
 
-            await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+            else:
+                # ---- Aggregated mode: collect all, synthesize, yield one ----
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "generating"},
+                ).to_ndjson()
+
+                panel_results = []
+                for _ in range(len(tasks)):
+                    result = await done_queue.get()
+                    panel_results.append(result)
+                    if message.chat_session_id:
+                        await persist_message(
+                            message.chat_session_id,
+                            PersistMessage(
+                                type="advisor",
+                                persona_id=result["persona_id"],
+                                advisorName=result["persona_name"],
+                                content=result["response"],
+                                used_documents=result.get("used_documents", False),
+                                document_chunks_used=result.get("document_chunks_used", 0),
+                                response_group_id=response_group_id,
+                            ),
+                        )
+
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "synthesizing"},
+                ).to_ndjson()
+
+                synth_result = await chat_orchestrator.synthesize_aggregated_response(
+                    user_input=message.user_input,
+                    panel_results=panel_results,
+                    llm_client=orchestrator_llm,
+                    response_length=message.response_length or "medium",
+                )
+
+                if synth_result:
+                    if message.chat_session_id:
+                        await persist_message(
+                            message.chat_session_id,
+                            PersistMessage(
+                                type="advisor",
+                                persona_id="aggregated",
+                                advisorName=synth_result["persona_name"],
+                                content=synth_result["response"],
+                                is_aggregated=True,
+                                source_personas=synth_result["source_personas"],
+                                response_group_id=response_group_id,
+                            ),
+                        )
+                    yield ChatStreamLine(
+                        type="advisor",
+                        data={
+                            "persona_id": "aggregated",
+                            "persona_name": synth_result["persona_name"],
+                            "content": synth_result["response"],
+                            "is_aggregated": True,
+                            "source_personas": synth_result["source_personas"],
+                            "response_group_id": response_group_id,
+                        },
+                    ).to_ndjson()
+                else:
+                    # Synthesis failed — fall back to yielding panel responses
+                    logger.warning("Aggregated synthesis failed, falling back to panel")
+                    for result in panel_results:
+                        yield ChatStreamLine(
+                            type="advisor",
+                            data={
+                                "persona_id": result["persona_id"],
+                                "persona_name": result["persona_name"],
+                                "content": result["response"],
+                                "used_documents": result.get("used_documents", False),
+                                "document_chunks_used": result.get("document_chunks_used", 0),
+                                "response_group_id": response_group_id,
+                            },
+                        ).to_ndjson()
 
             yield ChatStreamLine(
                 type="progress",
