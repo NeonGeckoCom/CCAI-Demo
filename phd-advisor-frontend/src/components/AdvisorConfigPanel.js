@@ -11,6 +11,27 @@ import React, { useEffect, useMemo, useState } from 'react';
 //
 // Shape of `value`:
 //   { default_backend, orchestrator_backend, persona_backends: { [personaId]: backend } }
+//
+// A persona whose backend is DEFAULT_BACKEND (or unset) follows `default_backend`,
+// so changing the default updates every advisor still on "Default". Call
+// stripDefaultBackends() before persisting to drop those sentinels — the backend
+// already falls back to default_backend for any persona absent from the map.
+
+export const DEFAULT_BACKEND = '__default__';
+
+export const stripDefaultBackends = (config) => {
+  if (!config) return config;
+  const source = config.persona_backends || {};
+  const cleaned = {};
+  for (const [id, backend] of Object.entries(source)) {
+    if (backend && backend !== DEFAULT_BACKEND) cleaned[id] = backend;
+  }
+  const orchestrator =
+    config.orchestrator_backend && config.orchestrator_backend !== DEFAULT_BACKEND
+      ? config.orchestrator_backend
+      : null;
+  return { ...config, orchestrator_backend: orchestrator, persona_backends: cleaned };
+};
 
 const rowStyle = {
   display: 'grid', gridTemplateColumns: '1fr 180px', alignItems: 'center',
@@ -28,11 +49,11 @@ const buildInitial = (initialConfig, personaIds, availableBackends) => {
   const seed = initialConfig?.persona_backends || {};
   const personas = {};
   for (const id of personaIds) {
-    personas[id] = seed[id] || fallback;
+    personas[id] = seed[id] || DEFAULT_BACKEND;
   }
   return {
     default_backend: fallback,
-    orchestrator_backend: initialConfig?.orchestrator_backend || fallback,
+    orchestrator_backend: initialConfig?.orchestrator_backend || DEFAULT_BACKEND,
     persona_backends: personas,
   };
 };
@@ -59,10 +80,9 @@ const AdvisorConfigPanel = ({
     setInternal(prev => {
       const next = { ...prev.persona_backends };
       let changed = false;
-      const fallback = prev.default_backend || availableBackends[0] || 'gemini';
       for (const id of personaIds) {
         if (next[id] === undefined) {
-          next[id] = fallback;
+          next[id] = DEFAULT_BACKEND;
           changed = true;
         }
       }
@@ -95,7 +115,7 @@ const AdvisorConfigPanel = ({
       {!hideDefault && (
         <div style={rowStyle}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Default backend</div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>Default backend</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Used when no specific override is set.
             </div>
@@ -113,7 +133,7 @@ const AdvisorConfigPanel = ({
       {!hideOrchestrator && (
         <div style={rowStyle}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Orchestrator</div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>Orchestrator</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Routes user input across advisors.
             </div>
@@ -123,6 +143,7 @@ const AdvisorConfigPanel = ({
             value={config.orchestrator_backend}
             onChange={(e) => setOrchestrator(e.target.value)}
           >
+            <option value={DEFAULT_BACKEND}>Default</option>
             {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
         </div>
@@ -133,11 +154,11 @@ const AdvisorConfigPanel = ({
         const locked = advisor?.backendLocked;
         const personaValue = locked && advisor?.defaultBackend
           ? advisor.defaultBackend
-          : (config.persona_backends?.[id] || config.default_backend);
+          : (config.persona_backends?.[id] || DEFAULT_BACKEND);
         return (
           <div style={rowStyle} key={id}>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{advisor?.name || id}</div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{advisor?.name || id}</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 {advisor?.role || id}{locked ? ' · backend locked' : ''}
               </div>
@@ -148,6 +169,7 @@ const AdvisorConfigPanel = ({
               disabled={locked}
               onChange={(e) => setPersona(id, e.target.value)}
             >
+              {!locked && <option value={DEFAULT_BACKEND}>Default</option>}
               {availableBackends.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>

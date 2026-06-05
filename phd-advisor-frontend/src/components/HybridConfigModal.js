@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { X, Layers } from 'lucide-react';
-import AdvisorConfigPanel from './AdvisorConfigPanel';
+import AdvisorConfigPanel, { DEFAULT_BACKEND, stripDefaultBackends } from './AdvisorConfigPanel';
 
 const overlay = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
@@ -19,11 +19,11 @@ const seedConfig = (initialConfig, personaIds, availableBackends) => {
   const seedPersonas = initialConfig?.persona_backends || {};
   const personas = {};
   for (const id of personaIds) {
-    personas[id] = seedPersonas[id] || fallback;
+    personas[id] = seedPersonas[id] || DEFAULT_BACKEND;
   }
   return {
     default_backend: fallback,
-    orchestrator_backend: initialConfig?.orchestrator_backend || fallback,
+    orchestrator_backend: initialConfig?.orchestrator_backend || DEFAULT_BACKEND,
     persona_backends: personas,
   };
 };
@@ -75,7 +75,7 @@ const HybridConfigModal = ({
             Cancel
           </button>
           <button
-            onClick={() => onSubmit(config)}
+            onClick={() => onSubmit(stripDefaultBackends(config))}
             disabled={isSaving}
             style={{
               padding: '8px 14px', borderRadius: 8, border: 'none',

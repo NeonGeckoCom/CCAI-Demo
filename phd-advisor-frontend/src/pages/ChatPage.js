@@ -132,9 +132,16 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   };
 
   const handleHybridSubmit = async (hybridConfig) => {
+    // If nothing overrides the default (orchestrator + every advisor on "Default"),
+    // this is really uniform mode — hybrid mode would be rejected as empty.
+    const hasOverrides = Boolean(hybridConfig.orchestrator_backend) ||
+      Object.keys(hybridConfig.persona_backends || {}).length > 0;
+    const payload = hasOverrides
+      ? { mode: 'hybrid', ...hybridConfig }
+      : { mode: 'uniform', default_backend: hybridConfig.default_backend };
     const ok = await submitProviderConfig(
-      { mode: 'hybrid', ...hybridConfig },
-      'Hybrid configuration'
+      payload,
+      hasOverrides ? 'Hybrid configuration' : 'Uniform configuration'
     );
     if (ok) setIsSettingsOpen(false);
     return ok;
