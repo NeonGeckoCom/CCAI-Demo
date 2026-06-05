@@ -173,11 +173,15 @@ mongodb:
   database_name: "phd_advisor"
 
 llm:
+  default_backend: gemini
   gemini:
+    enabled: true
     model: "gemini-2.5-flash"
   ollama:
+    enabled: false
     model: "llama3.2:1b"
   vllm:
+    enabled: true
     api_url: https://rtx6000blackwell-1.neonaiservices2.com/vllm0
   brainforge:
     api_url: https://hana.neonaialpha.com

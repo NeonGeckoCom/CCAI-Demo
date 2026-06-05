@@ -13,7 +13,7 @@ from app.api.routes.chat_sessions import persist_message
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
 from app.config import get_settings
-from app.core.bootstrap import chat_orchestrator
+from app.core.bootstrap import chat_orchestrator, get_llm_client
 from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
@@ -23,6 +23,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 session_manager = get_session_manager()
+
+
+def resolve_llm_clients(user: User) -> Dict[str, Any]:
+    """Resolve LLM clients from a user's stored configuration.
+
+    Returns ``{"orchestrator": LLMClient | None, "personas": {id: LLMClient} | None}``.
+
+    - No saved config: both values are ``None``; callers fall back to
+      orchestrator/persona defaults.
+    - Uniform mode: the same cached client is returned for the orchestrator
+      and every persona.
+    - Hybrid mode: the orchestrator and each persona may receive different
+      clients based on the user's per-persona mapping.
+    """
+    config = user.llm_config
+    if config is None:
+        return {"orchestrator": None, "personas": None}
+
+    if config.mode == "uniform":
+        client = get_llm_client(config.default_backend)
+        persona_clients = {
+            pid: client for pid in chat_orchestrator.personas
+        }
+        return {"orchestrator": client, "personas": persona_clients}
+
+    # Hybrid mode
+    orchestrator_backend = config.orchestrator_backend or config.default_backend
+    orchestrator_client = get_llm_client(orchestrator_backend)
+
+    persona_clients = {}
+    for pid in chat_orchestrator.personas:
+        backend = (config.persona_backends or {}).get(pid, config.default_backend)
+        persona_clients[pid] = get_llm_client(backend)
+
+    return {"orchestrator": orchestrator_client, "personas": persona_clients}
 
 # Enhanced data models
 class UserInput(BaseModel):
@@ -81,6 +116,11 @@ async def chat_stream(
 
     async def _event_generator():
         try:
+            # Resolve per-user LLM clients from their stored config
+            llm_clients = resolve_llm_clients(current_user)
+            orchestrator_llm = llm_clients["orchestrator"]
+            persona_llms = llm_clients["personas"]
+
             # Load or create the in-memory session
             if message.chat_session_id:
                 sid = f"chat_{message.chat_session_id}"
@@ -107,7 +147,9 @@ async def chat_stream(
                 ).to_ndjson()
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
-                clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
+                clar = await chat_orchestrator.generate_contextual_clarification(
+                    message.user_input, llm_client=orchestrator_llm,
+                )
                 yield ChatStreamLine(
                     type="clarification",
                     data={
@@ -123,7 +165,9 @@ async def chat_stream(
 
             # If an enabled tool can handle this query, return its response
             # directly and skip persona generation.
-            tool_result = await chat_orchestrator.get_tool_response(message.user_input)
+            tool_result = await chat_orchestrator.get_tool_response(
+                message.user_input, llm_client=orchestrator_llm,
+            )
             if tool_result.used_tool:
                 # Append user message to in-memory session and persist to MongoDB
                 session.append_message("orchestrator", tool_result.text)
@@ -164,6 +208,7 @@ async def chat_stream(
             top_personas = await chat_orchestrator.get_top_personas(
                 session_id=sid,
                 allowed_ids=available,
+                llm_client=orchestrator_llm,
             )
 
             # Guard against race condition where all selected advisors
@@ -210,9 +255,11 @@ async def chat_stream(
                             "document_chunks_used": 0,
                         })
                         return
+                    persona_llm = (persona_llms or {}).get(pid)
                     result = await chat_orchestrator.generate_single_persona_response(
                         session, persona,
                         message.response_length or "medium",
+                        llm_client=persona_llm,
                     )
                     session.append_message(pid, result["response"])
                     await done_queue.put(result)
@@ -390,7 +437,10 @@ async def create_new_chat(
         raise HTTPException(status_code=500, detail="Failed to create new chat")
 
 @router.post("/chat/{persona_id}")
-async def chat_with_specific_advisor(persona_id: str, input: UserInput, request: Request):
+async def chat_with_specific_advisor(
+    persona_id: str, input: UserInput, request: Request,
+    current_user: User = Depends(get_current_active_user),
+):
     """Chat with a specific advisor - UPDATED"""
     try:
         if persona_id not in chat_orchestrator.personas:
@@ -408,11 +458,15 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
                     isExpandRequest=True,
                 ),
             )
+        
+        llm_clients = resolve_llm_clients(current_user)
+        persona_llm = (llm_clients["personas"] or {}).get(persona_id)
 
         result = await chat_orchestrator.chat_with_persona(
             user_input=input.user_input,
             persona_id=persona_id,
-            session_id=session_id
+            session_id=session_id,
+            llm_client=persona_llm,
         )
         
         # Handle response structure
@@ -479,7 +533,10 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
         }
 
 @router.post("/reply-to-advisor")
-async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
+async def reply_to_advisor(
+    reply: ReplyToAdvisor, request: Request,
+    current_user: User = Depends(get_current_active_user),
+):
     """Reply to a specific advisor with proper context - UPDATED"""
     try:
         if reply.advisor_id not in chat_orchestrator.personas:
@@ -520,10 +577,14 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         if original_message:
             contextual_input = f"[Replying to your previous message: '{original_message[:100]}...'] {reply.user_input}"
         
+        llm_clients = resolve_llm_clients(current_user)
+        advisor_llm = (llm_clients["personas"] or {}).get(reply.advisor_id)
+
         result = await chat_orchestrator.chat_with_persona(
             user_input=contextual_input,
             persona_id=reply.advisor_id,
-            session_id=session_id
+            session_id=session_id,
+            llm_client=advisor_llm,
         )
         
         # Handle response structure
@@ -600,15 +661,22 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         }
 
 @router.post("/ask/")
-async def ask_question(query: PersonaQuery, request: Request):
+async def ask_question(
+    query: PersonaQuery, request: Request,
+    current_user: User = Depends(get_current_active_user),
+):
     """Ask question - UPDATED"""
     try:
         session_id = await get_or_create_session_for_request_async(request)
         
+        llm_clients = resolve_llm_clients(current_user)
+        persona_llm = (llm_clients["personas"] or {}).get(query.persona)
+
         result = await chat_orchestrator.chat_with_persona(
             user_input=query.question,
             persona_id=query.persona,
-            session_id=session_id
+            session_id=session_id,
+            llm_client=persona_llm,
         )
         
         if result["type"] == "single_persona_response":

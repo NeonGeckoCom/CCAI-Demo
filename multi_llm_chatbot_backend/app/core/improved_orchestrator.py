@@ -45,7 +45,8 @@ class ImprovedChatOrchestrator:
         """List all available persona IDs"""
         return list(self.personas.keys())
 
-    async def get_tool_response(self, user_message: str) -> ToolCallResult:
+    async def get_tool_response(self, user_message: str,
+                               llm_client: LLMClient = None) -> ToolCallResult:
         """Check whether a tool can handle *user_message*.
 
         If tools are disabled in config, no LLM client is available, or the
@@ -53,7 +54,8 @@ class ImprovedChatOrchestrator:
         ``ToolCallResult(used_tool=False)``.  Otherwise executes the tool and
         returns the grounded response with ``used_tool=True``.
         """
-        if self.llm_client is None:
+        effective_llm = llm_client or self.llm_client
+        if effective_llm is None:
             return ToolCallResult(text="", used_tool=False)
 
         settings = get_settings()
@@ -80,7 +82,7 @@ class ImprovedChatOrchestrator:
             "to present structured data like course listings or professor ratings."
         )
 
-        return await self.llm_client.generate_with_tools(
+        return await effective_llm.generate_with_tools(
             system_prompt=system_prompt,
             user_message=user_message,
             tool_definitions=tool_definitions,
@@ -325,7 +327,8 @@ class ImprovedChatOrchestrator:
         logger.warning("Falling back to rule-based clarification check")
         return self.needs_clarification(session, user_input)
 
-    async def generate_contextual_clarification(self, user_input: str) -> Dict[str, Any]:
+    async def generate_contextual_clarification(self, user_input: str,
+                                               llm_client: LLMClient = None) -> Dict[str, Any]:
         """
         Use the LLM to produce a clarification question and clickable
         suggestions that are tailored to what the user actually typed.
@@ -355,10 +358,8 @@ class ImprovedChatOrchestrator:
         )
 
         try:
-            # Use the orchestrator's own LLM rather than a persona's — BrainForge
-            # persona LLMs may not support the prompt format used here.
-            llm = self.llm_client
-            raw = await llm.generate(
+            effective_llm = llm_client or self.llm_client
+            raw = await effective_llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
                 temperature=0.4,
@@ -391,9 +392,14 @@ class ImprovedChatOrchestrator:
             "suggestions": fallback_suggestions,
         }
     
-    async def generate_persona_responses(self, session: ConversationContext, response_length: str = "medium"):
+    async def generate_persona_responses(self, session: ConversationContext,
+                                        response_length: str = "medium",
+                                        llm_clients: Dict[str, LLMClient] = None):
         """
-        Generate responses from all personas with enhanced RAG integration
+        Generate responses from all personas with enhanced RAG integration.
+
+        *llm_clients* maps persona IDs to the LLM client each should use.
+        Personas not present in the dict fall back to their default client.
         """
         responses = []
         
@@ -401,7 +407,10 @@ class ImprovedChatOrchestrator:
             logger.info(f"Generating response for {persona_id} with enhanced RAG")
             
             # Generate persona response with enhanced RAG
-            response_data = await self.generate_single_persona_response(session, persona, response_length)
+            persona_llm = (llm_clients or {}).get(persona_id)
+            response_data = await self.generate_single_persona_response(
+                session, persona, response_length, llm_client=persona_llm,
+            )
             
             # Add persona response to session context
             session.append_message(persona_id, response_data["response"])
@@ -410,9 +419,14 @@ class ImprovedChatOrchestrator:
         
         return responses
     
-    async def generate_single_persona_response(self, session, persona, response_length: str = "medium"):
+    async def generate_single_persona_response(self, session, persona,
+                                               response_length: str = "medium",
+                                               llm_client: LLMClient = None):
         """
-        Enhanced version - Generate response from a single persona with enhanced RAG integration
+        Enhanced version - Generate response from a single persona with enhanced RAG integration.
+
+        *llm_client* is forwarded to ``persona.respond()``; when ``None`` the
+        persona uses its default (system-default) client.
         """
         try:
             # Get the user's latest message for document retrieval
@@ -441,7 +455,7 @@ class ImprovedChatOrchestrator:
             )
             
             # Generate response with enhanced context
-            response = await persona.respond(enhanced_context, response_length)
+            response = await persona.respond(enhanced_context, response_length, llm=llm_client)
             
             # Validate and improve response quality
             if not self._is_valid_response(response, persona.id):
@@ -813,9 +827,13 @@ When analyzing the document context:
         """
         return self._get_enhanced_persona_context_keywords(persona_id)
     
-    async def chat_with_persona(self, user_input: str, persona_id: str, session_id: str, response_length: str = "medium") -> Dict[str, Any]:
+    async def chat_with_persona(self, user_input: str, persona_id: str,
+                               session_id: str, response_length: str = "medium",
+                               llm_client: LLMClient = None) -> Dict[str, Any]:
         """
-        Chat with a specific persona directly - FIXED for consistent document access
+        Chat with a specific persona directly - FIXED for consistent document access.
+
+        *llm_client* is forwarded to the persona's response generation.
         """
         try:
             persona = self.get_persona(persona_id)
@@ -838,7 +856,9 @@ When analyzing the document context:
             logger.info(f"Generating response for {persona_id} with session {session_id}")
             
             # Generate response from single persona using consistent session ID
-            response_data = await self.generate_single_persona_response(session, persona, response_length)
+            response_data = await self.generate_single_persona_response(
+                session, persona, response_length, llm_client=llm_client,
+            )
             
             # Add response to session
             session.append_message(persona_id, response_data["response"])
@@ -884,7 +904,8 @@ When analyzing the document context:
         
 
     async def get_top_personas(self, session_id: str, k: int = 3,
-                              allowed_ids: Optional[List[str]] = None) -> List[str]:
+                              allowed_ids: Optional[List[str]] = None,
+                              llm_client: LLMClient = None) -> List[str]:
         """
         Use the LLM to rank personas based on current session context.
         Falls back to default persona order if LLM fails or returns invalid data.
@@ -902,9 +923,7 @@ When analyzing the document context:
                 logger.warning("No personas available after filtering.")
                 return []
 
-            # Use the orchestrator's own LLM rather than a persona's — BrainForge
-            # persona LLMs may not support the prompt format used here.
-            llm = self.llm_client
+            effective_llm = llm_client or self.llm_client
 
             # Use recent conversation context (last 5 messages)
             recent_context = "\n".join(
@@ -935,7 +954,7 @@ When analyzing the document context:
                         {persona_descriptions}
                       """.strip()
 
-            llm_response = await llm.generate(
+            llm_response = await effective_llm.generate(
                 system_prompt=f"You are an assistant that selects the best advisors for a user of {app_title}.",
                 context=[{"role": "user", "content": prompt}],
                 temperature=0.4,

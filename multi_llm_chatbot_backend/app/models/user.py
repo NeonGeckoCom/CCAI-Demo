@@ -1,7 +1,35 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
-from typing import Literal, Optional, List, Any
+from typing import Dict, Literal, Optional, List, Any, get_args
 from datetime import datetime
 from bson import ObjectId
+
+BackendName = Literal["gemini", "ollama", "vllm"]
+LLM_BACKENDS = get_args(BackendName)
+
+
+class UserLLMConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    """Per-user LLM provider configuration.
+
+    Uniform mode:  all advisors and the orchestrator use ``default_backend``.
+    Hybrid mode:   each advisor can use a different backend; ``default_backend``
+                   is the fallback for any persona not explicitly mapped.
+    """
+    mode: Literal["uniform", "hybrid"] = "uniform"
+    default_backend: BackendName = "gemini"
+    orchestrator_backend: Optional[BackendName] = None
+    persona_backends: Optional[Dict[str, BackendName]] = None
+
+    @model_validator(mode="after")
+    def _validate_hybrid_fields(self):
+        if self.mode == "hybrid":
+            if not self.orchestrator_backend and not self.persona_backends:
+                self.orchestrator_backend = self.default_backend
+        else:
+            self.orchestrator_backend = None
+            self.persona_backends = None
+        return self
 
 class PyObjectId(ObjectId):
     @classmethod
@@ -48,6 +76,7 @@ class User(BaseModel):
     academicStage: Optional[str] = None
     researchArea: Optional[str] = None
     disabled_advisors: Optional[List[str]] = None
+    llm_config: Optional[UserLLMConfig] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
     is_active: bool = True

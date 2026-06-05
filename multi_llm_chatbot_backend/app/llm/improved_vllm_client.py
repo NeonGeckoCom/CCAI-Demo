@@ -187,4 +187,14 @@ class ImprovedVllmClient(LLMClient):
                 used_tool=False,
             )
 
+    async def health_check(self) -> bool:
+        import httpx
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.api_url}/v1/models", headers=headers)
+                return resp.is_success
+        except Exception:
+            return False
+
 

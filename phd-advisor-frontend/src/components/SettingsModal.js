@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { X, User as UserIcon, Lock, Trash2, AlertTriangle, Users } from 'lucide-react';
+import { X, User as UserIcon, Lock, Trash2, AlertTriangle, Users, Layers } from 'lucide-react';
 import Toggle from './Toggle';
 import { useAppConfig } from '../contexts/AppConfigContext';
+import AdvisorConfigPanel, { DEFAULT_BACKEND, stripDefaultBackends } from './AdvisorConfigPanel';
 
 const overlay = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
@@ -10,7 +11,7 @@ const overlay = {
 };
 
 const modal = {
-  background: 'var(--bg-primary)', borderRadius: 16, padding: 0, width: 560,
+  background: 'var(--bg-primary)', borderRadius: 16, padding: 0, width: 640,
   maxWidth: '95vw', maxHeight: '85vh', overflow: 'hidden',
   boxShadow: 'var(--shadow-xl)', display: 'flex', flexDirection: 'column',
 };
@@ -67,27 +68,31 @@ const miniBtn = {
   fontFamily: 'inherit',
 };
 
-const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) => {
+const SettingsModal = ({
+  user,
+  authToken,
+  onUserUpdate,
+  onSignOut,
+  onClose,
+  advisors,
+  availableBackends,
+  llmConfig,
+  isSaving,
+  onSubmitConfig,
+}) => {
   const [activeTab, setActiveTab] = useState('profile');
   const {
-    advisors,
     isAdvisorEnabled,
     setAdvisorEnabled,
     setAllAdvisorsEnabled,
     hydrateAdvisorPreferences,
   } = useAppConfig();
 
-  // Reconcile with the backend whenever the user opens Settings (covers fresh
-  // logins and changes made on another device).
   useEffect(() => {
     hydrateAdvisorPreferences();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Track where the mouse went DOWN so we don't close the modal when a user
-  // drags to select text inside an input and the mouseup happens outside the modal.
-  // (React's onClick fires on the common ancestor of down+up, which can be the
-  // overlay itself — causing accidental close on text selection.)
   const mouseDownOnOverlay = useRef(false);
   const handleOverlayMouseDown = (e) => {
     mouseDownOnOverlay.current = e.target === e.currentTarget;
@@ -109,6 +114,19 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
 
   const [message, setMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const personaIds = useMemo(() => Object.keys(advisors || {}), [advisors]);
+  const [modelDraft, setModelDraft] = useState(() => {
+    const fallback = llmConfig?.default_backend || availableBackends?.[0];
+    const seed = llmConfig?.persona_backends || {};
+    const personas = {};
+    for (const id of personaIds) personas[id] = seed[id] || DEFAULT_BACKEND;
+    return {
+      default_backend: fallback,
+      orchestrator_backend: llmConfig?.orchestrator_backend || DEFAULT_BACKEND,
+      persona_backends: personas,
+    };
+  });
 
   const apiUrl = process.env.REACT_APP_API_URL;
 
@@ -230,6 +248,11 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
     }
   };
 
+  const handleModelSave = async () => {
+    if (!onSubmitConfig) return;
+    await onSubmitConfig(stripDefaultBackends(modelDraft));
+  };
+
   const messageStyle = (type) => ({
     padding: '10px 12px', borderRadius: 8, marginBottom: 16, fontSize: 13,
     background: type === 'error'
@@ -255,9 +278,6 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
   const enabledCount = advisorEntries.filter(([id]) => isAdvisorEnabled(id)).length;
   const setAll = (enabled) => setAllAdvisorsEnabled(enabled);
 
-  // pendingDisable: { type: 'all' } | { type: 'single', id } — set when the
-  // user is about to leave zero advisors enabled. Confirming runs the action;
-  // "Go back" leaves state untouched.
   const [pendingDisable, setPendingDisable] = useState(null);
 
   const handleDisableAllClick = () => {
@@ -301,6 +321,9 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
           </button>
           <button style={tabBtn(activeTab === 'advisors')} onClick={() => { setActiveTab('advisors'); setMessage(null); }}>
             <Users size={15} /> Advisors
+          </button>
+          <button style={tabBtn(activeTab === 'model')} onClick={() => { setActiveTab('model'); setMessage(null); }}>
+            <Layers size={15} /> Model
           </button>
           <button style={tabBtn(activeTab === 'danger')} onClick={() => { setActiveTab('danger'); setMessage(null); }}>
             <Trash2 size={15} /> Delete Account
@@ -419,6 +442,43 @@ const SettingsModal = ({ user, authToken, onUserUpdate, onSignOut, onClose }) =>
                     </div>
                   );
                 })}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'model' && (
+            <>
+              <AdvisorConfigPanel
+                advisors={advisors}
+                availableBackends={availableBackends || []}
+                value={modelDraft}
+                onChange={setModelDraft}
+                description="Pick a backend for the orchestrator and each advisor. The default backend is used as a fallback."
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={isSaving}
+                  style={{
+                    padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border-primary)',
+                    background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13.5,
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleModelSave}
+                  disabled={isSaving}
+                  style={{
+                    ...primaryBtn,
+                    padding: '8px 14px', fontSize: 13.5, fontWeight: 600,
+                    cursor: isSaving ? 'wait' : 'pointer',
+                  }}
+                >
+                  {isSaving ? 'Saving…' : 'Save configuration'}
+                </button>
               </div>
             </>
           )}

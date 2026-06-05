@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
+import asyncio
+
 # Load configuration FIRST so every module can use it
 from app.config import load_settings
 from app.version import __version__
@@ -18,6 +20,7 @@ settings = load_settings()
 
 # Import the new database functions
 from app.core.database import connect_to_mongo, close_mongo_connection
+from app.core.bootstrap import _backend_health_loop
 
 # Import all route modules
 from app.api.routes import router as main_router
@@ -41,9 +44,11 @@ async def lifespan(app: FastAPI):
     from app.core.brainforge_sync import async_sync_brainforge_personas, periodic_sync_loop
     await async_sync_brainforge_personas(chat_orchestrator)
     sync_task = asyncio.create_task(periodic_sync_loop(chat_orchestrator))
+    health_task = asyncio.create_task(_backend_health_loop())
     yield
     # Shutdown
     sync_task.cancel()
+    health_task.cancel()
     await close_mongo_connection()
 
 app = FastAPI(
@@ -119,6 +124,8 @@ def get_public_config():
             "dark_color": colors["dark_color"],
             "dark_bg_color": colors["dark_bg_color"],
             "image": "icon://Brain",
+            "backend_locked": True,
+            "default_backend": "brainforge",
         })
 
     return config
