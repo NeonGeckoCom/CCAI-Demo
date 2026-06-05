@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.1a8](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a8) (2026-06-05)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a7...2.0.1a8)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Filter available LLM Backends based on config [\#71](https://github.com/NeonGeckoCom/CCAI-Demo/issues/71)
+- \[FEAT\] Support "Hybrid" model selection [\#51](https://github.com/NeonGeckoCom/CCAI-Demo/issues/51)
+
+**Merged pull requests:**
+
+- Feat/support hybrid model selection rebase [\#80](https://github.com/NeonGeckoCom/CCAI-Demo/pull/80) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
 ## [2.0.1a7](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a7) (2026-05-30)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a6...2.0.1a7)
