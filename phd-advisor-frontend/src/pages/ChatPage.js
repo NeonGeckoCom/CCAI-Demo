@@ -390,94 +390,17 @@ const handleNewChat = async (sessionId = null) => {
         user_input: userInput,
         response_length: 'medium',
         chat_session_id: sessionId || currentSessionId,
+        response_mode: responseMode,
       }),
     });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return response;
   };
 
-  // Ask the model to merge a set of panel responses into one cohesive answer.
-  // Returns the merged message object, or null if synthesis produced nothing.
-  // NOTE: this reuses /chat-stream client-side until a backend orchestrator
-  // endpoint exists; see the response-modes issue for the planned contract.
-  const synthesizeAggregated = async ({ userPrompt, panelMessages, groupId }) => {
-    const perspectives = panelMessages
-      .map((m, i) => `Perspective ${i + 1} — ${m.advisorName}:\n${m.content}`)
-      .join('\n\n');
-    const synthesisPrompt =
-      `The user originally asked: "${userPrompt}"\n\n` +
-      `You received these ${panelMessages.length} expert perspectives:\n\n${perspectives}\n\n` +
-      `Synthesize them into a single, cohesive best-answer response that integrates the strongest points from each. ` +
-      `Do not list the perspectives separately — produce one unified answer addressed to the user.`;
-
-    const synthResponse = await streamChat(synthesisPrompt);
-    const sReader = synthResponse.body.getReader();
-    const sDecoder = new TextDecoder();
-    let sBuffer = '';
-    let mergedMsg = null;
-
-    while (!mergedMsg) {
-      const { done, value } = await sReader.read();
-      if (done) break;
-      sBuffer += sDecoder.decode(value, { stream: true });
-      const sLines = sBuffer.split('\n');
-      sBuffer = sLines.pop() ?? '';
-      for (const line of sLines) {
-        if (!line.trim()) continue;
-        const payload = JSON.parse(line);
-        if (payload.type === 'advisor' && payload.data?.content) {
-          mergedMsg = {
-            id: generateMessageId(),
-            type: 'advisor',
-            persona_id: 'aggregated',
-            content: payload.data.content,
-            timestamp: new Date(),
-            advisorName: 'Partner',
-            is_aggregated: true,
-            groupId,
-            source_personas: panelMessages.map(r => r.persona_id),
-          };
-          break;
-        }
-      }
-    }
-    // Drain remaining stream so the connection closes cleanly.
-    try { await sReader.cancel(); } catch (_) {}
-    return mergedMsg;
-  };
-
-  // Toggle a single exchange between the panel and the aggregated view. If the
-  // user asks for the aggregated view on an exchange that doesn't have one yet
-  // (e.g. a panel-mode or historical message), synthesize it on demand and
-  // persist it so it survives reloads.
-  const handleToggleGroupView = async (groupId, panelMessages, hasAggregated) => {
+  const handleToggleGroupView = (groupId, panelMessages, hasAggregated) => {
     const current = groupViews[groupId] || (hasAggregated ? 'aggregated' : 'panel');
     const next = current === 'panel' ? 'aggregated' : 'panel';
-
-    if (next === 'aggregated' && !hasAggregated) {
-      // Find the user prompt that triggered this exchange.
-      const firstId = panelMessages[0]?.id;
-      const idx = messages.findIndex(m => m.id === firstId);
-      let userPrompt = '';
-      for (let i = idx - 1; i >= 0; i--) {
-        if (messages[i].type === 'user') { userPrompt = messages[i].content; break; }
-      }
-
-      setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
-      try {
-        const mergedMsg = await synthesizeAggregated({ userPrompt, panelMessages, groupId });
-        if (mergedMsg) {
-          setMessages(prev => [...prev, mergedMsg]);
-          setGroupViews(prev => ({ ...prev, [groupId]: 'aggregated' }));
-        }
-      } catch (err) {
-        console.error('On-demand synthesis failed:', err);
-      } finally {
-        setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
-      }
-      return;
-    }
-
+    if (next === 'aggregated' && !hasAggregated) return;
     setGroupViews(prev => ({ ...prev, [groupId]: next }));
   };
 
@@ -517,7 +440,6 @@ const handleNewChat = async (sessionId = null) => {
     setIsLoading(true);
     setThinkingAdvisors(['system']);
 
-    const aggregatedMode = responseMode === 'aggregated';
     const groupId = 'grp_' + generateMessageId();
     // Always collect this exchange's advisor responses so the panel is stored
     // even when aggregated mode is the default — the user can toggle to it.
@@ -562,16 +484,15 @@ const handleNewChat = async (sessionId = null) => {
                 used_documents: d.used_documents || false,
                 document_chunks_used: d.document_chunks_used || 0,
                 groupId,
+                is_aggregated: d.is_aggregated || false,
+                source_personas: d.source_personas || null,
               };
-              // Individual advisor messages are persisted by the /chat-stream backend endpoint.
-              // NOTE: aggregated/synthesis metadata (is_aggregated, source_personas) is not yet
-              // persisted — only the raw synthesis response is stored via the second /chat-stream call.
+              // Persistence is handled by the /chat-stream backend endpoint.
+              // The backend controls which events are sent: panel mode sends
+              // individual advisor events, aggregated mode sends one synthesized event.
               collectedAdvisorResponses.push(msg);
               setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
-              if (!aggregatedMode) {
-                // Panel mode: stream responses in live as they arrive.
-                setMessages(prev => [...prev, msg]);
-              }
+              setMessages(prev => [...prev, msg]);
               break;
             }
             case 'clarification':
@@ -586,6 +507,9 @@ const handleNewChat = async (sessionId = null) => {
             case 'progress':
               if (d.phase === 'complete') {
                 break;
+              }
+              if (d.phase === 'synthesizing') {
+                setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
               }
               if (d.persona_id != null) {
                 setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
@@ -605,41 +529,9 @@ const handleNewChat = async (sessionId = null) => {
         }
       }
 
-      // TEMPORARY: Client-side synthesis — will be replaced by a dedicated backend
-      // endpoint that generates & stores all 4 responses (3 panel + 1 aggregated)
-      // with proper schema (response_group_id, is_aggregated, source_personas).
-      // Currently reuses /chat-stream which pollutes chat history with the
-      // synthesis prompt as a fake "user" message.
-      if (aggregatedMode && collectedAdvisorResponses.length > 0) {
-        // Persist the panel responses too (hidden by default in this mode) so
-        // the user can still toggle this exchange back to the full panel.
-        setMessages(prev => [...prev, ...collectedAdvisorResponses]);
-
-        // Then synthesize the single combined answer.
-        setThinkingAdvisors([]);
-        setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
-        try {
-          const mergedMsg = await synthesizeAggregated({
-            userPrompt: inputMessage,
-            panelMessages: collectedAdvisorResponses,
-            groupId,
-          });
-          if (mergedMsg) {
-            setMessages(prev => [...prev, mergedMsg]);
-            setGroupViews(prev => ({ ...prev, [groupId]: 'aggregated' }));
-          } else {
-            // Nothing usable — fall back to the panel view we already stored.
-            setGroupViews(prev => ({ ...prev, [groupId]: 'panel' }));
-          }
-        } catch (synthErr) {
-          console.error('Synthesis pass failed, falling back to panel:', synthErr);
-          setGroupViews(prev => ({ ...prev, [groupId]: 'panel' }));
-        } finally {
-          setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
-        }
-      } else if (!aggregatedMode) {
-        setGroupViews(prev => ({ ...prev, [groupId]: 'panel' }));
-      }
+      const hasAggregated = collectedAdvisorResponses.some(m => m.is_aggregated);
+      setGroupViews(prev => ({ ...prev, [groupId]: hasAggregated ? 'aggregated' : 'panel' }));
+      setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
 
     } catch (error) {
       console.error('Error sending message:', error);

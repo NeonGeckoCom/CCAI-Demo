@@ -274,7 +274,7 @@ const SettingsModal = ({
     }`,
   });
 
-  const advisorEntries = Object.entries(advisors || {});
+  const advisorEntries = Object.entries(advisors || {}).filter(([id]) => id !== 'aggregated');
   const enabledCount = advisorEntries.filter(([id]) => isAdvisorEnabled(id)).length;
   const setAll = (enabled) => setAllAdvisorsEnabled(enabled);
 
