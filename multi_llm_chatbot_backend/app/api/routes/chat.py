@@ -342,6 +342,19 @@ async def chat_stream(
 
                 await asyncio.gather(*tasks, return_exceptions=True)
 
+                for result in panel_results:
+                    yield ChatStreamLine(
+                        type="advisor",
+                        data={
+                            "persona_id": result["persona_id"],
+                            "persona_name": result["persona_name"],
+                            "content": result["response"],
+                            "used_documents": result.get("used_documents", False),
+                            "document_chunks_used": result.get("document_chunks_used", 0),
+                            "response_group_id": response_group_id,
+                        },
+                    ).to_ndjson()
+
                 yield ChatStreamLine(
                     type="progress",
                     data={"phase": "synthesizing"},

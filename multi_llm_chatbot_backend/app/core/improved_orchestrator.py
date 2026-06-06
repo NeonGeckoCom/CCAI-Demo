@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any
-from app.models.persona import Persona
+from app.models.persona import Persona, COMPACT_MARKDOWN_V1, STRUCTURE_HINTS, _ensure_compact_shape
 from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
@@ -505,13 +505,15 @@ class ImprovedChatOrchestrator:
         if not panel_results:
             return None
 
-        token_limits = {"short": 400, "medium": 700, "long": 1200}
+        token_limits = {"short": 800, "medium": 1500, "long": 2400}
         max_tokens = token_limits.get(response_length, 700)
 
         perspectives = "\n\n".join(
             f"### {r['persona_name']} ({r['persona_id']})\n{r['response']}"
             for r in panel_results
         )
+
+        structure_hint = STRUCTURE_HINTS.get(response_length, STRUCTURE_HINTS["medium"])
 
         system_prompt = (
             "You are a synthesis assistant. You will receive multiple expert "
@@ -522,8 +524,9 @@ class ImprovedChatOrchestrator:
             "- Produce ONE unified answer addressed directly to the user.\n"
             "- Do NOT list or label the individual perspectives.\n"
             "- Resolve contradictions by noting the trade-off briefly.\n"
-            "- Keep the tone warm, clear, and actionable.\n"
-            "- Match the depth and detail level of the original responses."
+            "- Keep the tone warm, clear, and actionable.\n\n"
+            f"{COMPACT_MARKDOWN_V1}\n\n"
+            f"{structure_hint}"
         )
 
         user_prompt = (
@@ -542,7 +545,7 @@ class ImprovedChatOrchestrator:
                 max_tokens=max_tokens,
             )
 
-            content = raw.strip() if raw else ""
+            content = _ensure_compact_shape(raw.strip() if raw else "", response_length)
             if not content:
                 logger.warning("Synthesis LLM returned empty response")
                 return None

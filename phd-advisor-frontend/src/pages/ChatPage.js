@@ -440,6 +440,7 @@ const handleNewChat = async (sessionId = null) => {
     setIsLoading(true);
     setThinkingAdvisors(['system']);
 
+    const aggregatedMode = responseMode === 'aggregated';
     const groupId = 'grp_' + generateMessageId();
     // Always collect this exchange's advisor responses so the panel is stored
     // even when aggregated mode is the default — the user can toggle to it.
@@ -487,12 +488,11 @@ const handleNewChat = async (sessionId = null) => {
                 is_aggregated: d.is_aggregated || false,
                 source_personas: d.source_personas || null,
               };
-              // Persistence is handled by the /chat-stream backend endpoint.
-              // The backend controls which events are sent: panel mode sends
-              // individual advisor events, aggregated mode sends one synthesized event.
               collectedAdvisorResponses.push(msg);
               setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
-              setMessages(prev => [...prev, msg]);
+              if (!aggregatedMode || msg.is_aggregated) {
+                setMessages(prev => [...prev, msg]);
+              }
               break;
             }
             case 'clarification':
@@ -530,6 +530,12 @@ const handleNewChat = async (sessionId = null) => {
       }
 
       const hasAggregated = collectedAdvisorResponses.some(m => m.is_aggregated);
+      if (aggregatedMode) {
+        const deferred = collectedAdvisorResponses.filter(m => !m.is_aggregated);
+        if (deferred.length > 0) {
+          setMessages(prev => [...prev, ...deferred]);
+        }
+      }
       setGroupViews(prev => ({ ...prev, [groupId]: hasAggregated ? 'aggregated' : 'panel' }));
       setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
 
