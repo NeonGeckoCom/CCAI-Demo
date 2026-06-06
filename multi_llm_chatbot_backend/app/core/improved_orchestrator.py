@@ -545,10 +545,11 @@ class ImprovedChatOrchestrator:
                 max_tokens=max_tokens,
             )
 
-            content = _ensure_compact_shape(raw.strip() if raw else "", response_length)
-            if not content:
+            stripped = raw.strip() if raw else ""
+            if not stripped:
                 logger.warning("Synthesis LLM returned empty response")
                 return None
+            content = _ensure_compact_shape(stripped, response_length)
 
             return {
                 "persona_id": "aggregated",

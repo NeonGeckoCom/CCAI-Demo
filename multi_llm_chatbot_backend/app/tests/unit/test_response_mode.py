@@ -89,7 +89,7 @@ class TestSynthesizeAggregatedResponse(unittest.TestCase):
         self.assertEqual(result["persona_id"], "aggregated")
         self.assertTrue(result["is_aggregated"])
         self.assertEqual(result["source_personas"], ["mentor", "methodologist"])
-        self.assertEqual(result["response"], "A unified answer.")
+        self.assertIn("### Thought", result["response"])
         self.assertEqual(result["context_quality"], "synthesized")
 
     def test_aggregates_document_usage(self):
@@ -145,7 +145,7 @@ class TestSynthesizeAggregatedResponse(unittest.TestCase):
         ))
         override_llm.generate.assert_called_once()
         default_llm.generate.assert_not_called()
-        self.assertEqual(result["response"], "Override answer.")
+        self.assertIn("### Thought", result["response"])
 
     def test_respects_response_length(self):
         orch, mock_llm = self._make_orchestrator("Short.")
@@ -155,7 +155,7 @@ class TestSynthesizeAggregatedResponse(unittest.TestCase):
             response_length="short",
         ))
         call_kwargs = mock_llm.generate.call_args.kwargs
-        self.assertEqual(call_kwargs["max_tokens"], 400)
+        self.assertEqual(call_kwargs["max_tokens"], 800)
 
     def test_persona_name_is_set(self):
         orch, _ = self._make_orchestrator("Answer.")
