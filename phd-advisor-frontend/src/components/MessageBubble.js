@@ -402,6 +402,7 @@ const MessageBubble = ({
           {showReplyButton && (
             <div className="message-actions">
               <div className="message-action-buttons">
+                {!message.is_aggregated && (
                 <div className="tooltip-container">
                   <button 
                     className="message-action-button"
@@ -419,6 +420,7 @@ const MessageBubble = ({
                     <div className="tooltip">Reply to this message</div>
                   )}
                 </div>
+                )}
 
                 <div className="tooltip-container">
                   <button 
@@ -440,6 +442,7 @@ const MessageBubble = ({
                   )}
                 </div>
 
+                {!message.is_aggregated && (
                 <div className="tooltip-container">
                   <button 
                     className="message-action-button"
@@ -457,6 +460,7 @@ const MessageBubble = ({
                     <div className="tooltip">More</div>
                   )}
                 </div>
+                )}
 
                 <div className="tooltip-container">
                   <button 

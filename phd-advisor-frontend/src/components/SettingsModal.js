@@ -115,7 +115,7 @@ const SettingsModal = ({
   const [message, setMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const personaIds = useMemo(() => Object.keys(advisors || {}), [advisors]);
+  const personaIds = useMemo(() => Object.keys(advisors || {}).filter(id => id !== 'aggregated'), [advisors]);
   const [modelDraft, setModelDraft] = useState(() => {
     const fallback = llmConfig?.default_backend || availableBackends?.[0];
     const seed = llmConfig?.persona_backends || {};
@@ -449,7 +449,7 @@ const SettingsModal = ({
           {activeTab === 'model' && (
             <>
               <AdvisorConfigPanel
-                advisors={advisors}
+                advisors={Object.fromEntries(Object.entries(advisors || {}).filter(([id]) => id !== 'aggregated'))}
                 availableBackends={availableBackends || []}
                 value={modelDraft}
                 onChange={setModelDraft}
