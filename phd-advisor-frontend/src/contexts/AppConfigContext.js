@@ -140,7 +140,7 @@ export const AppConfigProvider = ({ children }) => {
     // Synthetic persona used for aggregated/synthesized responses — represents
     // a single combined "Partner" voice rather than the panel of advisors.
     built.aggregated = {
-      name: 'Generalized',
+      name: 'Orchestrator',
       role: 'Synthesized Response',
       description: 'A single combined response merging all advisor perspectives.',
       color: '#7C3AED',

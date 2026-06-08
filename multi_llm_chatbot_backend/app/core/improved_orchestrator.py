@@ -553,7 +553,7 @@ class ImprovedChatOrchestrator:
 
             return {
                 "persona_id": "aggregated",
-                "persona_name": "Generalized",
+                "persona_name": "Orchestrator",
                 "response": content,
                 "is_aggregated": True,
                 "source_personas": [r["persona_id"] for r in panel_results],
