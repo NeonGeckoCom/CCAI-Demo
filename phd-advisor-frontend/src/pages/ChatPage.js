@@ -53,12 +53,13 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
     try { localStorage.setItem('responseMode', responseMode); } catch { /* non-fatal */ }
   }, [responseMode]);
 
-  // Per-exchange view override: { [groupId]: 'panel' | 'aggregated' }.
+  // Per-exchange view override: { [responseGroupId]: 'panel' | 'aggregated' }.
   // Lets the user flip an individual exchange between the advisor panel and
   // the single combined answer, independently of the global default.
   const [groupViews, setGroupViews] = useState({});
   // Group ids currently running an on-demand synthesis pass (for lag UX).
   const [synthesizingGroups, setSynthesizingGroups] = useState({});
+  const skipAutoScrollRef = useRef(false);
 
 
 
@@ -71,6 +72,10 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   };
 
   useEffect(() => {
+    if (skipAutoScrollRef.current) {
+      skipAutoScrollRef.current = false;
+      return;
+    }
     scrollToBottom();
   }, [messages, thinkingAdvisors]);
 
@@ -222,7 +227,8 @@ const loadChatSession = async (sessionId) => {
         const formattedMessages = result.context.messages.map(msg => ({
           ...msg,
           timestamp: new Date(msg.timestamp),
-          persona_id: msg.persona_id || msg.advisor || msg.advisorId
+          persona_id: msg.persona_id || msg.advisor || msg.advisorId,
+          responseGroupId: msg.response_group_id || null,
         }));
         
         setMessages(formattedMessages);
@@ -397,8 +403,8 @@ const handleNewChat = async (sessionId = null) => {
     return response;
   };
 
-  const handleToggleGroupView = async (groupId, panelMessages, hasAggregated) => {
-    const current = groupViews[groupId] || (hasAggregated ? 'aggregated' : 'panel');
+  const handleToggleGroupView = async (responseGroupId, panelMessages, hasAggregated) => {
+    const current = groupViews[responseGroupId] || (hasAggregated ? 'aggregated' : 'panel');
     const next = current === 'panel' ? 'aggregated' : 'panel';
 
     if (next === 'aggregated' && !hasAggregated) {
@@ -409,7 +415,7 @@ const handleNewChat = async (sessionId = null) => {
         if (messages[i].type === 'user') { userPrompt = messages[i].content; break; }
       }
 
-      setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
+      setSynthesizingGroups(prev => ({ ...prev, [responseGroupId]: true }));
       try {
         const resp = await fetch(`${process.env.REACT_APP_API_URL}/request-aggregated-response`, {
           method: 'POST',
@@ -427,7 +433,7 @@ const handleNewChat = async (sessionId = null) => {
               document_chunks_used: m.document_chunks_used || 0,
             })),
             chat_session_id: currentSessionId,
-            response_group_id: groupId,
+            response_group_id: responseGroupId,
           }),
         });
 
@@ -441,23 +447,32 @@ const handleNewChat = async (sessionId = null) => {
             timestamp: new Date(),
             advisorName: data.persona_name,
             is_aggregated: true,
-            groupId,
+            responseGroupId,
             source_personas: data.source_personas,
           };
-          setMessages(prev => [...prev, mergedMsg]);
-          setGroupViews(prev => ({ ...prev, [groupId]: 'aggregated' }));
+          skipAutoScrollRef.current = true;
+          setMessages(prev => {
+            const lastPanelIdx = prev.findLastIndex(
+              m => m.responseGroupId === responseGroupId && !m.is_aggregated
+            );
+            if (lastPanelIdx === -1) return [...prev, mergedMsg];
+            const updated = [...prev];
+            updated.splice(lastPanelIdx + 1, 0, mergedMsg);
+            return updated;
+          });
+          setGroupViews(prev => ({ ...prev, [responseGroupId]: 'aggregated' }));
         } else {
           console.error('Synthesis request failed:', resp.status);
         }
       } catch (err) {
         console.error('On-demand synthesis failed:', err);
       } finally {
-        setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
+        setSynthesizingGroups(prev => { const n = { ...prev }; delete n[responseGroupId]; return n; });
       }
       return;
     }
 
-    setGroupViews(prev => ({ ...prev, [groupId]: next }));
+    setGroupViews(prev => ({ ...prev, [responseGroupId]: next }));
   };
 
   const handleSendMessage = async (inputMessage) => {
@@ -497,7 +512,7 @@ const handleNewChat = async (sessionId = null) => {
     setThinkingAdvisors(['system']);
 
     const aggregatedMode = responseMode === 'aggregated';
-    const groupId = 'grp_' + generateMessageId();
+    const responseGroupId = 'grp_' + generateMessageId();
     // Always collect this exchange's advisor responses so the panel is stored
     // even when aggregated mode is the default — the user can toggle to it.
     const collectedAdvisorResponses = [];
@@ -540,7 +555,7 @@ const handleNewChat = async (sessionId = null) => {
                 advisorName: d.persona_name || d.persona_id,
                 used_documents: d.used_documents || false,
                 document_chunks_used: d.document_chunks_used || 0,
-                groupId,
+                responseGroupId,
                 is_aggregated: d.is_aggregated || false,
                 source_personas: d.source_personas || null,
               };
@@ -565,7 +580,7 @@ const handleNewChat = async (sessionId = null) => {
                 break;
               }
               if (d.phase === 'synthesizing') {
-                setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
+                setSynthesizingGroups(prev => ({ ...prev, [responseGroupId]: true }));
               }
               if (d.persona_id != null) {
                 setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
@@ -592,8 +607,8 @@ const handleNewChat = async (sessionId = null) => {
           setMessages(prev => [...prev, ...deferred]);
         }
       }
-      setGroupViews(prev => ({ ...prev, [groupId]: hasAggregated ? 'aggregated' : 'panel' }));
-      setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
+      setGroupViews(prev => ({ ...prev, [responseGroupId]: hasAggregated ? 'aggregated' : 'panel' }));
+      setSynthesizingGroups(prev => { const n = { ...prev }; delete n[responseGroupId]; return n; });
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -810,15 +825,15 @@ const handleNewChat = async (sessionId = null) => {
         }
         const aggregatedMessages = advisorGroup.filter(m => m.is_aggregated);
         const panelMessages = advisorGroup.filter(m => !m.is_aggregated);
-        // Prefer the shared groupId stamped at creation; fall back to a stable
-        // id derived from the message ids so historical/legacy exchanges
-        // (saved before groupId existed) can still be toggled.
-        const groupId =
-          advisorGroup.find(m => m.groupId)?.groupId ||
+        // Prefer the shared responseGroupId stamped at creation; fall back to
+        // a stable id derived from the message ids so historical/legacy
+        // exchanges (saved before responseGroupId existed) can still be toggled.
+        const responseGroupId =
+          advisorGroup.find(m => m.responseGroupId)?.responseGroupId ||
           `legacy_${advisorGroup.map(m => m.id).join('_')}`;
         groups.push({
           type: 'advisor_group',
-          groupId,
+          responseGroupId,
           messages: advisorGroup,
           panelMessages,
           aggregatedMessages,
@@ -957,14 +972,14 @@ const handleNewChat = async (sessionId = null) => {
                     {messageGroups.map((group) => (
                       group.type === 'advisor_group' ? (() => {
                         const hasAggregated = group.aggregatedMessages.length > 0;
-                        const view = groupViews[group.groupId] || (hasAggregated ? 'aggregated' : 'panel');
-                        const isSynth = !!synthesizingGroups[group.groupId];
+                        const view = groupViews[group.responseGroupId] || (hasAggregated ? 'aggregated' : 'panel');
+                        const isSynth = !!synthesizingGroups[group.responseGroupId];
                         const showAggregated = view === 'aggregated' && hasAggregated;
                         const shown = showAggregated ? group.aggregatedMessages : group.panelMessages;
                         const showToggle = group.panelMessages.length > 1 || hasAggregated || isSynth;
                         const switchTo = (target) => {
                           if ((target === 'aggregated') !== showAggregated) {
-                            handleToggleGroupView(group.groupId, group.panelMessages, hasAggregated);
+                            handleToggleGroupView(group.responseGroupId, group.panelMessages, hasAggregated);
                           }
                         };
                         const segBtn = (active) => ({
@@ -976,7 +991,7 @@ const handleNewChat = async (sessionId = null) => {
                           color: active ? '#fff' : 'var(--text-secondary)',
                         });
                         return (
-                          <div key={group.groupId} className="response-group">
+                          <div key={group.responseGroupId} className="response-group">
                             {showToggle && (
                               <div
                                 role="group"
