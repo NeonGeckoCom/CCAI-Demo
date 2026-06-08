@@ -397,10 +397,66 @@ const handleNewChat = async (sessionId = null) => {
     return response;
   };
 
-  const handleToggleGroupView = (groupId, panelMessages, hasAggregated) => {
+  const handleToggleGroupView = async (groupId, panelMessages, hasAggregated) => {
     const current = groupViews[groupId] || (hasAggregated ? 'aggregated' : 'panel');
     const next = current === 'panel' ? 'aggregated' : 'panel';
-    if (next === 'aggregated' && !hasAggregated) return;
+
+    if (next === 'aggregated' && !hasAggregated) {
+      const firstId = panelMessages[0]?.id;
+      const idx = messages.findIndex(m => m.id === firstId);
+      let userPrompt = '';
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i].type === 'user') { userPrompt = messages[i].content; break; }
+      }
+
+      setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
+      try {
+        const resp = await fetch(`${process.env.REACT_APP_API_URL}/synthesize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            user_input: userPrompt,
+            panel_results: panelMessages.map(m => ({
+              persona_id: m.persona_id,
+              persona_name: m.advisorName,
+              response: m.content,
+              used_documents: m.used_documents || false,
+              document_chunks_used: m.document_chunks_used || 0,
+            })),
+            chat_session_id: currentSessionId,
+            response_group_id: groupId,
+          }),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const mergedMsg = {
+            id: generateMessageId(),
+            type: 'advisor',
+            persona_id: 'aggregated',
+            content: data.response,
+            timestamp: new Date(),
+            advisorName: data.persona_name,
+            is_aggregated: true,
+            groupId,
+            source_personas: data.source_personas,
+          };
+          setMessages(prev => [...prev, mergedMsg]);
+          setGroupViews(prev => ({ ...prev, [groupId]: 'aggregated' }));
+        } else {
+          console.error('Synthesis request failed:', resp.status);
+        }
+      } catch (err) {
+        console.error('On-demand synthesis failed:', err);
+      } finally {
+        setSynthesizingGroups(prev => { const n = { ...prev }; delete n[groupId]; return n; });
+      }
+      return;
+    }
+
     setGroupViews(prev => ({ ...prev, [groupId]: next }));
   };
 

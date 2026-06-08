@@ -165,3 +165,58 @@ class TestSynthesizeAggregatedResponse(unittest.TestCase):
         ))
         self.assertIn("persona_name", result)
         self.assertTrue(len(result["persona_name"]) > 0)
+
+
+# ------------------------------------------------------------------
+# SynthesizeRequest – request model validation
+# ------------------------------------------------------------------
+
+
+VALID_SYNTHESIZE_PAYLOAD = {
+    "user_input": "What should I do?",
+    "panel_results": [
+        {"persona_id": "mentor", "persona_name": "Mentor", "response": "Think deeply."},
+        {"persona_id": "methodologist", "persona_name": "Methodologist", "response": "Use mixed methods."},
+    ],
+    "chat_session_id": "abc123",
+    "response_group_id": "grp_456",
+}
+
+
+class TestSynthesizeRequest(unittest.TestCase):
+
+    def test_valid_request(self):
+        from app.api.routes.chat import SynthesizeRequest
+        req = SynthesizeRequest(**VALID_SYNTHESIZE_PAYLOAD)
+        self.assertEqual(req.user_input, "What should I do?")
+        self.assertEqual(len(req.panel_results), 2)
+        self.assertEqual(req.response_length, "medium")
+
+    def test_empty_panel_results_rejected(self):
+        from app.api.routes.chat import SynthesizeRequest
+        payload = {**VALID_SYNTHESIZE_PAYLOAD, "panel_results": []}
+        with self.assertRaises(ValidationError):
+            SynthesizeRequest(**payload)
+
+    def test_missing_chat_session_id_rejected(self):
+        from app.api.routes.chat import SynthesizeRequest
+        payload = {k: v for k, v in VALID_SYNTHESIZE_PAYLOAD.items() if k != "chat_session_id"}
+        with self.assertRaises(ValidationError):
+            SynthesizeRequest(**payload)
+
+    def test_missing_response_group_id_rejected(self):
+        from app.api.routes.chat import SynthesizeRequest
+        payload = {k: v for k, v in VALID_SYNTHESIZE_PAYLOAD.items() if k != "response_group_id"}
+        with self.assertRaises(ValidationError):
+            SynthesizeRequest(**payload)
+
+    def test_invalid_response_length_rejected(self):
+        from app.api.routes.chat import SynthesizeRequest
+        payload = {**VALID_SYNTHESIZE_PAYLOAD, "response_length": "huge"}
+        with self.assertRaises(ValidationError):
+            SynthesizeRequest(**payload)
+
+    def test_response_length_defaults_to_medium(self):
+        from app.api.routes.chat import SynthesizeRequest
+        req = SynthesizeRequest(**VALID_SYNTHESIZE_PAYLOAD)
+        self.assertEqual(req.response_length, "medium")

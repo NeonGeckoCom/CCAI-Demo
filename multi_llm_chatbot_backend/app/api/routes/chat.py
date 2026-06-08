@@ -75,6 +75,22 @@ class ChatMessage(BaseModel):
     active_advisors: Optional[List[str]] = None
     response_mode: ResponseMode = "panel"
 
+class PanelResult(BaseModel):
+    persona_id: str
+    persona_name: str
+    response: str
+    used_documents: bool = False
+    document_chunks_used: int = 0
+
+
+class SynthesizeRequest(BaseModel):
+    user_input: str
+    panel_results: List[PanelResult] = Field(min_length=1)
+    chat_session_id: str
+    response_group_id: str
+    response_length: Literal["short", "medium", "long"] = "medium"
+
+
 class ReplyToAdvisor(BaseModel):
     user_input: str
     advisor_id: str
@@ -429,6 +445,54 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/synthesize")
+async def synthesize_aggregated(
+    request: SynthesizeRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """On-demand synthesis of panel advisor responses into a single aggregated answer.
+
+    Called when a user toggles to the 'Generalized' view on a panel-mode
+    exchange that doesn't yet have an aggregated response.
+    """
+    try:
+        llm_clients = resolve_llm_clients(current_user)
+        orchestrator_llm = llm_clients.get("orchestrator")
+
+        panel_dicts = [r.model_dump() for r in request.panel_results]
+
+        result = await chat_orchestrator.synthesize_aggregated_response(
+            user_input=request.user_input,
+            panel_results=panel_dicts,
+            llm_client=orchestrator_llm,
+            response_length=request.response_length,
+        )
+
+        if not result:
+            raise HTTPException(status_code=502, detail="Synthesis produced no usable response")
+
+        await persist_message(
+            request.chat_session_id,
+            PersistMessage(
+                type="advisor",
+                persona_id="aggregated",
+                advisorName=result["persona_name"],
+                content=result["response"],
+                is_aggregated=True,
+                source_personas=result["source_personas"],
+                response_group_id=request.response_group_id,
+            ),
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Synthesis endpoint error: {e}")
+        raise HTTPException(status_code=500, detail="Synthesis failed")
 
 
 @router.post("/switch-chat")
