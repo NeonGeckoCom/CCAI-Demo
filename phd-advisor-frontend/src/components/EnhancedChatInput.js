@@ -319,18 +319,41 @@ const EnhancedChatInput = ({
               </>
             )}
 
-            <button
-              onClick={() => onResponseModeChange?.(responseMode === 'panel' ? 'aggregated' : 'panel')}
-              className={`add-docs-btn response-mode-toggle ${responseMode === 'aggregated' ? 'active' : ''}`}
-              type="button"
-              title={responseMode === 'panel'
-                ? 'Currently: Multiple Responses — click to switch to a single Generalized Response'
-                : 'Currently: Generalized Response — click to switch back to Multiple Responses'}
-              disabled={isDisabled}
+            <div
+              role="group"
+              aria-label="Response mode"
+              style={{
+                display: 'inline-flex', gap: 2,
+                background: 'var(--bg-secondary, rgba(0,0,0,0.04))',
+                border: '1px solid var(--border-secondary)',
+                borderRadius: 8, padding: 2,
+              }}
             >
-              {responseMode === 'aggregated' ? <Sparkles size={16} /> : <Users size={16} />}
-              <span>{responseMode === 'aggregated' ? 'Generalized response' : 'Multiple responses'}</span>
-            </button>
+              {[
+                { mode: 'panel', icon: <Users size={16} />, label: 'Panel' },
+                { mode: 'aggregated', icon: <Sparkles size={16} />, label: 'Aggregated' },
+              ].map(({ mode, icon, label }) => {
+                const active = responseMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={isDisabled}
+                    onClick={() => onResponseModeChange?.(mode)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      fontSize: 14, padding: '6px 10px', border: 'none',
+                      borderRadius: 6, cursor: isDisabled ? 'default' : 'pointer',
+                      fontFamily: 'inherit',
+                      background: active ? 'var(--accent-primary, #6366f1)' : 'transparent',
+                      color: active ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {icon} {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Right - Mic + Send */}

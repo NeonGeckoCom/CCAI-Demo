@@ -992,7 +992,7 @@ const handleNewChat = async (sessionId = null) => {
                                   <Users size={13} /> Panel
                                 </button>
                                 <button type="button" style={segBtn(showAggregated)} disabled={isSynth} onClick={() => switchTo('aggregated')}>
-                                  <Sparkles size={13} /> Generalized
+                                  <Sparkles size={13} /> Aggregated
                                 </button>
                               </div>
                             )}
