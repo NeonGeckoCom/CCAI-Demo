@@ -83,7 +83,7 @@ class PanelResult(BaseModel):
     document_chunks_used: int = 0
 
 
-class SynthesizeRequest(BaseModel):
+class RequestAggregatedResponse(BaseModel):
     user_input: str
     panel_results: List[PanelResult] = Field(min_length=1)
     chat_session_id: str
@@ -447,9 +447,9 @@ async def chat_stream(
     )
 
 
-@router.post("/synthesize")
-async def synthesize_aggregated(
-    request: SynthesizeRequest,
+@router.post("/request-aggregated-response")
+async def request_aggregated_response(
+    request: RequestAggregatedResponse,
     current_user: User = Depends(get_current_active_user),
 ):
     """On-demand synthesis of panel advisor responses into a single aggregated answer.

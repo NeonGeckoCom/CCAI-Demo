@@ -411,7 +411,7 @@ const handleNewChat = async (sessionId = null) => {
 
       setSynthesizingGroups(prev => ({ ...prev, [groupId]: true }));
       try {
-        const resp = await fetch(`${process.env.REACT_APP_API_URL}/synthesize`, {
+        const resp = await fetch(`${process.env.REACT_APP_API_URL}/request-aggregated-response`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
