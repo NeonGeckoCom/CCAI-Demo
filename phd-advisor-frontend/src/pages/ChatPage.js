@@ -976,7 +976,8 @@ const handleNewChat = async (sessionId = null) => {
                         const isSynth = !!synthesizingGroups[group.responseGroupId];
                         const showAggregated = view === 'aggregated' && hasAggregated;
                         const shown = showAggregated ? group.aggregatedMessages : group.panelMessages;
-                        const showToggle = group.panelMessages.length > 1 || hasAggregated || isSynth;
+                        const isLegacy = group.responseGroupId.startsWith('legacy_');
+                        const showToggle = !isLegacy && (group.panelMessages.length > 1 || hasAggregated || isSynth);
                         const switchTo = (target) => {
                           if ((target === 'aggregated') !== showAggregated) {
                             handleToggleGroupView(group.responseGroupId, group.panelMessages, hasAggregated);
