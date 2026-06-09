@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.1a10](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a10) (2026-06-09)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a9...2.0.1a10)
+
+**Fixed bugs:**
+
+- \[BUG\] Advisor images are broken in production [\#79](https://github.com/NeonGeckoCom/CCAI-Demo/issues/79)
+
+**Merged pull requests:**
+
+- fixed path for bundled avatar URIs. [\#82](https://github.com/NeonGeckoCom/CCAI-Demo/pull/82) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
 ## [2.0.1a9](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a9) (2026-06-09)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a8...2.0.1a9)
