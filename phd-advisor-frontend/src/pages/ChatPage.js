@@ -825,11 +825,11 @@ const handleNewChat = async (sessionId = null) => {
         }
         const aggregatedMessages = advisorGroup.filter(m => m.is_aggregated);
         const panelMessages = advisorGroup.filter(m => !m.is_aggregated);
-        // Prefer the shared responseGroupId stamped at creation; fall back to
-        // a stable id derived from the message ids so historical/legacy
-        // exchanges (saved before responseGroupId existed) can still be toggled.
+        // Prefer the shared responseGroupId from non-aggregated messages;
+        // aggregated messages appended to the DB can land after a later
+        // exchange's advisors, so they must not pollute that group's key.
         const responseGroupId =
-          advisorGroup.find(m => m.responseGroupId)?.responseGroupId ||
+          advisorGroup.find(m => m.responseGroupId && !m.is_aggregated)?.responseGroupId ||
           `legacy_${advisorGroup.map(m => m.id).join('_')}`;
         groups.push({
           type: 'advisor_group',
