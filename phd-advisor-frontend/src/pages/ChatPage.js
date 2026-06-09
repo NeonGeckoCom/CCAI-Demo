@@ -919,9 +919,7 @@ const handleNewChat = async (sessionId = null) => {
             
             <div className="header-right">
               <AdvisorStatusDropdown
-                advisors={Object.fromEntries(
-                  Object.entries(advisors).filter(([id]) => id !== 'aggregated')
-                )}
+                advisors={advisors}
                 thinkingAdvisors={thinkingAdvisors}
                 getAdvisorColors={getAdvisorColors}
                 isDark={isDark}

@@ -1,7 +1,20 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import * as LucideIcons from 'lucide-react';
 
 const AppConfigContext = createContext(null);
+
+const SYNTHETIC_PERSONAS = {
+  aggregated: {
+    name: 'Orchestrator',
+    role: 'Synthesized Response',
+    description: 'A single combined response merging all advisor perspectives.',
+    color: '#7C3AED',
+    bgColor: '#F3E8FF',
+    darkColor: '#A78BFA',
+    darkBgColor: '#3B2A5E',
+    icon: LucideIcons.User,
+  },
+};
 
 const ADVISOR_PREFS_URL = `${process.env.REACT_APP_API_URL}/api/me/advisor-preferences`;
 
@@ -137,19 +150,6 @@ export const AppConfigProvider = ({ children }) => {
 
   useEffect(() => {
     const built = buildAdvisors(personaItems, avatarOverrides);
-    // Synthetic persona used for aggregated/synthesized responses — represents
-    // a single combined "Partner" voice rather than the panel of advisors.
-    built.aggregated = {
-      name: 'Orchestrator',
-      role: 'Synthesized Response',
-      description: 'A single combined response merging all advisor perspectives.',
-      color: '#7C3AED',
-      bgColor: '#F3E8FF',
-      darkColor: '#A78BFA',
-      darkBgColor: '#3B2A5E',
-      icon: LucideIcons.User,
-      avatarUrl: avatarOverrides.aggregated || null,
-    };
     setAdvisors(built);
   }, [personaItems, avatarOverrides]);
 
@@ -273,8 +273,8 @@ export const AppConfigProvider = ({ children }) => {
   }, [config]);
 
   const getAdvisorColors = buildGetAdvisorColors(advisors);
-  const allPersonas = advisors;
-  const getAllPersonaColors = getAdvisorColors;
+  const allPersonas = useMemo(() => ({ ...advisors, ...SYNTHETIC_PERSONAS }), [advisors]);
+  const getAllPersonaColors = buildGetAdvisorColors(allPersonas);
 
   const value = {
     config,
