@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.1a11](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a11) (2026-06-09)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a10...2.0.1a11)
+
+**Fixed bugs:**
+
+- \[BUG\] Disable all advisors button throwing 400 error [\#83](https://github.com/NeonGeckoCom/CCAI-Demo/issues/83)
+
+**Merged pull requests:**
+
+- Fix/disable all error [\#84](https://github.com/NeonGeckoCom/CCAI-Demo/pull/84) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
 ## [2.0.1a10](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a10) (2026-06-09)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a9...2.0.1a10)
