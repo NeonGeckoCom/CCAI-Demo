@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.1a9](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a9) (2026-06-09)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a8...2.0.1a9)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Different Response Modes [\#50](https://github.com/NeonGeckoCom/CCAI-Demo/issues/50)
+
+**Merged pull requests:**
+
+- Enhance chat functionality with response mode toggle [\#61](https://github.com/NeonGeckoCom/CCAI-Demo/pull/61) ([NeonRyan](https://github.com/NeonRyan))
+
 ## [2.0.1a8](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a8) (2026-06-05)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a7...2.0.1a8)
