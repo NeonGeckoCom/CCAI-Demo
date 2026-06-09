@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any
-from app.models.persona import Persona
+from app.models.persona import Persona, COMPACT_MARKDOWN_V1, STRUCTURE_HINTS, _ensure_compact_shape
 from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
@@ -487,6 +487,87 @@ class ImprovedChatOrchestrator:
                 "response_length": response_length,
                 "context_quality": "error"
             }
+
+    async def synthesize_aggregated_response(
+        self,
+        user_input: str,
+        panel_results: List[Dict[str, Any]],
+        llm_client: LLMClient = None,
+        response_length: str = "medium",
+    ) -> Optional[Dict[str, Any]]:
+        """Merge multiple panel advisor responses into a single unified answer.
+
+        Uses the orchestrator LLM (not a persona) to synthesize the strongest
+        points from each advisor into one cohesive response addressed to the
+        user.  Returns ``None`` when synthesis produces nothing usable so the
+        caller can fall back to the panel responses.
+        """
+        if not panel_results:
+            return None
+
+        token_limits = {"short": 800, "medium": 1500, "long": 2400}
+        max_tokens = token_limits.get(response_length, 700)
+
+        perspectives = "\n\n".join(
+            f"### {r['persona_name']} ({r['persona_id']})\n{r['response']}"
+            for r in panel_results
+        )
+
+        structure_hint = STRUCTURE_HINTS.get(response_length, STRUCTURE_HINTS["medium"])
+
+        system_prompt = (
+            "You are a synthesis assistant. You will receive multiple expert "
+            "advisor perspectives on a user's question. Your job is to merge "
+            "them into a single, cohesive answer that integrates the strongest "
+            "points from each.\n\n"
+            "Guidelines:\n"
+            "- Produce ONE unified answer addressed directly to the user.\n"
+            "- Do NOT list or label the individual perspectives.\n"
+            "- Resolve contradictions by noting the trade-off briefly.\n"
+            "- Keep the tone warm, clear, and actionable.\n\n"
+            f"{COMPACT_MARKDOWN_V1}\n\n"
+            f"{structure_hint}"
+        )
+
+        user_prompt = (
+            f"The user asked:\n\"{user_input}\"\n\n"
+            f"The following {len(panel_results)} advisors responded:\n\n"
+            f"{perspectives}\n\n"
+            "Synthesize these into a single best-answer response."
+        )
+
+        try:
+            effective_llm = llm_client or self.llm_client
+            raw = await effective_llm.generate(
+                system_prompt=system_prompt,
+                context=[{"role": "user", "content": user_prompt}],
+                temperature=0.4,
+                max_tokens=max_tokens,
+            )
+
+            stripped = raw.strip() if raw else ""
+            if not stripped:
+                logger.warning("Synthesis LLM returned empty response")
+                return None
+            content = _ensure_compact_shape(stripped, response_length)
+
+            return {
+                "persona_id": "aggregated",
+                "persona_name": "Orchestrator",
+                "response": content,
+                "is_aggregated": True,
+                "source_personas": [r["persona_id"] for r in panel_results],
+                "used_documents": any(r.get("used_documents") for r in panel_results),
+                "document_chunks_used": sum(
+                    r.get("document_chunks_used", 0) for r in panel_results
+                ),
+                "response_length": response_length,
+                "context_quality": "synthesized",
+            }
+
+        except Exception as e:
+            logger.error(f"Aggregated synthesis failed: {e}")
+            return None
 
     async def _retrieve_relevant_documents(self, user_input: str, session_id: str, persona_id: str = "") -> str:
         """

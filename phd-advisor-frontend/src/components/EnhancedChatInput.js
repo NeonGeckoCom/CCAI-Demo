@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, FileText, X, Trash2, Download, Mic, MicOff, MessageCircle, ClipboardList, Loader2, Columns3, FileOutput } from 'lucide-react';
+import { Send, Paperclip, FileText, X, Trash2, Download, Mic, MicOff, MessageCircle, ClipboardList, Loader2, Users, Sparkles } from 'lucide-react';
 import FileUpload from './FileUpload';
 
 const EnhancedChatInput = ({ 
@@ -13,8 +13,8 @@ const EnhancedChatInput = ({
   showProfileButtons = false,
   onOpenOnboarding,
   onOpenProfileForm,
-  synthesizedMode = false,
-  onToggleSynthesized,
+  responseMode = 'panel',
+  onResponseModeChange,
   ensureSessionId,
 }) => {
   const [inputMessage, setInputMessage] = useState('');
@@ -318,50 +318,46 @@ const EnhancedChatInput = ({
                 </button>
               </>
             )}
+
+            <div
+              role="group"
+              aria-label="Response mode"
+              style={{
+                display: 'inline-flex', gap: 2,
+                background: 'var(--bg-secondary, rgba(0,0,0,0.04))',
+                border: '1px solid var(--border-secondary)',
+                borderRadius: 8, padding: 2,
+              }}
+            >
+              {[
+                { mode: 'panel', icon: <Users size={16} />, label: 'Panel' },
+                { mode: 'aggregated', icon: <Sparkles size={16} />, label: 'Aggregated' },
+              ].map(({ mode, icon, label }) => {
+                const active = responseMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={isDisabled}
+                    onClick={() => onResponseModeChange?.(mode)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      fontSize: 14, padding: '6px 10px', border: 'none',
+                      borderRadius: 6, cursor: isDisabled ? 'default' : 'pointer',
+                      fontFamily: 'inherit',
+                      background: active ? 'var(--accent-primary, #6366f1)' : 'transparent',
+                      color: active ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {icon} {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Right - Mode Toggle + Mic + Send */}
+          {/* Right - Mic + Send */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {onToggleSynthesized && (
-              <div style={{
-                display: 'flex', borderRadius: '18px', overflow: 'hidden',
-                border: '1px solid #3b82f6', flexShrink: 0,
-              }}>
-                <button
-                  onClick={synthesizedMode ? onToggleSynthesized : undefined}
-                  type="button"
-                  title="Panel Response (3 advisors)"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '5px 10px', fontSize: '12px', fontWeight: 600,
-                    cursor: synthesizedMode ? 'pointer' : 'default',
-                    border: 'none', transition: 'all 0.2s', whiteSpace: 'nowrap',
-                    background: !synthesizedMode ? '#3b82f6' : 'transparent',
-                    color: !synthesizedMode ? '#fff' : '#3b82f6',
-                  }}
-                >
-                  <Columns3 size={13} />
-                  Panel
-                </button>
-                <div style={{ width: 1, background: '#3b82f6', alignSelf: 'stretch' }} />
-                <button
-                  onClick={!synthesizedMode ? onToggleSynthesized : undefined}
-                  type="button"
-                  title="Aggregate synthesized answer"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '5px 10px', fontSize: '12px', fontWeight: 600,
-                    cursor: !synthesizedMode ? 'pointer' : 'default',
-                    border: 'none', transition: 'all 0.2s', whiteSpace: 'nowrap',
-                    background: synthesizedMode ? '#3b82f6' : 'transparent',
-                    color: synthesizedMode ? '#fff' : '#3b82f6',
-                  }}
-                >
-                  <FileOutput size={13} />
-                  Aggregate
-                </button>
-              </div>
-            )}
             <button
               onClick={toggleRecording}
               disabled={isTranscribing}

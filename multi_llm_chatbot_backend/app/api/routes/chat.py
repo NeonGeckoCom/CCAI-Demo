@@ -64,12 +64,32 @@ class UserInput(BaseModel):
     user_input: str
     chat_session_id: Optional[str] = None
 
+ResponseMode = Literal["panel", "aggregated"]
+
+
 class ChatMessage(BaseModel):
     user_input: str
     session_id: Optional[str] = None
     chat_session_id: Optional[str] = None  # MongoDB chat session ID
     response_length: str = "medium"
     active_advisors: Optional[List[str]] = None
+    response_mode: ResponseMode = "panel"
+
+class PanelResult(BaseModel):
+    persona_id: str
+    persona_name: str
+    response: str
+    used_documents: bool = False
+    document_chunks_used: int = 0
+
+
+class RequestAggregatedResponse(BaseModel):
+    user_input: str
+    panel_results: List[PanelResult] = Field(min_length=1)
+    chat_session_id: str
+    response_group_id: str
+    response_length: Literal["short", "medium", "long"] = "medium"
+
 
 class ReplyToAdvisor(BaseModel):
     user_input: str
@@ -99,7 +119,7 @@ class ChatStreamLine(BaseModel):
     def to_ndjson(self) -> str:
         return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
 
-
+# TODO: Refactor this function into smaller composable helpers so it's more readable and maintainable.
 @router.post("/chat-stream")
 async def chat_stream(
     message: ChatMessage,
@@ -136,11 +156,16 @@ async def chat_stream(
             session = session_manager.get_session(sid)
 
             # Append user message to in-memory session and persist to MongoDB
+            response_group_id = str(ObjectId())
             session.append_message("user", message.user_input)
             if message.chat_session_id:
                 await persist_message(
                     message.chat_session_id,
-                    PersistMessage(type="user", content=message.user_input),
+                    PersistMessage(
+                        type="user",
+                        content=message.user_input,
+                        response_group_id=response_group_id,
+                    ),
                 )
                 yield ChatStreamLine(
                     type="progress", data={"phase": "received"},
@@ -275,33 +300,129 @@ async def chat_stream(
 
             tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
 
-            for _ in range(len(tasks)):
-                result = await done_queue.get()
-                if message.chat_session_id:
-                    await persist_message(
-                        message.chat_session_id,
-                        PersistMessage(
-                            type="advisor",
-                            persona_id=result["persona_id"],
-                            advisorName=result["persona_name"],
-                            content=result["response"],
-                            used_documents=result.get("used_documents", False),
-                            document_chunks_used=result.get("document_chunks_used", 0),
-                        ),
-                    )
-                line = ChatStreamLine(
-                    type="advisor",
-                    data={
-                        "persona_id": result["persona_id"],
-                        "persona_name": result["persona_name"],
-                        "content": result["response"],
-                        "used_documents": result.get("used_documents", False),
-                        "document_chunks_used": result.get("document_chunks_used", 0),
-                    },
-                )
-                yield line.to_ndjson()
+            if message.response_mode == "panel":
+                # ---- Panel mode: yield each advisor response as it arrives ----
+                for _ in range(len(tasks)):
+                    result = await done_queue.get()
+                    if message.chat_session_id:
+                        await persist_message(
+                            message.chat_session_id,
+                            PersistMessage(
+                                type="advisor",
+                                persona_id=result["persona_id"],
+                                advisorName=result["persona_name"],
+                                content=result["response"],
+                                used_documents=result.get("used_documents", False),
+                                document_chunks_used=result.get("document_chunks_used", 0),
+                                response_group_id=response_group_id,
+                            ),
+                        )
+                    yield ChatStreamLine(
+                        type="advisor",
+                        data={
+                            "persona_id": result["persona_id"],
+                            "persona_name": result["persona_name"],
+                            "content": result["response"],
+                            "used_documents": result.get("used_documents", False),
+                            "document_chunks_used": result.get("document_chunks_used", 0),
+                            "response_group_id": response_group_id,
+                        },
+                    ).to_ndjson()
 
-            await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+            else:
+                # ---- Aggregated mode: collect all, synthesize, yield one ----
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "generating"},
+                ).to_ndjson()
+
+                panel_results = []
+                for _ in range(len(tasks)):
+                    result = await done_queue.get()
+                    panel_results.append(result)
+                    if message.chat_session_id:
+                        await persist_message(
+                            message.chat_session_id,
+                            PersistMessage(
+                                type="advisor",
+                                persona_id=result["persona_id"],
+                                advisorName=result["persona_name"],
+                                content=result["response"],
+                                used_documents=result.get("used_documents", False),
+                                document_chunks_used=result.get("document_chunks_used", 0),
+                                response_group_id=response_group_id,
+                            ),
+                        )
+
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+                for result in panel_results:
+                    yield ChatStreamLine(
+                        type="advisor",
+                        data={
+                            "persona_id": result["persona_id"],
+                            "persona_name": result["persona_name"],
+                            "content": result["response"],
+                            "used_documents": result.get("used_documents", False),
+                            "document_chunks_used": result.get("document_chunks_used", 0),
+                            "response_group_id": response_group_id,
+                        },
+                    ).to_ndjson()
+
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "synthesizing"},
+                ).to_ndjson()
+
+                synth_result = await chat_orchestrator.synthesize_aggregated_response(
+                    user_input=message.user_input,
+                    panel_results=panel_results,
+                    llm_client=orchestrator_llm,
+                    response_length=message.response_length or "medium",
+                )
+
+                if synth_result:
+                    if message.chat_session_id:
+                        await persist_message(
+                            message.chat_session_id,
+                            PersistMessage(
+                                type="advisor",
+                                persona_id="aggregated",
+                                advisorName=synth_result["persona_name"],
+                                content=synth_result["response"],
+                                is_aggregated=True,
+                                source_personas=synth_result["source_personas"],
+                                response_group_id=response_group_id,
+                            ),
+                        )
+                    yield ChatStreamLine(
+                        type="advisor",
+                        data={
+                            "persona_id": "aggregated",
+                            "persona_name": synth_result["persona_name"],
+                            "content": synth_result["response"],
+                            "is_aggregated": True,
+                            "source_personas": synth_result["source_personas"],
+                            "response_group_id": response_group_id,
+                        },
+                    ).to_ndjson()
+                else:
+                    # Synthesis failed — fall back to yielding panel responses
+                    logger.warning("Aggregated synthesis failed, falling back to panel")
+                    for result in panel_results:
+                        yield ChatStreamLine(
+                            type="advisor",
+                            data={
+                                "persona_id": result["persona_id"],
+                                "persona_name": result["persona_name"],
+                                "content": result["response"],
+                                "used_documents": result.get("used_documents", False),
+                                "document_chunks_used": result.get("document_chunks_used", 0),
+                                "response_group_id": response_group_id,
+                            },
+                        ).to_ndjson()
 
             yield ChatStreamLine(
                 type="progress",
@@ -324,6 +445,54 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/request-aggregated-response")
+async def request_aggregated_response(
+    request: RequestAggregatedResponse,
+    current_user: User = Depends(get_current_active_user),
+):
+    """On-demand synthesis of panel advisor responses into a single aggregated answer.
+
+    Called when a user toggles to the 'Generalized' view on a panel-mode
+    exchange that doesn't yet have an aggregated response.
+    """
+    try:
+        llm_clients = resolve_llm_clients(current_user)
+        orchestrator_llm = llm_clients.get("orchestrator")
+
+        panel_dicts = [r.model_dump() for r in request.panel_results]
+
+        result = await chat_orchestrator.synthesize_aggregated_response(
+            user_input=request.user_input,
+            panel_results=panel_dicts,
+            llm_client=orchestrator_llm,
+            response_length=request.response_length,
+        )
+
+        if not result:
+            raise HTTPException(status_code=502, detail="Synthesis produced no usable response")
+
+        await persist_message(
+            request.chat_session_id,
+            PersistMessage(
+                type="advisor",
+                persona_id="aggregated",
+                advisorName=result["persona_name"],
+                content=result["response"],
+                is_aggregated=True,
+                source_personas=result["source_personas"],
+                response_group_id=request.response_group_id,
+            ),
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Synthesis endpoint error: {e}")
+        raise HTTPException(status_code=500, detail="Synthesis failed")
 
 
 @router.post("/switch-chat")
