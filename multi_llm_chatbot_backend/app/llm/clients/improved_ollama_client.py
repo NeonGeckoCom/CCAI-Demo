@@ -42,7 +42,6 @@ class ImprovedOllamaClient(LLMClient):
                     "top_k": 40,
                     "num_predict": max_tokens,
                     "repeat_penalty": 1.1,
-                    "stop": ["</END>", "\n\nStudent:", "\n\nUser:", "Question:", "Student:"]
                 }
             }
 
@@ -51,6 +50,14 @@ class ImprovedOllamaClient(LLMClient):
                 response.raise_for_status()
 
                 result = response.json()
+                done_reason = result.get("done_reason")
+                if done_reason and done_reason not in {"stop", "done"}:
+                    logger.warning(
+                        "Ollama response finished with done_reason=%s (model=%s, max_tokens=%s)",
+                        done_reason,
+                        self.model_name,
+                        max_tokens,
+                    )
                 text = result.get("response", "").strip()
 
                 return self._clean_response(text)

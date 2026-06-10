@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class UserInput(BaseModel):
     user_input: str
     chat_session_id: Optional[str] = None
+    advisor_skill: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -16,6 +17,7 @@ class ChatMessage(BaseModel):
     chat_session_id: Optional[str] = None  # MongoDB chat session ID
     response_length: str = "medium"
     active_advisors: Optional[List[str]] = None
+    advisor_skill: Optional[str] = None
 
 
 class ReplyToAdvisor(BaseModel):
@@ -23,6 +25,7 @@ class ReplyToAdvisor(BaseModel):
     advisor_id: str
     original_message_id: str = None
     chat_session_id: Optional[str] = None
+    advisor_skill: Optional[str] = None
 
 
 class PersonaQuery(BaseModel):

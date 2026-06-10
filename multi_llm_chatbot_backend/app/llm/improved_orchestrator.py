@@ -1,6 +1,8 @@
 ﻿import logging
 from typing import Any, Dict, List, Optional
 
+from app.advisor_skills import AdvisorSkill, get_advisor_skill
+from app.llm.classifier import classify_advisor_skill
 from app.models.persona import Persona
 from app.core.session_manager import get_session_manager
 from app.rag.persona_context_builder import PersonaContextBuilder
@@ -63,15 +65,54 @@ class ImprovedChatOrchestrator:
             self.personas, user_input
         )
 
-    async def generate_single_persona_response(self, session, persona, response_length: str = "medium"):
+    async def classify_advisor_skill(
+        self,
+        user_input: str,
+        session,
+        requested_skill_id: Optional[str] = None,
+    ):
+        """Classify the latest user message into an advisor response skill."""
+        has_documents = False
+        try:
+            stats = session.get_rag_stats()
+            has_documents = stats.get("total_documents", 0) > 0
+        except Exception:
+            has_documents = bool(getattr(session, "uploaded_files", []))
+
+        return await classify_advisor_skill(
+            self.llm_client,
+            user_input,
+            has_documents=has_documents,
+            requested_skill_id=requested_skill_id,
+        )
+
+    async def generate_single_persona_response(
+        self,
+        session,
+        persona,
+        response_length: str = "medium",
+        advisor_skill: Optional[AdvisorSkill] = None,
+    ):
         """Generate a document-grounded response from a single persona."""
-        return await generate_single_persona_response(session, persona, response_length)
+        return await generate_single_persona_response(
+            session,
+            persona,
+            response_length,
+            advisor_skill or get_advisor_skill("quick_advice"),
+        )
 
     def _get_persona_context_keywords(self, persona_id: str) -> str:
         """Persona-specific retrieval keywords (see PersonaContextBuilder)."""
         return self.context_builder.get_persona_context_keywords(persona_id)
 
-    async def chat_with_persona(self, user_input: str, persona_id: str, session_id: str, response_length: str = "medium") -> Dict[str, Any]:
+    async def chat_with_persona(
+        self,
+        user_input: str,
+        persona_id: str,
+        session_id: str,
+        response_length: str = "medium",
+        advisor_skill_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Chat with a specific persona directly - FIXED for consistent document access
         """
@@ -92,11 +133,22 @@ class ImprovedChatOrchestrator:
             # Add user message to session
             session.append_message("user", user_input)
 
+            classification = await self.classify_advisor_skill(
+                user_input,
+                session,
+                requested_skill_id=advisor_skill_id,
+            )
+
             # Use the same session_id for document retrieval
             logger.info(f"Generating response for {persona_id} with session {session_id}")
 
             # Generate response from single persona using consistent session ID
-            response_data = await self.generate_single_persona_response(session, persona, response_length)
+            response_data = await self.generate_single_persona_response(
+                session,
+                persona,
+                response_length,
+                classification.skill,
+            )
 
             # Add response to session
             session.append_message(persona_id, response_data["response"])
@@ -109,6 +161,8 @@ class ImprovedChatOrchestrator:
                 "used_documents": response_data.get("used_documents", False),
                 "document_chunks_used": response_data.get("document_chunks_used", 0),
                 "response_length": response_length,
+                "advisor_skill": classification.skill_id,
+                "advisor_skill_name": classification.skill.name,
                 "context_quality": response_data.get("context_quality", "unknown"),
                 "session_id": session_id,
                 "type": "single_persona_response",
@@ -117,7 +171,9 @@ class ImprovedChatOrchestrator:
                     "persona_name": persona.name,
                     "response": response_data.get("response", "I'm having trouble generating a response."),
                     "used_documents": response_data.get("used_documents", False),
-                    "document_chunks_used": response_data.get("document_chunks_used", 0)
+                    "document_chunks_used": response_data.get("document_chunks_used", 0),
+                    "advisor_skill": classification.skill_id,
+                    "advisor_skill_name": classification.skill.name,
                 }
             }
 
@@ -145,13 +201,16 @@ class ImprovedChatOrchestrator:
         session_id: str,
         k: int = 3,
         allowed_ids: Optional[List[str]] = None,
+        advisor_skill: Optional[AdvisorSkill] = None,
     ) -> List[str]:
         """Rank personas for the session by relevance (see app.llm.llm_tasks)."""
         session = self.session_manager.get_session(session_id)
+        preferred_ids = advisor_skill.preferred_advisors if advisor_skill else None
         return await llm_tasks.rank_personas(
             self.personas,
             session,
             k,
             allowed_ids=allowed_ids,
+            preferred_ids=preferred_ids,
             llm_client=self.llm_client,
         )

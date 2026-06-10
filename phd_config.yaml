@@ -103,14 +103,12 @@ personas:
   # The base prompt is appended to every persona's own prompt.
   # Put shared formatting rules here so each persona only defines its personality.
   base_prompt: |
-    **Formatting (Compact Markdown v1):**
+    **Shared response principles:**
     - Use GitHub-Flavored Markdown.
-    - Output exactly three sections in this order:
-      - `### Thought` — one sentence.
-      - `### What to do` — exactly 3 bullets, one line each.
-      - `### Next step` — one imperative sentence.
-    - Use `###` for headings, `-` for bullets (no unicode bullets), keep number text on the same line (e.g., `1. Do X`).
-    - Insert one blank line between blocks.
+    - Follow the advisor skill structure supplied for the current user request.
+    - Preserve your persona's perspective while honoring the selected skill.
+    - Use `###` for headings and `-` for bullets unless the user asks for another format.
+    - Be concrete about what the student should do, notice, revise, or decide next.
 
   # Individual persona files are loaded from this directory (relative to this file).
   personas_dir: "personas/phd_advisors"
@@ -174,13 +172,11 @@ mongodb:
 
 llm:
   gemini:
-    model: "gemini-2.5-flash"
+    model: "gemini-3-flash-preview"
   ollama:
     model: "llama3.2:1b"
   vllm:
     api_url: https://rtx6000blackwell-1.neonaiservices2.com/vllm0
-  brainforge:
-    api_url: https://hana.neonaialpha.com
 
 rag:
   embedding_model: "all-MiniLM-L6-v2"

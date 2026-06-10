@@ -254,7 +254,7 @@ class MongoDBConfig(BaseModel):
 
 class GeminiConfig(BaseModel):
     api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3-flash-preview"
 
     @model_validator(mode="after")
     def _warn_gemini_envvar(self):
@@ -282,18 +282,10 @@ class VllmConfig(BaseModel):
     api_key: str = Field(default=os.getenv("VLLM_API_KEY", ""))
 
 
-class BrainForgeConfig(BaseModel):
-    api_url: str = ""
-    username: str = Field(default=os.getenv("BRAINFORGE_USERNAME", ""))
-    password: str = Field(default=os.getenv("BRAINFORGE_PASSWORD", ""))
-    sync_interval_seconds: int = 600
-
-
 class LLMConfig(BaseModel):
     gemini: GeminiConfig = GeminiConfig()
     ollama: OllamaConfig = OllamaConfig()
     vllm: VllmConfig = VllmConfig()
-    brainforge: BrainForgeConfig = BrainForgeConfig()
 
 
 class RAGConfig(BaseModel):
@@ -349,6 +341,8 @@ class AppSettings(BaseModel):
     def get_frontend_config(self) -> dict:
         """Return the subset of configuration safe to expose to the frontend
         via ``GET /api/config``.  Secrets are excluded."""
+        from app.advisor_skills import ADVISOR_SKILLS
+
         allowed = self.personas.allowed_advisors
         persona_items = self.personas.items
         if allowed is not None:
@@ -363,6 +357,17 @@ class AppSettings(BaseModel):
             "onboarding": self.onboarding.dict(),
             "personas": {
                 "items": [p.to_frontend_config() for p in persona_items],
+            },
+            "advisor_skills": {
+                "items": [
+                    {
+                        "id": skill.id,
+                        "name": skill.name,
+                        "description": skill.description,
+                        "headings": skill.headings,
+                    }
+                    for skill in ADVISOR_SKILLS.values()
+                ],
             },
             "version": __version__,
         }

@@ -86,8 +86,6 @@ class ImprovedGeminiClient(LLMClient):
                 payload["generationConfig"]["responseMimeType"] = response_mime_type
                 # no thinking required for JSON responses; conserve token budget
                 payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
-            else:
-                payload["generationConfig"]["stopSequences"] = ["</END>", "Student:", "Question:", "\n\nStudent:", "\n\nQuestion:"]
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -105,6 +103,14 @@ class ImprovedGeminiClient(LLMClient):
                     return "I apologize, but I'm unable to generate a response right now. Please try again."
 
                 candidate = result["candidates"][0]
+                finish_reason = candidate.get("finishReason")
+                if finish_reason and finish_reason != "STOP":
+                    logger.warning(
+                        "Gemini response finished with finishReason=%s (model=%s, max_tokens=%s)",
+                        finish_reason,
+                        self.model_name,
+                        max_tokens,
+                    )
 
                 if "content" not in candidate or "parts" not in candidate["content"]:
                     logger.error(f"Invalid candidate structure: {candidate}")

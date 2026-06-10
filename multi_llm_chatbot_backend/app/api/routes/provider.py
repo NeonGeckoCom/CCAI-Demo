@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Body, HTTPException
-from app.core.brainforge_sync import BRAINFORGE_PERSONA_PREFIX
 from app.core.bootstrap import chat_orchestrator
 from app.llm.clients import provider_manager
 from app.models.default_personas import get_default_personas
@@ -32,9 +31,7 @@ async def switch_provider(provider_data: ProviderSwitch):
         chat_orchestrator.llm_client = new_llm
 
         new_personas = get_default_personas(new_llm)
-        # Clear only non-BrainForge personas; BF advisors have their own LLM clients
-        non_bf_ids = [pid for pid in chat_orchestrator.personas if not pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_")]
-        for pid in non_bf_ids:
+        for pid in list(chat_orchestrator.personas):
             chat_orchestrator.unregister_persona(pid)
         for persona in new_personas:
             chat_orchestrator.register_persona(persona)

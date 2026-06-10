@@ -41,7 +41,12 @@ def _get_persona_fallback(persona_id: str) -> str:
     return fallbacks.get(persona_id, "I'd be happy to help. Could you provide more specific details about your question?")
 
 
-async def generate_single_persona_response(session, persona, response_length: str = "medium") -> Dict[str, Any]:
+async def generate_single_persona_response(
+    session,
+    persona,
+    response_length: str = "medium",
+    advisor_skill=None,
+) -> Dict[str, Any]:
     """Generate a response from a single persona with enhanced RAG integration."""
     try:
         user_message = ""
@@ -69,7 +74,7 @@ async def generate_single_persona_response(session, persona, response_length: st
         for msg in enhanced_context:
             logger.info("Generating response role=%s:\n%s", msg["role"], msg["content"])
 
-        response = await persona.respond(enhanced_context, response_length)
+        response = await persona.respond(enhanced_context, response_length, advisor_skill)
 
         if not _is_valid_response(response, persona.id):
             logger.warning("Invalid response from %s, using fallback", persona.id)
@@ -85,6 +90,7 @@ async def generate_single_persona_response(session, persona, response_length: st
             "used_documents": used_documents,
             "document_chunks_used": document_chunks_used,
             "response_length": response_length,
+            "advisor_skill": getattr(advisor_skill, "id", advisor_skill),
             "context_quality": "high" if document_context else "conversation_only",
         }
 
@@ -97,5 +103,6 @@ async def generate_single_persona_response(session, persona, response_length: st
             "used_documents": False,
             "document_chunks_used": 0,
             "response_length": response_length,
+            "advisor_skill": getattr(advisor_skill, "id", advisor_skill),
             "context_quality": "error",
         }

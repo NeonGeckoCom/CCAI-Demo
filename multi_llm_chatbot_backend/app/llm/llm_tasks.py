@@ -246,6 +246,7 @@ async def rank_personas(
     session,
     k: int = 3,
     allowed_ids: Optional[List[str]] = None,
+    preferred_ids: Optional[List[str]] = None,
     llm_client: Optional[LLMClient] = None,
 ) -> List[str]:
     """
@@ -255,13 +256,24 @@ async def rank_personas(
     try:
         pool_ids = allowed_ids if allowed_ids is not None else list(personas.keys())
         pool = {pid: personas[pid] for pid in pool_ids if pid in personas}
+        preferred_pool_ids = [
+            pid for pid in (preferred_ids or [])
+            if pid in pool
+        ]
 
         if not pool:
             logger.warning("No personas registered.")
             return []
 
-        # Prefer the orchestrator's base LLM. Dynamic BrainForge persona LLMs
-        # may not support the same prompt format used for routing.
+        def fallback_rank() -> List[str]:
+            ordered = preferred_pool_ids + [
+                pid for pid in pool.keys()
+                if pid not in preferred_pool_ids
+            ]
+            return ordered[:k]
+
+        # Prefer the orchestrator's base LLM when available so routing uses
+        # the same prompt format as normal chat generation.
         llm = llm_client or next(iter(pool.values())).llm
 
         # Use recent conversation context (last 5 messages)
@@ -280,11 +292,21 @@ async def rank_personas(
 
         app_title = get_settings().app.title
 
+        preferred_line = (
+            "Preferred advisors for the classified advisor skill: "
+            f"{', '.join(preferred_pool_ids)}"
+            if preferred_pool_ids
+            else "No skill-specific advisor preference is available."
+        )
+
         prompt = f"""
                     The user is seeking advice from {app_title}. Based on the conversation below, choose the top {k} most relevant advisors.
 
+                    {preferred_line}
+                    Prefer skill-relevant advisors when they fit the conversation, but keep the final list useful and diverse.
+
                     Respond ONLY with a JSON list of exactly {k} advisor IDs in order of relevance.
-                    Example response: ["methodist", "pragmatist", "theorist"]
+                    Example response: ["methodologist", "pragmatist", "theorist"]
 
                     --- Conversation ---
                     {recent_context}
@@ -318,7 +340,7 @@ async def rank_personas(
 
         if len(valid_ids) < k:
             logger.warning(f"LLM returned insufficient or invalid IDs. Got: {valid_ids}")
-            return list(pool.keys())[:k]
+            return fallback_rank()
 
         return valid_ids[:k]
 
@@ -326,4 +348,12 @@ async def rank_personas(
         logger.error(f"Error selecting top personas: {e}")
         pool_ids = allowed_ids if allowed_ids is not None else list(personas.keys())
         pool = [pid for pid in pool_ids if pid in personas]
-        return pool[:k]
+        preferred_pool_ids = [
+            pid for pid in (preferred_ids or [])
+            if pid in pool
+        ]
+        ordered = preferred_pool_ids + [
+            pid for pid in pool
+            if pid not in preferred_pool_ids
+        ]
+        return ordered[:k]

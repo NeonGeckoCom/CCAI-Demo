@@ -77,12 +77,12 @@ async def chat_stream(
 
             if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
                 clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
-                clarification_message = {
-                    "id": str(ObjectId()),
-                    "type": "clarification",
-                    "content": clar["question"],
-                    "suggestions": clar["suggestions"],
-                }
+                clarification_message = PersistMessage(
+                    id=str(ObjectId()),
+                    type="clarification",
+                    content=clar["question"],
+                    suggestions=clar["suggestions"],
+                )
                 if message.chat_session_id:
                     await persist_message(message.chat_session_id, clarification_message)
                 yield ChatStreamLine(
@@ -137,10 +137,26 @@ async def chat_stream(
                 user_disabled=current_user.disabled_advisors,
             )
 
+            skill_classification = await chat_orchestrator.classify_advisor_skill(
+                message.user_input,
+                session,
+                requested_skill_id=message.advisor_skill,
+            )
+            yield ChatStreamLine(
+                type="progress",
+                data={
+                    "phase": "classified",
+                    "advisor_skill": skill_classification.skill_id,
+                    "advisor_skill_name": skill_classification.skill.name,
+                    "confidence": skill_classification.confidence,
+                },
+            ).to_ndjson()
+
             # Get personas most relevant to the current session
             top_personas = await chat_orchestrator.get_top_personas(
                 session_id=sid,
                 allowed_ids=available,
+                advisor_skill=skill_classification.skill,
             )
 
             # Guard against race condition where all selected advisors
@@ -152,11 +168,14 @@ async def chat_stream(
                     "Please check your advisor settings and try again."
                 )
                 if message.chat_session_id:
-                    await persist_message(message.chat_session_id, {
-                        "id": str(ObjectId()),
-                        "type": "error",
-                        "content": error_detail,
-                    })
+                    await persist_message(
+                        message.chat_session_id,
+                        PersistMessage(
+                            id=str(ObjectId()),
+                            type="error",
+                            content=error_detail,
+                        ),
+                    )
                 yield ChatStreamLine(
                     type="error",
                     data={
@@ -190,6 +209,7 @@ async def chat_stream(
                     result = await chat_orchestrator.generate_single_persona_response(
                         session, persona,
                         message.response_length or "medium",
+                        skill_classification.skill,
                     )
                     session.append_message(pid, result["response"])
                     await done_queue.put(result)
@@ -217,6 +237,8 @@ async def chat_stream(
                             content=result["response"],
                             used_documents=result.get("used_documents", False),
                             document_chunks_used=result.get("document_chunks_used", 0),
+                            advisor_skill=result.get("advisor_skill") or skill_classification.skill_id,
+                            advisor_skill_name=skill_classification.skill.name,
                         ),
                     )
                 line = ChatStreamLine(
@@ -227,6 +249,8 @@ async def chat_stream(
                         "content": result["response"],
                         "used_documents": result.get("used_documents", False),
                         "document_chunks_used": result.get("document_chunks_used", 0),
+                        "advisor_skill": result.get("advisor_skill") or skill_classification.skill_id,
+                        "advisor_skill_name": skill_classification.skill.name,
                     },
                 )
                 yield line.to_ndjson()
@@ -389,7 +413,8 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
         result = await chat_orchestrator.chat_with_persona(
             user_input=input.user_input,
             persona_id=persona_id,
-            session_id=session_id
+            session_id=session_id,
+            advisor_skill_id=input.advisor_skill,
         )
         
         # Handle response structure
@@ -404,6 +429,8 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
                         advisorName=persona_data["persona_name"],
                         content=persona_data["response"],
                         isExpansion=True,
+                        advisor_skill=persona_data.get("advisor_skill"),
+                        advisor_skill_name=persona_data.get("advisor_skill_name"),
                     ),
                 )
             return {
@@ -421,6 +448,8 @@ async def chat_with_specific_advisor(persona_id: str, input: UserInput, request:
                         advisorName=result["persona_name"],
                         content=result["response"],
                         isExpansion=True,
+                        advisor_skill=result.get("advisor_skill"),
+                        advisor_skill_name=result.get("advisor_skill_name"),
                     ),
                 )
             return {
@@ -500,7 +529,8 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
         result = await chat_orchestrator.chat_with_persona(
             user_input=contextual_input,
             persona_id=reply.advisor_id,
-            session_id=session_id
+            session_id=session_id,
+            advisor_skill_id=reply.advisor_skill,
         )
         
         # Handle response structure
@@ -515,6 +545,8 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                         advisorName=persona_data["persona_name"],
                         content=persona_data["response"],
                         isReply=True,
+                        advisor_skill=persona_data.get("advisor_skill"),
+                        advisor_skill_name=persona_data.get("advisor_skill_name"),
                         replyTo=ReplyToRef(
                             advisorId=reply.advisor_id,
                             advisorName=persona_data["persona_name"],
@@ -539,6 +571,8 @@ async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
                         advisorName=result["persona_name"],
                         content=result["response"],
                         isReply=True,
+                        advisor_skill=result.get("advisor_skill"),
+                        advisor_skill_name=result.get("advisor_skill_name"),
                         replyTo=ReplyToRef(
                             advisorId=reply.advisor_id,
                             advisorName=result["persona_name"],

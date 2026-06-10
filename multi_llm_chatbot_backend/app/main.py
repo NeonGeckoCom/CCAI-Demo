@@ -1,4 +1,3 @@
-import asyncio
 import os
 from dotenv import load_dotenv
 
@@ -37,13 +36,8 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
-    from app.core.bootstrap import chat_orchestrator
-    from app.core.brainforge_sync import async_sync_brainforge_personas, periodic_sync_loop
-    await async_sync_brainforge_personas(chat_orchestrator)
-    sync_task = asyncio.create_task(periodic_sync_loop(chat_orchestrator))
     yield
     # Shutdown
-    sync_task.cancel()
     await close_mongo_connection()
 
 app = FastAPI(
@@ -87,41 +81,9 @@ if _avatars_dir.is_dir():
 def get_public_config():
     """Return the public (non-secret) application configuration.
 
-    Merges statically-configured personas (from YAML) with dynamically
-    discovered BrainForge personas so the frontend sees all advisors in
-    a single response.
+    Serves the frontend-safe subset of configured app settings.
     """
-    from app.core.bootstrap import chat_orchestrator
-    from app.config import generate_persona_colors
-    from app.core.brainforge_sync import BRAINFORGE_PERSONA_PREFIX
-
-    config = settings.get_frontend_config()
-
-    static_ids = {p["id"] for p in config["personas"]["items"]}
-    allowed = settings.personas.allowed_advisors
-
-    for pid, persona in chat_orchestrator.personas.items():
-        if not pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"):
-            continue
-        if pid in static_ids:
-            continue
-        if allowed is not None and pid not in allowed:
-            continue
-
-        colors = generate_persona_colors(persona.name)
-        config["personas"]["items"].append({
-            "id": pid,
-            "name": persona.name,
-            "role": "BrainForge Advisor",
-            "summary": persona.system_prompt[:120] if persona.system_prompt else "",
-            "color": colors["color"],
-            "bg_color": colors["bg_color"],
-            "dark_color": colors["dark_color"],
-            "dark_bg_color": colors["dark_bg_color"],
-            "image": "icon://Brain",
-        })
-
-    return config
+    return settings.get_frontend_config()
 
 @app.get("/")
 def root():

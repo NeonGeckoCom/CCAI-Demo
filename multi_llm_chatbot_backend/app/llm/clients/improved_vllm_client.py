@@ -57,7 +57,17 @@ class ImprovedVllmClient(LLMClient):
 
             response = await self.client.chat.completions.create(**create_kwargs)
 
-            text = response.choices[0].message.content.strip()
+            choice = response.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason and finish_reason not in {"stop", "eos_token"}:
+                logger.warning(
+                    "vLLM response finished with finish_reason=%s (model=%s, max_tokens=%s)",
+                    finish_reason,
+                    self.model_name,
+                    max_tokens,
+                )
+
+            text = choice.message.content.strip()
             return self._clean_response(text)
 
         except APIConnectionError:
