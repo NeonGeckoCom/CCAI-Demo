@@ -70,6 +70,7 @@ class ImprovedChatOrchestrator:
         user_input: str,
         session,
         requested_skill_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ):
         """Classify the latest user message into an advisor response skill."""
         has_documents = False
@@ -84,6 +85,7 @@ class ImprovedChatOrchestrator:
             user_input,
             has_documents=has_documents,
             requested_skill_id=requested_skill_id,
+            user_id=user_id,
         )
 
     async def generate_single_persona_response(
@@ -112,6 +114,7 @@ class ImprovedChatOrchestrator:
         session_id: str,
         response_length: str = "medium",
         advisor_skill_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Chat with a specific persona directly - FIXED for consistent document access
@@ -137,6 +140,7 @@ class ImprovedChatOrchestrator:
                 user_input,
                 session,
                 requested_skill_id=advisor_skill_id,
+                user_id=user_id,
             )
 
             # Use the same session_id for document retrieval

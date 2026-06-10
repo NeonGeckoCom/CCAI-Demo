@@ -141,6 +141,7 @@ async def chat_stream(
                 message.user_input,
                 session,
                 requested_skill_id=message.advisor_skill,
+                user_id=str(current_user.id),
             )
             yield ChatStreamLine(
                 type="progress",

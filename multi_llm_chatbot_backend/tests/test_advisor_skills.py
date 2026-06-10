@@ -1,11 +1,8 @@
 import json
-import shutil
-import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
-from app.advisor_skills import registry
-from app.advisor_skills.registry import ADVISOR_SKILLS
+from app.advisor_skills.registry import ADVISOR_SKILLS, build_generated_advisor_skill
 from app.llm.classifier import classify_advisor_skill
 
 
@@ -83,17 +80,20 @@ class AdvisorSkillClassifierTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.confidence, 0.0)
 
     async def test_other_with_low_confidence_does_not_generate_skill(self):
-        with isolated_skill_registry() as skill_dir:
+        with patch(
+            "app.llm.classifier.get_effective_advisor_skills",
+            new=AsyncMock(return_value=dict(ADVISOR_SKILLS)),
+        ):
             result = await classify_advisor_skill(
                 FakeClassifierLLM(
                     '{"skill_id": "other", "confidence": 0.42, '
                     '"reason": "Maybe a new pattern."}'
                 ),
                 "Can you invent a new advising mode for this?",
+                user_id="64f000000000000000000001",
             )
 
-            self.assertEqual(result.skill_id, "quick_advice")
-            self.assertEqual(len(list(skill_dir.glob("custom_*.md"))), 0)
+        self.assertEqual(result.skill_id, "quick_advice")
 
     async def test_other_generates_and_loads_new_skill(self):
         skill_spec = {
@@ -120,8 +120,20 @@ class AdvisorSkillClassifierTests(unittest.IsolatedAsyncioTestCase):
             "rag_policy": "optional",
             "token_budgets": {"short": 650, "medium": 1000, "long": 1500},
         }
+        generated_skill = build_generated_advisor_skill(skill_spec)
 
-        with isolated_skill_registry() as skill_dir:
+        async def fake_create(_user_id, _spec):
+            self.assertEqual(_user_id, "64f000000000000000000001")
+            self.assertEqual(_spec["id"], "rhetorical_stance_calibration")
+            return generated_skill
+
+        with patch(
+            "app.llm.classifier.get_effective_advisor_skills",
+            new=AsyncMock(return_value=dict(ADVISOR_SKILLS)),
+        ), patch(
+            "app.llm.classifier.create_user_advisor_skill",
+            new=AsyncMock(side_effect=fake_create),
+        ):
             result = await classify_advisor_skill(
                 FakeClassifierLLM(
                     [
@@ -131,12 +143,11 @@ class AdvisorSkillClassifierTests(unittest.IsolatedAsyncioTestCase):
                     ]
                 ),
                 "Should my introduction sound persuasive, cautious, or bold?",
+                user_id="64f000000000000000000001",
             )
 
             self.assertEqual(result.skill_id, "custom_rhetorical_stance_calibration")
-            self.assertIn(result.skill_id, ADVISOR_SKILLS)
-            self.assertTrue((skill_dir / "custom_rhetorical_stance_calibration.md").exists())
-            self.assertEqual(ADVISOR_SKILLS[result.skill_id].headings, ["Stance diagnosis", "Language moves"])
+            self.assertEqual(result.skill.headings, ["Stance diagnosis", "Language moves"])
             self.assertEqual(result.recommended_advisors, ["critic", "storyteller"])
 
     async def test_invalid_llm_response_defaults_to_quick_advice(self):
@@ -148,25 +159,6 @@ class AdvisorSkillClassifierTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.skill_id, "quick_advice")
         self.assertEqual(result.confidence, 0.0)
-
-
-class isolated_skill_registry:
-    def __enter__(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self._tmp.name)
-        self.original_dir = registry.SKILLS_DIR
-        self.original_skills = dict(registry.ADVISOR_SKILLS)
-        for source in self.original_dir.glob("*.md"):
-            shutil.copy(source, self.path / source.name)
-        registry.SKILLS_DIR = self.path
-        registry.reload_advisor_skills()
-        return self.path
-
-    def __exit__(self, exc_type, exc, tb):
-        registry.SKILLS_DIR = self.original_dir
-        registry.ADVISOR_SKILLS.clear()
-        registry.ADVISOR_SKILLS.update(self.original_skills)
-        self._tmp.cleanup()
 
 
 if __name__ == "__main__":

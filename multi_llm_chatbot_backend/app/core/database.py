@@ -73,6 +73,12 @@ async def create_indexes():
         await db.database.chat_sessions.create_index("user_id")
         await db.database.chat_sessions.create_index("created_at")
         await db.database.chat_sessions.create_index([("user_id", 1), ("created_at", -1)])
+        await db.database.user_advisor_skills.create_index(
+            [("user_id", 1), ("skill_id", 1)],
+            unique=True,
+            partialFilterExpression={"is_active": True},
+        )
+        await db.database.user_advisor_skills.create_index([("user_id", 1), ("is_active", 1)])
         
         logger.info("Database indexes created successfully")
     except Exception as e:

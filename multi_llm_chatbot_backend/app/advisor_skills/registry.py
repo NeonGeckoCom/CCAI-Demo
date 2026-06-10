@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 DEFAULT_SKILL_ID = "quick_advice"
@@ -20,7 +20,7 @@ class AdvisorSkill:
     name: str
     markdown: str
     metadata: Dict[str, Any]
-    source_path: Path
+    source_path: Optional[Path] = None
 
     @property
     def description(self) -> str:
@@ -40,6 +40,25 @@ class AdvisorSkill:
             heading.strip()
             for heading in re.findall(r"^###\s+(.+?)\s*$", self.markdown, flags=re.MULTILINE)
         ]
+
+    @property
+    def heading_details(self) -> List[Dict[str, str]]:
+        """Return suggested headings with their body instructions."""
+        details: List[Dict[str, str]] = []
+        matches = list(re.finditer(r"^###\s+(.+?)\s*$", self.markdown, flags=re.MULTILINE))
+        for idx, match in enumerate(matches):
+            start = match.end()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(self.markdown)
+            instruction = re.sub(r"\s+", " ", self.markdown[start:end]).strip()
+            details.append({
+                "heading": match.group(1).strip(),
+                "instruction": instruction,
+            })
+        return details
+
+    @property
+    def how_to_work(self) -> List[str]:
+        return _section_bullets(self.markdown, "How to work")
 
     @property
     def preferred_advisors(self) -> List[str]:
@@ -191,6 +210,15 @@ def _section_text(markdown: str, heading: str) -> str:
     return re.sub(r"\s+", " ", section).strip()
 
 
+def _section_bullets(markdown: str, heading: str) -> List[str]:
+    section = _section_text(markdown, heading)
+    return [
+        item.strip()
+        for item in re.findall(r"(?:^|\s)-\s+(.+?)(?=\s+-\s+|$)", section)
+        if item.strip()
+    ]
+
+
 def _load_advisor_skills() -> Dict[str, AdvisorSkill]:
     skills: Dict[str, AdvisorSkill] = {}
     for path in sorted(SKILLS_DIR.glob("*.md")):
@@ -224,16 +252,32 @@ def get_skill_ids() -> List[str]:
     return list(ADVISOR_SKILLS.keys())
 
 
+def build_generated_advisor_skill(
+    spec: Dict[str, Any],
+    *,
+    existing_skill_ids: Optional[List[str]] = None,
+) -> AdvisorSkill:
+    """Build a validated generated skill object without writing it to disk."""
+    skill_id = _generated_skill_id(spec.get("id") or spec.get("name") or "")
+    existing_ids = set(existing_skill_ids or ADVISOR_SKILLS)
+    if skill_id in existing_ids:
+        skill_id = _unique_generated_skill_id(skill_id, existing_ids=existing_ids)
+
+    markdown = _generated_skill_markdown(spec, skill_id)
+    metadata, body = _split_frontmatter(markdown)
+    return AdvisorSkill(
+        id=skill_id,
+        name=str(metadata.get("name") or skill_id.replace("_", " ").title()),
+        markdown=body.strip(),
+        metadata=metadata,
+        source_path=None,
+    )
+
+
 def install_generated_advisor_skill(spec: Dict[str, Any]) -> AdvisorSkill:
     """Create a validated generated skill markdown file and load it."""
-    skill_id = _generated_skill_id(spec.get("id") or spec.get("name") or "")
-    existing = ADVISOR_SKILLS.get(skill_id)
-    if existing and skill_id.startswith(GENERATED_SKILL_ID_PREFIX):
-        return existing
-
-    if skill_id in ADVISOR_SKILLS:
-        skill_id = _unique_generated_skill_id(skill_id)
-
+    skill = build_generated_advisor_skill(spec)
+    skill_id = skill.id
     markdown = _generated_skill_markdown(spec, skill_id)
     path = (SKILLS_DIR / f"{skill_id}.md").resolve()
     if path.parent != SKILLS_DIR.resolve():
@@ -258,11 +302,12 @@ def _generated_skill_id(value: str) -> str:
     return base[:MAX_GENERATED_SKILL_ID_LENGTH].strip("_") or f"{GENERATED_SKILL_ID_PREFIX}skill"
 
 
-def _unique_generated_skill_id(base: str) -> str:
+def _unique_generated_skill_id(base: str, *, existing_ids: Optional[set] = None) -> str:
+    existing_ids = existing_ids or set(ADVISOR_SKILLS)
     stem = base[: MAX_GENERATED_SKILL_ID_LENGTH - 4].rstrip("_")
     for suffix in range(2, 1000):
         candidate = f"{stem}_{suffix}"
-        if candidate not in ADVISOR_SKILLS and not (SKILLS_DIR / f"{candidate}.md").exists():
+        if candidate not in existing_ids and not (SKILLS_DIR / f"{candidate}.md").exists():
             return candidate
     raise ValueError(f"Could not allocate unique generated skill id for {base!r}")
 

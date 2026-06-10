@@ -4,14 +4,15 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.advisor_skills.registry import (
     ADVISOR_SKILLS,
     DEFAULT_SKILL_ID,
+    AdvisorSkill,
     get_advisor_skill,
-    install_generated_advisor_skill,
 )
+from app.advisor_skills.user_skills import create_user_advisor_skill, get_effective_advisor_skills
 from app.llm.clients.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -28,19 +29,22 @@ class SkillClassification:
     recommended_advisors: List[str]
     requires_documents: bool
     rag_priority: str
+    skill_obj: AdvisorSkill
 
     @property
     def skill(self):
-        return get_advisor_skill(self.skill_id)
+        return self.skill_obj
 
 
 def _classification_for(
     skill_id: str,
     confidence: float,
     reason: str,
+    skills: Optional[Dict[str, AdvisorSkill]] = None,
     secondary_skill_ids: Optional[List[str]] = None,
 ) -> SkillClassification:
-    skill = get_advisor_skill(skill_id)
+    skills = skills or ADVISOR_SKILLS
+    skill = skills.get(skill_id, get_advisor_skill(DEFAULT_SKILL_ID))
     return SkillClassification(
         skill_id=skill.id,
         confidence=confidence,
@@ -49,11 +53,12 @@ def _classification_for(
         recommended_advisors=skill.preferred_advisors,
         requires_documents=skill.rag_policy.startswith("required"),
         rag_priority="high" if skill.id == "document_feedback" else "normal",
+        skill_obj=skill,
     )
 
 
-def _default_classification(reason: str) -> SkillClassification:
-    return _classification_for(DEFAULT_SKILL_ID, 0.0, reason)
+def _default_classification(reason: str, skills: Optional[Dict[str, AdvisorSkill]] = None) -> SkillClassification:
+    return _classification_for(DEFAULT_SKILL_ID, 0.0, reason, skills)
 
 
 def _log_classification_result(
@@ -84,10 +89,10 @@ def _clean_json(raw: str) -> str:
     return match.group(0) if match else cleaned
 
 
-def _known_advisor_ids() -> List[str]:
+def _known_advisor_ids(skills: Dict[str, AdvisorSkill]) -> List[str]:
     advisors = {
         advisor
-        for skill in ADVISOR_SKILLS.values()
+        for skill in skills.values()
         for advisor in skill.preferred_advisors
     }
     return sorted(advisors)
@@ -99,13 +104,15 @@ async def _generate_advisor_skill_for_other(
     *,
     has_documents: bool,
     classification_reason: str,
+    user_id: Optional[str],
+    skills: Dict[str, AdvisorSkill],
 ) -> Optional[str]:
     """Ask the LLM for a structured new skill spec, install it, and return its id."""
     existing_skills = "\n".join(
         f"- {skill.id}: {skill.description} Use when: {skill.use_when}"
-        for skill in ADVISOR_SKILLS.values()
+        for skill in skills.values()
     )
-    advisor_options = ", ".join(_known_advisor_ids()) or "pragmatist, critic, methodologist"
+    advisor_options = ", ".join(_known_advisor_ids(skills)) or "pragmatist, critic, methodologist"
 
     system_prompt = f"""
 You design reusable Markdown-backed advisor skills for a PhD advisor panel.
@@ -158,12 +165,16 @@ but narrow enough to route future similar questions reliably.
             response_mime_type="application/json",
         )
         spec = json.loads(_clean_json(raw))
-        skill = install_generated_advisor_skill(spec)
+        if user_id is None:
+            logger.warning("Generated advisor skill skipped because no user_id was available")
+            return None
+        skill = await create_user_advisor_skill(user_id, spec)
+        skills[skill.id] = skill
         logger.info(
-            "Generated and installed advisor skill: skill_id=%s, name=%s, source=%s",
+            "Generated and installed user advisor skill: user_id=%s, skill_id=%s, name=%s",
+            user_id,
             skill.id,
             skill.name,
-            skill.source_path,
         )
         return skill.id
     except Exception as exc:
@@ -177,13 +188,17 @@ async def classify_advisor_skill(
     *,
     has_documents: bool = False,
     requested_skill_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> SkillClassification:
     """Classify the user's message into an advisor skill using the LLM."""
-    if requested_skill_id in ADVISOR_SKILLS:
+    skills = await get_effective_advisor_skills(user_id)
+
+    if requested_skill_id in skills:
         classification = _classification_for(
             requested_skill_id,
             1.0,
             "The request explicitly selected this advisor skill.",
+            skills,
         )
         _log_classification_result(
             classification,
@@ -194,7 +209,8 @@ async def classify_advisor_skill(
 
     if llm_client is None:
         classification = _default_classification(
-            "No LLM classifier is available, so the request defaulted to quick advice."
+            "No LLM classifier is available, so the request defaulted to quick advice.",
+            skills,
         )
         _log_classification_result(
             classification,
@@ -205,9 +221,9 @@ async def classify_advisor_skill(
 
     skill_descriptions = "\n".join(
         f"- {skill.id}: {skill.description} Use when: {skill.use_when}"
-        for skill in ADVISOR_SKILLS.values()
+        for skill in skills.values()
     )
-    skill_id_options = ", ".join(list(ADVISOR_SKILLS.keys()) + [OTHER_SKILL_ID])
+    skill_id_options = ", ".join(list(skills.keys()) + [OTHER_SKILL_ID])
 
     system_prompt = f"""
 You are an intent classifier for a PhD advisor panel.
@@ -274,7 +290,8 @@ Respond ONLY with valid JSON:
         if skill_id == OTHER_SKILL_ID:
             if confidence < MIN_OTHER_CONFIDENCE:
                 classification = _default_classification(
-                    "The classifier selected other with low confidence, so the request defaulted to quick advice."
+                    "The classifier selected other with low confidence, so the request defaulted to quick advice.",
+                    skills,
                 )
                 _log_classification_result(
                     classification,
@@ -288,12 +305,15 @@ Respond ONLY with valid JSON:
                 user_input,
                 has_documents=has_documents,
                 classification_reason=reason,
+                user_id=user_id,
+                skills=skills,
             )
-            if generated_skill_id in ADVISOR_SKILLS:
+            if generated_skill_id in skills:
                 classification = _classification_for(
                     generated_skill_id,
                     confidence,
                     f"{reason} Generated a new advisor skill for this recurring pattern.",
+                    skills,
                 )
                 _log_classification_result(
                     classification,
@@ -303,7 +323,8 @@ Respond ONLY with valid JSON:
                 return classification
 
             classification = _default_classification(
-                "The classifier selected other, but generated skill installation failed."
+                "The classifier selected other, but generated skill installation failed.",
+                skills,
             )
             _log_classification_result(
                 classification,
@@ -312,17 +333,18 @@ Respond ONLY with valid JSON:
             )
             return classification
 
-        if skill_id not in ADVISOR_SKILLS:
+        if skill_id not in skills:
             raise ValueError(f"Unknown skill_id: {skill_id!r}")
 
         secondary = [
             sid for sid in parsed.get("secondary_skill_ids", [])
-            if sid in ADVISOR_SKILLS and sid != skill_id
+            if sid in skills and sid != skill_id
         ]
         classification = _classification_for(
             skill_id,
             confidence,
             reason,
+            skills,
             secondary,
         )
         _log_classification_result(
@@ -334,7 +356,8 @@ Respond ONLY with valid JSON:
     except Exception as exc:
         logger.warning("Advisor skill classification failed, defaulting to quick_advice: %s", exc)
         classification = _default_classification(
-            "The LLM classifier failed, so the request defaulted to quick advice."
+            "The LLM classifier failed, so the request defaulted to quick advice.",
+            skills,
         )
         _log_classification_result(
             classification,
