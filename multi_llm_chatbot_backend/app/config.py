@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, validator, Field, model_validator
 
 from app.utils.avatar_helpers import get_bundled_avatar_path
+from app.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,12 @@ class ChatPageConfig(BaseModel):
     examples: List[ExampleCategory] = []
 
 
+class OnboardingConfig(BaseModel):
+    features: List[FeatureConfig] = []
+    tour_title: str = ""
+    tour_body: str = ""
+
+
 class PersonaItemConfig(_IconValidatorMixin):
     id: str
     name: str
@@ -147,8 +154,7 @@ class PersonaItemConfig(_IconValidatorMixin):
                 self.avatar, self.id,
             )
             return f"icon://{self.icon}"
-        base = os.getenv("REACT_APP_API_URL", "http://localhost:8000").rstrip("/")
-        return f"{base}/api/avatars/bundled/{self.avatar}"
+        return f"/api/avatars/bundled/{self.avatar}"
 
     def to_frontend_config(self) -> dict:
         return {
@@ -169,6 +175,16 @@ class PersonasConfig(BaseModel):
     personas_dir: str = ""
     config_dir: str = ""
     items: List[PersonaItemConfig] = []
+    allowed_advisors: Optional[List[str]] = None
+
+    @model_validator(mode='after')
+    def _validate_allowed_advisors(self):
+        if self.allowed_advisors is not None and len(self.allowed_advisors) == 0:
+            raise ValueError(
+                "allowed_advisors must not be an empty list; "
+                "omit the setting or set to null to allow all advisors"
+            )
+        return self
 
     @model_validator(mode='after')
     def _load_personas_from_directory(self):
@@ -236,6 +252,7 @@ class MongoDBConfig(BaseModel):
 
 
 class GeminiConfig(BaseModel):
+    enabled: bool = True
     api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
     model: str = "gemini-2.5-flash"
 
@@ -255,20 +272,32 @@ class GeminiConfig(BaseModel):
 
 
 class OllamaConfig(BaseModel):
+    enabled: bool = True
     model: str = "llama3.2:1b"
     # TODO: Drop support for `OLLAMA_BASE_URL` envvar handling
     base_url: str = Field(default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
 
 
 class VllmConfig(BaseModel):
+    enabled: bool = True
     api_url: str = ""
     api_key: str = Field(default=os.getenv("VLLM_API_KEY", ""))
 
 
+class BrainForgeConfig(BaseModel):
+    api_url: str = ""
+    username: str = Field(default=os.getenv("BRAINFORGE_USERNAME", ""))
+    password: str = Field(default=os.getenv("BRAINFORGE_PASSWORD", ""))
+    sync_interval_seconds: int = 600
+
+
 class LLMConfig(BaseModel):
+    default_backend: str = ""
     gemini: GeminiConfig = GeminiConfig()
     ollama: OllamaConfig = OllamaConfig()
     vllm: VllmConfig = VllmConfig()
+    brainforge: BrainForgeConfig = BrainForgeConfig()
+    health_check_interval_seconds: int = 300
 
 
 class RAGConfig(BaseModel):
@@ -304,6 +333,7 @@ class AppSettings(BaseModel):
     homepage: HomepageConfig = HomepageConfig()
     login: LoginConfig = LoginConfig()
     chat_page: ChatPageConfig = ChatPageConfig()
+    onboarding: OnboardingConfig = OnboardingConfig()
     personas: PersonasConfig = PersonasConfig()
     orchestrator: OrchestratorConfig = OrchestratorConfig()
     auth: AuthConfig = AuthConfig()
@@ -320,14 +350,22 @@ class AppSettings(BaseModel):
     def get_frontend_config(self) -> dict:
         """Return the subset of configuration safe to expose to the frontend
         via ``GET /api/config``.  Secrets are excluded."""
+        allowed = self.personas.allowed_advisors
+        persona_items = self.personas.items
+        if allowed is not None:
+            allowed_set = set(allowed)
+            persona_items = [p for p in persona_items if p.id in allowed_set]
+
         return {
             "app": self.app.dict(),
             "homepage": self.homepage.dict(),
             "login": self.login.dict(),
             "chat_page": self.chat_page.dict(),
+            "onboarding": self.onboarding.dict(),
             "personas": {
-                "items": [p.to_frontend_config() for p in self.personas.items],
+                "items": [p.to_frontend_config() for p in persona_items],
             },
+            "version": __version__,
         }
 
 

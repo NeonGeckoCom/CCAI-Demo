@@ -7,7 +7,7 @@ import MessageBubble from '../components/MessageBubble';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import SuggestionsPanel from '../components/SuggestionsPanel';
 import ThemeToggle from '../components/ThemeToggle';
-import ProviderDropdown from '../components/ProviderDropdown';
+import SettingsModal from '../components/SettingsModal';
 import ExportButton from '../components/ExportButton';
 import Sidebar from '../components/Sidebar';
 import { useAppConfig } from '../contexts/AppConfigContext';
@@ -16,6 +16,7 @@ import '../styles/ChatPage.css';
 import '../styles/EnhancedChatInput.css';
 import AdvisorStatusDropdown from '../components/AdvisorStatusDropdown';
 import AdvisorCarousel from '../components/AdvisorCarousel';
+import OnboardingTour from '../components/OnboardingTour';
 
 const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSignOut, onUserUpdate }) => {
   const { config, advisors, getAdvisorColors } = useAppConfig();
@@ -24,8 +25,15 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [thinkingAdvisors, setThinkingAdvisors] = useState([]);
   const [collectedInfo, setCollectedInfo] = useState({});
   const [replyingTo, setReplyingTo] = useState(null);
-  const [currentProvider, setCurrentProvider] = useState('gemini');
+  const [llmConfig, setLlmConfig] = useState({
+    mode: 'uniform',
+    default_backend: null,
+    orchestrator_backend: null,
+    persona_backends: null,
+  });
+  const [availableBackends, setAvailableBackends] = useState([]);
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
   const messagesEndRef = useRef(null);
   const { isDark } = useTheme();
@@ -36,8 +44,24 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
+  // 'panel' | 'aggregated' — persisted so the choice survives reloads.
+  const [responseMode, setResponseMode] = useState(() => {
+    try { return localStorage.getItem('responseMode') === 'aggregated' ? 'aggregated' : 'panel'; }
+    catch { return 'panel'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('responseMode', responseMode); } catch { /* non-fatal */ }
+  }, [responseMode]);
 
-  
+  // Per-exchange view override: { [responseGroupId]: 'panel' | 'aggregated' }.
+  // Lets the user flip an individual exchange between the advisor panel and
+  // the single combined answer, independently of the global default.
+  const [groupViews, setGroupViews] = useState({});
+  // Group ids currently running an on-demand synthesis pass (for lag UX).
+  const [synthesizingGroups, setSynthesizingGroups] = useState({});
+  const skipAutoScrollRef = useRef(false);
+
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,20 +72,26 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   };
 
   useEffect(() => {
+    if (skipAutoScrollRef.current) {
+      skipAutoScrollRef.current = false;
+      return;
+    }
     scrollToBottom();
   }, [messages, thinkingAdvisors]);
 
   useEffect(() => {
-    fetchCurrentProvider();
-  }, []);
+    if (authToken) fetchCurrentProvider();
+  }, [authToken]);
 
   const fetchCurrentProvider = async () => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/current-provider`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/current-provider`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
       if (response.ok) {
         const data = await response.json();
-        setCurrentProvider(data.current_provider);
-        console.log('Loaded provider:', data.current_provider, 'Available:', data.available_providers);
+        if (data.llm_config) setLlmConfig(data.llm_config);
+        if (Array.isArray(data.available_backends)) setAvailableBackends(data.available_backends);
       }
     } catch (error) {
       console.error('Error fetching current provider:', error);
@@ -70,55 +100,65 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
 
   
 
-  const handleProviderSwitch = async (newProvider) => {
-    if (newProvider === currentProvider || isProviderSwitching) return;
-
+  const submitProviderConfig = async (payload, label) => {
     setIsProviderSwitching(true);
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/switch-provider`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({
-          provider: newProvider
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         const data = await response.json();
-        setCurrentProvider(newProvider);
-        
-        const switchMessage = {
+        if (data.llm_config) {
+          setLlmConfig(data.llm_config);
+        } else {
+          setLlmConfig(payload);
+        }
+
+        setMessages(prev => [...prev, {
           id: generateMessageId(),
           type: 'system',
-          content: `✨ Switched to ${newProvider.charAt(0).toUpperCase() + newProvider.slice(1)} provider. Your advisors are now ready with the new AI model.`,
+          content: `✨ Switched to ${label}. Your advisors are now ready with the new configuration.`,
           timestamp: new Date()
-        };
-        setMessages(prev => [...prev, switchMessage]);
-      } else {
-        const error = await response.json();
-        console.error('Failed to switch provider:', error);
-        const errorMessage = {
-          id: generateMessageId(),
-          type: 'error',
-          content: `Failed to switch to ${newProvider}: ${error.detail || 'Unknown error'}`,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
+        }]);
+        return true;
       }
-    } catch (error) {
-      console.error('Error switching provider:', error);
-      const errorMessage = {
+
+      const error = await response.json().catch(() => ({}));
+      console.error('Failed to switch provider:', error);
+      setMessages(prev => [...prev, {
         id: generateMessageId(),
         type: 'error',
-        content: `Error switching to ${newProvider}. Please try again.`,
+        content: `Failed to switch to ${label}: ${error.detail || 'Unknown error'}`,
         timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      }]);
+      return false;
+    } catch (error) {
+      console.error('Error switching provider:', error);
+      setMessages(prev => [...prev, {
+        id: generateMessageId(),
+        type: 'error',
+        content: `Error switching to ${label}. Please try again.`,
+        timestamp: new Date()
+      }]);
+      return false;
     } finally {
       setIsProviderSwitching(false);
     }
+  };
+
+  const handleHybridSubmit = async (hybridConfig) => {
+    const ok = await submitProviderConfig(
+      { mode: 'hybrid', ...hybridConfig },
+      'Hybrid configuration'
+    );
+    if (ok) setIsSettingsOpen(false);
+    return ok;
   };
 
   const generateMessageId = () => {
@@ -187,7 +227,8 @@ const loadChatSession = async (sessionId) => {
         const formattedMessages = result.context.messages.map(msg => ({
           ...msg,
           timestamp: new Date(msg.timestamp),
-          persona_id: msg.persona_id || msg.advisor || msg.advisorId
+          persona_id: msg.persona_id || msg.advisor || msg.advisorId,
+          responseGroupId: msg.response_group_id || null,
         }));
         
         setMessages(formattedMessages);
@@ -211,30 +252,6 @@ const loadChatSession = async (sessionId) => {
     console.error('Error loading session:', error);
   } finally {
     setIsLoadingSession(false);
-  }
-};
-
-// Save a message to the current session
-const saveMessageToSession = async (message) => {
-  if (!currentSessionId || !authToken) return;
-
-  try {
-    await fetch(`${process.env.REACT_APP_API_URL}/api/chat-sessions/${currentSessionId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        session_id: currentSessionId,
-        message: {
-          ...message,
-          timestamp: message.timestamp.toISOString()
-        }
-      })
-    });
-  } catch (error) {
-    console.error('Error saving message to session:', error);
   }
 };
 
@@ -363,12 +380,100 @@ const handleNewChat = async (sessionId = null) => {
       current_session_id: currentSessionId
     });
     
-    // Save document upload message to database if we have a current session
-    if (currentSessionId) {
-      await saveMessageToSession(documentMessage);
-    }
   };
 
+
+  // Reusable streaming call to /chat-stream. Lifted to component scope so the
+  // on-demand "generalize" action can reuse it too.
+  const streamChat = async (userInput, sessionId = null) => {
+    const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        user_input: userInput,
+        response_length: 'medium',
+        chat_session_id: sessionId || currentSessionId,
+        response_mode: responseMode,
+      }),
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response;
+  };
+
+  const handleToggleGroupView = async (responseGroupId, panelMessages, hasAggregated) => {
+    const current = groupViews[responseGroupId] || (hasAggregated ? 'aggregated' : 'panel');
+    const next = current === 'panel' ? 'aggregated' : 'panel';
+
+    if (next === 'aggregated' && !hasAggregated) {
+      const firstId = panelMessages[0]?.id;
+      const idx = messages.findIndex(m => m.id === firstId);
+      let userPrompt = '';
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i].type === 'user') { userPrompt = messages[i].content; break; }
+      }
+
+      setSynthesizingGroups(prev => ({ ...prev, [responseGroupId]: true }));
+      try {
+        const resp = await fetch(`${process.env.REACT_APP_API_URL}/request-aggregated-response`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            user_input: userPrompt,
+            panel_results: panelMessages.map(m => ({
+              persona_id: m.persona_id,
+              persona_name: m.advisorName,
+              response: m.content,
+              used_documents: m.used_documents || false,
+              document_chunks_used: m.document_chunks_used || 0,
+            })),
+            chat_session_id: currentSessionId,
+            response_group_id: responseGroupId,
+          }),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const mergedMsg = {
+            id: generateMessageId(),
+            type: 'advisor',
+            persona_id: 'aggregated',
+            content: data.response,
+            timestamp: new Date(),
+            advisorName: data.persona_name,
+            is_aggregated: true,
+            responseGroupId,
+            source_personas: data.source_personas,
+          };
+          skipAutoScrollRef.current = true;
+          setMessages(prev => {
+            const lastPanelIdx = prev.findLastIndex(
+              m => m.responseGroupId === responseGroupId && !m.is_aggregated
+            );
+            if (lastPanelIdx === -1) return [...prev, mergedMsg];
+            const updated = [...prev];
+            updated.splice(lastPanelIdx + 1, 0, mergedMsg);
+            return updated;
+          });
+          setGroupViews(prev => ({ ...prev, [responseGroupId]: 'aggregated' }));
+        } else {
+          console.error('Synthesis request failed:', resp.status);
+        }
+      } catch (err) {
+        console.error('On-demand synthesis failed:', err);
+      } finally {
+        setSynthesizingGroups(prev => { const n = { ...prev }; delete n[responseGroupId]; return n; });
+      }
+      return;
+    }
+
+    setGroupViews(prev => ({ ...prev, [responseGroupId]: next }));
+  };
 
   const handleSendMessage = async (inputMessage) => {
     if (!inputMessage.trim()) return;
@@ -406,27 +511,19 @@ const handleNewChat = async (sessionId = null) => {
     setIsLoading(true);
     setThinkingAdvisors(['system']);
 
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          user_input: inputMessage,
-          response_length: 'medium',
-          chat_session_id: currentSessionId // Include current session ID
-        }),
-      });
+    const aggregatedMode = responseMode === 'aggregated';
+    const responseGroupId = 'grp_' + generateMessageId();
+    // Always collect this exchange's advisor responses so the panel is stored
+    // even when aggregated mode is the default — the user can toggle to it.
+    const collectedAdvisorResponses = [];
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+    try {
+      const response = await streamChat(inputMessage, sessionId);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let refreshedForUserMessage = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -439,6 +536,11 @@ const handleNewChat = async (sessionId = null) => {
         for (const line of lines) {
           if (!line.trim()) continue;
           const payload = JSON.parse(line);
+
+          if (!refreshedForUserMessage) {
+            setSidebarRefreshTrigger(prev => prev + 1);
+            refreshedForUserMessage = true;
+          }
 
           const d = payload.data || {};
 
@@ -453,10 +555,15 @@ const handleNewChat = async (sessionId = null) => {
                 advisorName: d.persona_name || d.persona_id,
                 used_documents: d.used_documents || false,
                 document_chunks_used: d.document_chunks_used || 0,
+                responseGroupId,
+                is_aggregated: d.is_aggregated || false,
+                source_personas: d.source_personas || null,
               };
-              setMessages(prev => [...prev, msg]);
+              collectedAdvisorResponses.push(msg);
               setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
-              await saveMessageToSession(msg);
+              if (!aggregatedMode || msg.is_aggregated) {
+                setMessages(prev => [...prev, msg]);
+              }
               break;
             }
             case 'clarification':
@@ -471,6 +578,9 @@ const handleNewChat = async (sessionId = null) => {
             case 'progress':
               if (d.phase === 'complete') {
                 break;
+              }
+              if (d.phase === 'synthesizing') {
+                setSynthesizingGroups(prev => ({ ...prev, [responseGroupId]: true }));
               }
               if (d.persona_id != null) {
                 setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
@@ -489,6 +599,16 @@ const handleNewChat = async (sessionId = null) => {
           }
         }
       }
+
+      const hasAggregated = collectedAdvisorResponses.some(m => m.is_aggregated);
+      if (aggregatedMode) {
+        const deferred = collectedAdvisorResponses.filter(m => !m.is_aggregated);
+        if (deferred.length > 0) {
+          setMessages(prev => [...prev, ...deferred]);
+        }
+      }
+      setGroupViews(prev => ({ ...prev, [responseGroupId]: hasAggregated ? 'aggregated' : 'panel' }));
+      setSynthesizingGroups(prev => { const n = { ...prev }; delete n[responseGroupId]; return n; });
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -529,10 +649,8 @@ const handleNewChat = async (sessionId = null) => {
   };
 
   setMessages(prev => [...prev, replyMessage]);
-  
-  // Save reply message to database with explicit session ID
-  await saveMessageToSession(replyMessage, sessionId);
-  
+  setSidebarRefreshTrigger(prev => prev + 1);
+
   setIsLoading(true);
   setThinkingAdvisors([replyContext.persona_id]);
 
@@ -541,6 +659,7 @@ const handleNewChat = async (sessionId = null) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
       },
       body: JSON.stringify({
         user_input: inputMessage,
@@ -567,9 +686,6 @@ const handleNewChat = async (sessionId = null) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, replyResponseMessage]);
-      
-      // Save advisor reply to database
-      await saveMessageToSession(replyResponseMessage, sessionId);
     }
 
   } catch (error) {
@@ -581,13 +697,11 @@ const handleNewChat = async (sessionId = null) => {
       timestamp: new Date()
     };
     setMessages(prev => [...prev, errorMessage]);
-    
-    // Save error message to database
-    await saveMessageToSession(errorMessage, sessionId);
   }
 
   setIsLoading(false);
   setThinkingAdvisors([]);
+  setSidebarRefreshTrigger(prev => prev + 1);
 };
 
   const handleCopyMessage = (messageId, content) => {
@@ -613,10 +727,8 @@ const handleNewChat = async (sessionId = null) => {
       expandsMessageId: messageId
     };
     setMessages(prev => [...prev, expandMessage]);
-    
-    // Save expand request to database
-    await saveMessageToSession(expandMessage);
-    
+    setSidebarRefreshTrigger(prev => prev + 1);
+
     setIsLoading(true);
     setThinkingAdvisors([advisorId]);
 
@@ -625,10 +737,12 @@ const handleNewChat = async (sessionId = null) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           user_input: expandPrompt,
-          response_length: 'long'
+          response_length: 'long',
+          chat_session_id: currentSessionId
         }),
       });
 
@@ -650,9 +764,6 @@ const handleNewChat = async (sessionId = null) => {
           timestamp: new Date()
         };
         setMessages(prev => [...prev, expandedMessage]);
-        
-        // Save expanded response to database
-        await saveMessageToSession(expandedMessage);
       } else {
         const errorMessage = {
           id: generateMessageId(),
@@ -661,9 +772,6 @@ const handleNewChat = async (sessionId = null) => {
           timestamp: new Date()
         };
         setMessages(prev => [...prev, errorMessage]);
-        
-        // Save error message to database
-        await saveMessageToSession(errorMessage);
       }
 
     } catch (error) {
@@ -675,13 +783,11 @@ const handleNewChat = async (sessionId = null) => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
-      
-      // Save error message to database
-      await saveMessageToSession(errorMessage);
     }
 
     setIsLoading(false);
     setThinkingAdvisors([]);
+    setSidebarRefreshTrigger(prev => prev + 1);
   };
 
   const handleReplyToMessage = (message) => {
@@ -717,7 +823,21 @@ const handleNewChat = async (sessionId = null) => {
           advisorGroup.push(messages[i]);
           i++;
         }
-        groups.push({ type: 'advisor_group', messages: advisorGroup });
+        const aggregatedMessages = advisorGroup.filter(m => m.is_aggregated);
+        const panelMessages = advisorGroup.filter(m => !m.is_aggregated);
+        // Prefer the shared responseGroupId from non-aggregated messages;
+        // aggregated messages appended to the DB can land after a later
+        // exchange's advisors, so they must not pollute that group's key.
+        const responseGroupId =
+          advisorGroup.find(m => m.responseGroupId && !m.is_aggregated)?.responseGroupId ||
+          `legacy_${advisorGroup.map(m => m.id).join('_')}`;
+        groups.push({
+          type: 'advisor_group',
+          responseGroupId,
+          messages: advisorGroup,
+          panelMessages,
+          aggregatedMessages,
+        });
       } else {
         groups.push({ type: 'single', message: messages[i] });
         i++;
@@ -752,6 +872,7 @@ const handleNewChat = async (sessionId = null) => {
   const chatPlaceholder = config?.chat_page?.placeholder || "Ask your advisors anything...";
 
   return (
+    <OnboardingTour>
     <div className="chat-page-with-sidebar">
       {/* Sidebar Component */}
       <Sidebar
@@ -768,6 +889,7 @@ const handleNewChat = async (sessionId = null) => {
         onMobileToggle={setIsMobileMenuOpen}
         onNavigateToCanvas={onNavigateToCanvas}
         refreshTrigger={sidebarRefreshTrigger}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
       
       <div className={`main-chat-area ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -796,7 +918,7 @@ const handleNewChat = async (sessionId = null) => {
             </div>
             
             <div className="header-right">
-              <AdvisorStatusDropdown 
+              <AdvisorStatusDropdown
                 advisors={advisors}
                 thinkingAdvisors={thinkingAdvisors}
                 getAdvisorColors={getAdvisorColors}
@@ -804,25 +926,11 @@ const handleNewChat = async (sessionId = null) => {
               />
               
               <div className="header-controls">
-                {/* Add session title display */}
-                {currentSessionTitle && (
-                  <div className="session-title-display">
-                    <span>{currentSessionTitle}</span>
-                  </div>
-                )}
-                
                 {/* Export Button */}
                 <ExportButton
                   hasMessages={hasConversationMessages}
                   currentSessionId={currentSessionId}
                   authToken={authToken}
-                />
-
-                {/* Provider Dropdown */}
-                <ProviderDropdown
-                  currentProvider={currentProvider}
-                  onProviderChange={handleProviderSwitch}
-                  isLoading={isProviderSwitching}
                 />
 
                 {/* Theme Toggle */}
@@ -860,15 +968,69 @@ const handleNewChat = async (sessionId = null) => {
                 <div className="messages-list">
                   <div className="messages-scroll">
                     {messageGroups.map((group) => (
-                      group.type === 'advisor_group' ? (
-                        <AdvisorCarousel
-                          key={group.messages.map(m => m.id).join('-')}
-                          messages={group.messages}
-                          onReply={handleReplyToMessage}
-                          onExpand={handleExpandMessage}
-                          onClick={handleMessageClick}
-                        />
-                      ) : (
+                      group.type === 'advisor_group' ? (() => {
+                        const hasAggregated = group.aggregatedMessages.length > 0;
+                        const view = groupViews[group.responseGroupId] || (hasAggregated ? 'aggregated' : 'panel');
+                        const isSynth = !!synthesizingGroups[group.responseGroupId];
+                        const showAggregated = view === 'aggregated' && hasAggregated;
+                        const shown = showAggregated ? group.aggregatedMessages : group.panelMessages;
+                        const isLegacy = group.responseGroupId.startsWith('legacy_');
+                        const showToggle = !isLegacy && (group.panelMessages.length > 1 || hasAggregated || isSynth);
+                        const switchTo = (target) => {
+                          if ((target === 'aggregated') !== showAggregated) {
+                            handleToggleGroupView(group.responseGroupId, group.panelMessages, hasAggregated);
+                          }
+                        };
+                        const segBtn = (active) => ({
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          fontSize: 12.5, padding: '5px 10px', border: 'none',
+                          borderRadius: 6, cursor: isSynth ? 'default' : 'pointer',
+                          fontFamily: 'inherit',
+                          background: active ? 'var(--accent-primary, #6366f1)' : 'transparent',
+                          color: active ? '#fff' : 'var(--text-secondary)',
+                        });
+                        return (
+                          <div key={group.responseGroupId} className="response-group">
+                            {showToggle && (
+                              <div
+                                role="group"
+                                aria-label="Response view"
+                                style={{
+                                  display: 'inline-flex', gap: 2, marginBottom: 8,
+                                  background: 'var(--bg-secondary, rgba(0,0,0,0.04))',
+                                  border: '1px solid var(--border-primary)',
+                                  borderRadius: 8, padding: 2,
+                                }}
+                              >
+                                <button type="button" style={segBtn(!showAggregated)} disabled={isSynth} onClick={() => switchTo('panel')}>
+                                  <Users size={13} /> Panel
+                                </button>
+                                <button type="button" style={segBtn(showAggregated)} disabled={isSynth} onClick={() => switchTo('aggregated')}>
+                                  <Sparkles size={13} /> Aggregated
+                                </button>
+                              </div>
+                            )}
+                            {isSynth && (
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                color: 'var(--text-secondary)', fontSize: 13, padding: '8px 4px',
+                              }}>
+                                <Sparkles size={16} />
+                                <span>Combining advisor responses into one answer…</span>
+                              </div>
+                            )}
+                            {shown.length > 0 && (
+                              <AdvisorCarousel
+                                key={shown.map(m => m.id).join('-')}
+                                messages={shown}
+                                onReply={handleReplyToMessage}
+                                onExpand={handleExpandMessage}
+                                onClick={handleMessageClick}
+                              />
+                            )}
+                          </div>
+                        );
+                      })() : (
                       <div key={group.message.id}>
                         {group.message.type === 'user' && (
                           <div className="user-message-container">
@@ -981,15 +1143,17 @@ const handleNewChat = async (sessionId = null) => {
               </div>
             )}
             
-            <EnhancedChatInput 
+            <EnhancedChatInput
               onSendMessage={handleInputSubmit}
               onFileUploaded={handleFileUploaded}
               uploadedDocuments={uploadedDocuments}
               isLoading={isLoading}
               currentChatSessionId={currentSessionId}
               authToken={authToken}
+              responseMode={responseMode}
+              onResponseModeChange={setResponseMode}
               placeholder={
-                replyingTo 
+                replyingTo
                   ? `Reply to ${replyingTo.advisorName}...`
                   : chatPlaceholder
               }
@@ -997,7 +1161,23 @@ const handleNewChat = async (sessionId = null) => {
           </div>
         </div>
       </div>
+
+      {isSettingsOpen && (
+        <SettingsModal
+          user={user}
+          authToken={authToken}
+          onUserUpdate={onUserUpdate}
+          onSignOut={onSignOut}
+          advisors={advisors}
+          availableBackends={availableBackends}
+          llmConfig={llmConfig}
+          isSaving={isProviderSwitching}
+          onSubmitConfig={handleHybridSubmit}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </div>
+    </OnboardingTour>
   );
 };
 

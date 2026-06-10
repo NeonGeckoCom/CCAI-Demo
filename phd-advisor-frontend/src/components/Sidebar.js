@@ -32,10 +32,12 @@ const Sidebar = ({
   onMobileToggle,
   onNavigateToCanvas,
   refreshTrigger,
-  onCurrentSessionDeleted
+  onCurrentSessionDeleted,
+  onOpenSettings,
 }) => {
   const { config } = useAppConfig();
   const canvasLabel = config?.app?.title ? `${config.app.title} Canvas` : 'Canvas';
+  const appVersion = config?.version;
   const [chatSessions, setChatSessions] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -244,7 +246,10 @@ const Sidebar = ({
                       <div className="user-menu">
                         <button
                           className="user-menu-item"
-                          onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            onOpenSettings?.();
+                          }}
                         >
                           <Settings size={16} />
                           <span>Settings</span>
@@ -398,6 +403,14 @@ const Sidebar = ({
           )}
         </div>
 
+        {appVersion && (
+          <div
+            className="sidebar-version"
+            title={`Version ${appVersion}`}
+          >
+            {isCollapsed ? `v${appVersion}` : `Version ${appVersion}`}
+          </div>
+        )}
         {/* Footer */}
         <div className={`sidebar-footer ${isCollapsed ? 'collapsed' : ''}`}>
           <a 

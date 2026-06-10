@@ -16,6 +16,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-CHANGEME-by-overriding-in-dot-env-file}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-?}
       VLLM_API_KEY: ${VLLM_API_KEY:-}
+      BRAINFORGE_USERNAME: ${BRAINFORGE_USERNAME:-}
+      BRAINFORGE_PASSWORD: ${BRAINFORGE_PASSWORD:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       GEMINI_MODEL: gemini-2.5-flash
       CONFIG_PATH: ${CONFIG_PATH:-/ccai/phd_config.yaml}
@@ -32,6 +34,7 @@ services:
       - backend
     environment:
       REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
+      REACT_APP_TESTING_ONBOARDING: ${REACT_APP_TESTING_ONBOARDING:-false}
   database:
     image: mongo:8.0
     volumes:

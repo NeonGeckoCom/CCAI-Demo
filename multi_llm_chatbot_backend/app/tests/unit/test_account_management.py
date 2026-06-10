@@ -1,33 +1,15 @@
 import asyncio
-import sys
 import unittest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import HTTPException
 from pydantic import ValidationError
 
-# app.api.routes.__init__ eagerly imports and wires routers from every
-# sibling route module, several of which spin up the LLM stack, NLTK
-# downloads, and ChromaDB at import time. Stub those heavy modules with
-# harmless substitutes so the package imports cleanly and auth.py can
-# be loaded via normal import machinery.
-for _name in ("app.core.bootstrap", "app.core.rag_manager"):
-    sys.modules.setdefault(_name, MagicMock())
-
-_stub_router_module = MagicMock(router=APIRouter())
-for _name in (
-    "app.api.routes.chat",
-    "app.api.routes.documents",
-    "app.api.routes.sessions",
-    "app.api.routes.provider",
-    "app.api.routes.debug",
-    "app.api.routes.root",
-    "app.api.routes.phd_canvas",
-):
-    sys.modules.setdefault(_name, _stub_router_module)
-
+# Heavy modules pulled in transitively by ``app.api.routes.auth`` are
+# stubbed once for the whole test session in ``conftest.py``; the import
+# below relies on those stubs already being in place.
 from app.api.routes.auth import (  # noqa: E402
     ChangePasswordRequest,
     DeleteAccountRequest,
@@ -37,6 +19,7 @@ from app.api.routes.auth import (  # noqa: E402
     update_profile,
 )
 from app.models.user import User  # noqa: E402
+
 
 FAKE_USER_ID = ObjectId()
 

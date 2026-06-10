@@ -86,6 +86,21 @@ chat_page:
         - "How do I balance self-care with a heavy course load?"
         - "What campus resources exist for mental health, tutoring, or financial aid?"
 
+onboarding:
+  features:
+    - title: "Get advice from specialized AI advisors"
+      icon: "GraduationCap"
+    - title: "Save and revisit every conversation"
+      icon: "MessageCircle"
+    - title: "Upload course syllabi and documents for context-aware answers"
+      icon: "Paperclip"
+    - title: "Track your progress on a structured canvas"
+      icon: "BarChart3"
+
+canvas:
+  tour_title: "Academic Progress Canvas"
+  tour_body: "A dashboard view of your college journey -- courses, milestones, next steps, all in one place."
+
 # -- Personas ----------------------------------------------------------------
 
 personas:

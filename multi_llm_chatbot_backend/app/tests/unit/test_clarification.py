@@ -28,10 +28,10 @@ def _make_mock_settings():
     return settings
 
 
-def _make_orchestrator(persona_llm=None):
+def _make_orchestrator(persona_llm=None, orchestrator_llm=None):
     """Build an orchestrator with mocked dependencies, bypassing __init__."""
     orch = ImprovedChatOrchestrator.__new__(ImprovedChatOrchestrator)
-    orch.llm_client = None
+    orch.llm_client = orchestrator_llm
     orch.session_manager = MagicMock()
     orch.context_manager = MagicMock()
 
@@ -61,7 +61,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
         mock_settings.return_value = _make_mock_settings()
         llm = MagicMock()
         llm.generate = AsyncMock()
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=3)
 
         result = self._run(
@@ -78,7 +78,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "Clear.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         self._run(orch.needs_clarification_improved(session, "explain transformers"))
@@ -96,7 +96,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "The user asked about a specific topic.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         result = self._run(
@@ -116,7 +116,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": True,
             "reason": "Single generic word with no topic.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         result = self._run(
@@ -137,7 +137,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": "false",
             "reason": "Should have been a boolean.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         orch.needs_clarification = MagicMock(return_value=False)
         session = _make_session(user_message_count=1)
 
@@ -155,7 +155,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": "true",
             "reason": "Should have been a boolean.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         orch.needs_clarification = MagicMock(return_value=True)
         session = _make_session(user_message_count=1)
 
@@ -173,7 +173,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
         llm.generate = AsyncMock(return_value=json.dumps({
             "reason": "Forgot the main field.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         orch.needs_clarification = MagicMock(return_value=True)
         session = _make_session(user_message_count=1)
 
@@ -192,7 +192,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
         mock_settings.return_value = _make_mock_settings()
         llm = MagicMock()
         llm.generate = AsyncMock(return_value="this is not json at all")
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         orch.needs_clarification = MagicMock(return_value=False)
         session = _make_session(user_message_count=1)
 
@@ -211,7 +211,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
         mock_settings.return_value = _make_mock_settings()
         llm = MagicMock()
         llm.generate = AsyncMock(side_effect=RuntimeError("connection refused"))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         orch.needs_clarification = MagicMock(return_value=True)
         session = _make_session(user_message_count=1)
 
@@ -250,7 +250,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "Clear.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         self._run(
@@ -269,7 +269,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "Clear.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         self._run(
@@ -287,7 +287,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "Clear.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         self._run(
@@ -306,7 +306,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "Clear.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         self._run(
@@ -323,7 +323,7 @@ class TestNeedsClarificationImproved(unittest.TestCase):
             "needs_clarification": False,
             "reason": "Clear.",
         }))
-        orch = _make_orchestrator(persona_llm=llm)
+        orch = _make_orchestrator(persona_llm=llm, orchestrator_llm=llm)
         session = _make_session(user_message_count=1)
 
         self._run(

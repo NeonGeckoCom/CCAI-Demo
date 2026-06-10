@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any
-from app.models.persona import Persona
+from app.models.persona import Persona, COMPACT_MARKDOWN_V1, STRUCTURE_HINTS, _ensure_compact_shape
 from app.core.session_manager import ConversationContext, get_session_manager
 from app.core.context_manager import get_context_manager
 from app.core.rag_manager import get_rag_manager
@@ -25,10 +25,18 @@ class ImprovedChatOrchestrator:
         self.context_manager = get_context_manager()
     
     def register_persona(self, persona: Persona):
-        """Register a persona with the orchestrator"""
+        """Register or update a persona in the orchestrator."""
+        is_new = persona.id not in self.personas
         self.personas[persona.id] = persona
-        logger.info(f"Registered persona: {persona.id} ({persona.name})")
+        if is_new:
+            logger.info(f"Registered persona: {persona.id} ({persona.name})")
     
+    def unregister_persona(self, persona_id: str):
+        """Remove a persona from the orchestrator."""
+        removed = self.personas.pop(persona_id, None)
+        if removed:
+            logger.info(f"Unregistered persona: {persona_id} ({removed.name})")
+
     def get_persona(self, persona_id: str) -> Optional[Persona]:
         """Get a specific persona"""
         return self.personas.get(persona_id)
@@ -37,7 +45,8 @@ class ImprovedChatOrchestrator:
         """List all available persona IDs"""
         return list(self.personas.keys())
 
-    async def get_tool_response(self, user_message: str) -> ToolCallResult:
+    async def get_tool_response(self, user_message: str,
+                               llm_client: LLMClient = None) -> ToolCallResult:
         """Check whether a tool can handle *user_message*.
 
         If tools are disabled in config, no LLM client is available, or the
@@ -45,7 +54,8 @@ class ImprovedChatOrchestrator:
         ``ToolCallResult(used_tool=False)``.  Otherwise executes the tool and
         returns the grounded response with ``used_tool=True``.
         """
-        if self.llm_client is None:
+        effective_llm = llm_client or self.llm_client
+        if effective_llm is None:
             return ToolCallResult(text="", used_tool=False)
 
         settings = get_settings()
@@ -72,7 +82,7 @@ class ImprovedChatOrchestrator:
             "to present structured data like course listings or professor ratings."
         )
 
-        return await self.llm_client.generate_with_tools(
+        return await effective_llm.generate_with_tools(
             system_prompt=system_prompt,
             user_message=user_message,
             tool_definitions=tool_definitions,
@@ -282,7 +292,9 @@ class ImprovedChatOrchestrator:
         raw = None
 
         try:
-            llm = next(iter(self.personas.values())).llm
+            # Use the orchestrator's own LLM rather than a persona's — BrainForge
+            # persona LLMs may not support the prompt format used here.
+            llm = self.llm_client
             raw = await llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
@@ -315,7 +327,8 @@ class ImprovedChatOrchestrator:
         logger.warning("Falling back to rule-based clarification check")
         return self.needs_clarification(session, user_input)
 
-    async def generate_contextual_clarification(self, user_input: str) -> Dict[str, Any]:
+    async def generate_contextual_clarification(self, user_input: str,
+                                               llm_client: LLMClient = None) -> Dict[str, Any]:
         """
         Use the LLM to produce a clarification question and clickable
         suggestions that are tailored to what the user actually typed.
@@ -345,8 +358,8 @@ class ImprovedChatOrchestrator:
         )
 
         try:
-            llm = next(iter(self.personas.values())).llm
-            raw = await llm.generate(
+            effective_llm = llm_client or self.llm_client
+            raw = await effective_llm.generate(
                 system_prompt=system_prompt,
                 context=[{"role": "user", "content": user_prompt}],
                 temperature=0.4,
@@ -379,9 +392,14 @@ class ImprovedChatOrchestrator:
             "suggestions": fallback_suggestions,
         }
     
-    async def generate_persona_responses(self, session: ConversationContext, response_length: str = "medium"):
+    async def generate_persona_responses(self, session: ConversationContext,
+                                        response_length: str = "medium",
+                                        llm_clients: Dict[str, LLMClient] = None):
         """
-        Generate responses from all personas with enhanced RAG integration
+        Generate responses from all personas with enhanced RAG integration.
+
+        *llm_clients* maps persona IDs to the LLM client each should use.
+        Personas not present in the dict fall back to their default client.
         """
         responses = []
         
@@ -389,7 +407,10 @@ class ImprovedChatOrchestrator:
             logger.info(f"Generating response for {persona_id} with enhanced RAG")
             
             # Generate persona response with enhanced RAG
-            response_data = await self.generate_single_persona_response(session, persona, response_length)
+            persona_llm = (llm_clients or {}).get(persona_id)
+            response_data = await self.generate_single_persona_response(
+                session, persona, response_length, llm_client=persona_llm,
+            )
             
             # Add persona response to session context
             session.append_message(persona_id, response_data["response"])
@@ -398,9 +419,14 @@ class ImprovedChatOrchestrator:
         
         return responses
     
-    async def generate_single_persona_response(self, session, persona, response_length: str = "medium"):
+    async def generate_single_persona_response(self, session, persona,
+                                               response_length: str = "medium",
+                                               llm_client: LLMClient = None):
         """
-        Enhanced version - Generate response from a single persona with enhanced RAG integration
+        Enhanced version - Generate response from a single persona with enhanced RAG integration.
+
+        *llm_client* is forwarded to ``persona.respond()``; when ``None`` the
+        persona uses its default (system-default) client.
         """
         try:
             # Get the user's latest message for document retrieval
@@ -429,7 +455,7 @@ class ImprovedChatOrchestrator:
             )
             
             # Generate response with enhanced context
-            response = await persona.respond(enhanced_context, response_length)
+            response = await persona.respond(enhanced_context, response_length, llm=llm_client)
             
             # Validate and improve response quality
             if not self._is_valid_response(response, persona.id):
@@ -461,6 +487,87 @@ class ImprovedChatOrchestrator:
                 "response_length": response_length,
                 "context_quality": "error"
             }
+
+    async def synthesize_aggregated_response(
+        self,
+        user_input: str,
+        panel_results: List[Dict[str, Any]],
+        llm_client: LLMClient = None,
+        response_length: str = "medium",
+    ) -> Optional[Dict[str, Any]]:
+        """Merge multiple panel advisor responses into a single unified answer.
+
+        Uses the orchestrator LLM (not a persona) to synthesize the strongest
+        points from each advisor into one cohesive response addressed to the
+        user.  Returns ``None`` when synthesis produces nothing usable so the
+        caller can fall back to the panel responses.
+        """
+        if not panel_results:
+            return None
+
+        token_limits = {"short": 800, "medium": 1500, "long": 2400}
+        max_tokens = token_limits.get(response_length, 700)
+
+        perspectives = "\n\n".join(
+            f"### {r['persona_name']} ({r['persona_id']})\n{r['response']}"
+            for r in panel_results
+        )
+
+        structure_hint = STRUCTURE_HINTS.get(response_length, STRUCTURE_HINTS["medium"])
+
+        system_prompt = (
+            "You are a synthesis assistant. You will receive multiple expert "
+            "advisor perspectives on a user's question. Your job is to merge "
+            "them into a single, cohesive answer that integrates the strongest "
+            "points from each.\n\n"
+            "Guidelines:\n"
+            "- Produce ONE unified answer addressed directly to the user.\n"
+            "- Do NOT list or label the individual perspectives.\n"
+            "- Resolve contradictions by noting the trade-off briefly.\n"
+            "- Keep the tone warm, clear, and actionable.\n\n"
+            f"{COMPACT_MARKDOWN_V1}\n\n"
+            f"{structure_hint}"
+        )
+
+        user_prompt = (
+            f"The user asked:\n\"{user_input}\"\n\n"
+            f"The following {len(panel_results)} advisors responded:\n\n"
+            f"{perspectives}\n\n"
+            "Synthesize these into a single best-answer response."
+        )
+
+        try:
+            effective_llm = llm_client or self.llm_client
+            raw = await effective_llm.generate(
+                system_prompt=system_prompt,
+                context=[{"role": "user", "content": user_prompt}],
+                temperature=0.4,
+                max_tokens=max_tokens,
+            )
+
+            stripped = raw.strip() if raw else ""
+            if not stripped:
+                logger.warning("Synthesis LLM returned empty response")
+                return None
+            content = _ensure_compact_shape(stripped, response_length)
+
+            return {
+                "persona_id": "aggregated",
+                "persona_name": "Orchestrator",
+                "response": content,
+                "is_aggregated": True,
+                "source_personas": [r["persona_id"] for r in panel_results],
+                "used_documents": any(r.get("used_documents") for r in panel_results),
+                "document_chunks_used": sum(
+                    r.get("document_chunks_used", 0) for r in panel_results
+                ),
+                "response_length": response_length,
+                "context_quality": "synthesized",
+            }
+
+        except Exception as e:
+            logger.error(f"Aggregated synthesis failed: {e}")
+            return None
 
     async def _retrieve_relevant_documents(self, user_input: str, session_id: str, persona_id: str = "") -> str:
         """
@@ -801,9 +908,13 @@ When analyzing the document context:
         """
         return self._get_enhanced_persona_context_keywords(persona_id)
     
-    async def chat_with_persona(self, user_input: str, persona_id: str, session_id: str, response_length: str = "medium") -> Dict[str, Any]:
+    async def chat_with_persona(self, user_input: str, persona_id: str,
+                               session_id: str, response_length: str = "medium",
+                               llm_client: LLMClient = None) -> Dict[str, Any]:
         """
-        Chat with a specific persona directly - FIXED for consistent document access
+        Chat with a specific persona directly - FIXED for consistent document access.
+
+        *llm_client* is forwarded to the persona's response generation.
         """
         try:
             persona = self.get_persona(persona_id)
@@ -826,7 +937,9 @@ When analyzing the document context:
             logger.info(f"Generating response for {persona_id} with session {session_id}")
             
             # Generate response from single persona using consistent session ID
-            response_data = await self.generate_single_persona_response(session, persona, response_length)
+            response_data = await self.generate_single_persona_response(
+                session, persona, response_length, llm_client=llm_client,
+            )
             
             # Add response to session
             session.append_message(persona_id, response_data["response"])
@@ -871,20 +984,27 @@ When analyzing the document context:
             }
         
 
-    async def get_top_personas(self, session_id: str, k: int = 3) -> List[str]:
+    async def get_top_personas(self, session_id: str, k: int = 3,
+                              allowed_ids: Optional[List[str]] = None,
+                              llm_client: LLMClient = None) -> List[str]:
         """
         Use the LLM to rank personas based on current session context.
         Falls back to default persona order if LLM fails or returns invalid data.
+
+        When *allowed_ids* is provided, only those personas are considered
+        (for system-level and user-level filtering).
         """
+        pool_ids = allowed_ids if allowed_ids is not None else list(self.personas.keys())
+        pool = {pid: self.personas[pid] for pid in pool_ids if pid in self.personas}
+
         try:
             session = self.session_manager.get_session(session_id)
 
-            if not self.personas:
-                logger.warning("No personas registered.")
+            if not pool:
+                logger.warning("No personas available after filtering.")
                 return []
 
-            # Use the LLM from one of the existing persona objects
-            llm = next(iter(self.personas.values())).llm
+            effective_llm = llm_client or self.llm_client
 
             # Use recent conversation context (last 5 messages)
             recent_context = "\n".join(
@@ -894,11 +1014,11 @@ When analyzing the document context:
             # Format available persona descriptions
             persona_descriptions = "\n".join([
                 f"- ID: {p.id}\n  Name: {p.name}\n  Prompt: {p.system_prompt.strip()}"
-                for p in self.personas.values()
+                for p in pool.values()
             ])
 
             # Ensure k does not exceed the number of available personas
-            k = min(k, len(self.personas))
+            k = min(k, len(pool))
 
             app_title = get_settings().app.title
 
@@ -915,7 +1035,7 @@ When analyzing the document context:
                         {persona_descriptions}
                       """.strip()
 
-            llm_response = await llm.generate(
+            llm_response = await effective_llm.generate(
                 system_prompt=f"You are an assistant that selects the best advisors for a user of {app_title}.",
                 context=[{"role": "user", "content": prompt}],
                 temperature=0.4,
@@ -935,15 +1055,15 @@ When analyzing the document context:
             if isinstance(top_ids, dict):
                 top_ids = next(iter(top_ids.values()), [])
 
-            # Step 3: Filter valid persona IDs
-            valid_ids = [pid for pid in top_ids if pid in self.personas]
+            # Step 3: Filter valid persona IDs against the allowed pool
+            valid_ids = [pid for pid in top_ids if pid in pool]
 
             if len(valid_ids) < k:
                 logger.warning(f"LLM returned insufficient or invalid IDs. Got: {valid_ids}")
-                return list(self.personas.keys())[:k]
+                return list(pool.keys())[:k]
 
             return valid_ids[:k]
 
         except Exception as e:
             logger.error(f"Error selecting top personas: {e}")
-            return list(self.personas.keys())[:k]
+            return list(pool.keys())[:k]

@@ -1,7 +1,37 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import * as LucideIcons from 'lucide-react';
 
 const AppConfigContext = createContext(null);
+
+const SYNTHETIC_PERSONAS = {
+  aggregated: {
+    name: 'Orchestrator',
+    role: 'Synthesized Response',
+    description: 'A single combined response merging all advisor perspectives.',
+    color: '#7C3AED',
+    bgColor: '#F3E8FF',
+    darkColor: '#A78BFA',
+    darkBgColor: '#3B2A5E',
+    icon: LucideIcons.User,
+  },
+};
+
+const ADVISOR_PREFS_URL = `${process.env.REACT_APP_API_URL}/api/me/advisor-preferences`;
+
+// The frontend tracks disabled advisors as an object keyed by id
+// ({ critic: true }) for fast lookups; the backend speaks a flat string[].
+// These two helpers translate between the shapes. A null/undefined array
+// from the backend means "no preferences set" → nothing disabled.
+const disabledObjToArray = (obj) =>
+  Object.keys(obj || {}).filter((id) => obj[id]);
+const disabledArrayToObj = (arr) =>
+  Array.isArray(arr)
+    ? arr.reduce((acc, id) => { acc[id] = true; return acc; }, {})
+    : {};
+
+const getAuthToken = () => {
+  try { return localStorage.getItem('authToken'); } catch { return null; }
+};
 
 /**
  * Resolve a Lucide icon name string (e.g. "BookOpen") to the actual React
@@ -44,6 +74,8 @@ const buildAdvisors = (personaItems, overrides = {}) => {
       darkBgColor: p.dark_bg_color || '#374151',
       icon: resolveIcon(isIcon ? image.replace('icon://', '') : null),
       avatarUrl,
+      defaultBackend: p.default_backend || null,
+      backendLocked: Boolean(p.brainforge || p.backend_locked),
     };
   }
   return advisors;
@@ -89,6 +121,14 @@ export const AppConfigProvider = ({ children }) => {
     try { return JSON.parse(localStorage.getItem('myCustomAvatars') || '[]'); }
     catch { return []; }
   });
+  // Per-user enable/disable for each advisor. Missing key = enabled by default
+  // so new advisors light up automatically when added on the backend.
+  const [disabledAdvisors, setDisabledAdvisors] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('disabledAdvisors') || '{}'); }
+    catch { return {}; }
+  });
+  // Advisor ids the backend considers selectable (system-level allow list).
+  const [availableAdvisors, setAvailableAdvisors] = useState([]);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -109,7 +149,8 @@ export const AppConfigProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    setAdvisors(buildAdvisors(personaItems, avatarOverrides));
+    const built = buildAdvisors(personaItems, avatarOverrides);
+    setAdvisors(built);
   }, [personaItems, avatarOverrides]);
 
   const setAdvisorAvatar = (advisorId, url) => {
@@ -124,6 +165,97 @@ export const AppConfigProvider = ({ children }) => {
     setMyCustomAvatars(next);
     localStorage.setItem('myCustomAvatars', JSON.stringify(next));
   };
+
+  // Advisor enable/disable. Disabled advisors are filtered out of orchestrator
+  // calls (server-side, per user) and visually dimmed in the UI.
+  const isAdvisorEnabled = (id) => !disabledAdvisors[id];
+
+  // Apply a disabled map locally + cache it. localStorage keeps the last known
+  // state so the UI is correct instantly on reload before the backend answers.
+  const applyDisabled = (obj) => {
+    setDisabledAdvisors(obj);
+    try { localStorage.setItem('disabledAdvisors', JSON.stringify(obj)); }
+    catch { /* storage full / unavailable — non-fatal */ }
+  };
+
+  // Reconcile local state with whatever the backend returns (it is the source
+  // of truth; it also distinguishes "no prefs / null" from an explicit list).
+  const applyServerResponse = (data) => {
+    applyDisabled(disabledArrayToObj(data?.disabled_advisors));
+    if (Array.isArray(data?.available_advisors)) {
+      setAvailableAdvisors(data.available_advisors);
+    }
+  };
+
+  // Pull the authenticated user's preferences from the backend.
+  const hydrateAdvisorPreferences = async () => {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+      const res = await fetch(ADVISOR_PREFS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        console.error('Failed to load advisor preferences:', res.status);
+        return;
+      }
+      applyServerResponse(await res.json());
+    } catch (err) {
+      // Offline / network error — keep the cached localStorage state.
+      console.error('Failed to load advisor preferences:', err);
+    }
+  };
+
+  // Persist the full disabled set to the backend. We send the whole array
+  // (not a delta) so the PUT is idempotent and the server stays authoritative.
+  const persistAdvisorPreferences = async (obj) => {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+      const res = await fetch(ADVISOR_PREFS_URL, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ disabled_advisors: disabledObjToArray(obj) }),
+      });
+      if (!res.ok) {
+        console.error('Failed to save advisor preferences:', res.status);
+        return;
+      }
+      applyServerResponse(await res.json());
+    } catch (err) {
+      // Optimistic local state is already applied; surface the failure only.
+      console.error('Failed to save advisor preferences:', err);
+    }
+  };
+
+  const setAdvisorEnabled = (id, enabled) => {
+    const next = { ...disabledAdvisors };
+    if (enabled) delete next[id];
+    else next[id] = true;
+    applyDisabled(next);            // optimistic
+    persistAdvisorPreferences(next); // sync (reconciles on response)
+  };
+
+  // Bulk enable/disable in one shot — a single state update and one PUT,
+  // instead of N racing requests when toggling every advisor.
+  const setAllAdvisorsEnabled = (enabled) => {
+    const next = enabled
+      ? {}
+      : Object.keys(advisors || {}).reduce(
+          (acc, id) => { acc[id] = true; return acc; }, {});
+    applyDisabled(next);
+    persistAdvisorPreferences(next);
+  };
+
+  // Load preferences once on mount when a session token is already present
+  // (returning user). Fresh logins reconcile when the Settings modal opens.
+  useEffect(() => {
+    hydrateAdvisorPreferences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Inject the primary colour as a CSS custom property on <html> so it is
   // available everywhere without prop-drilling.
@@ -141,8 +273,8 @@ export const AppConfigProvider = ({ children }) => {
   }, [config]);
 
   const getAdvisorColors = buildGetAdvisorColors(advisors);
-  const allPersonas = advisors;
-  const getAllPersonaColors = getAdvisorColors;
+  const allPersonas = useMemo(() => ({ ...advisors, ...SYNTHETIC_PERSONAS }), [advisors]);
+  const getAllPersonaColors = buildGetAdvisorColors(allPersonas);
 
   const value = {
     config,
@@ -156,6 +288,12 @@ export const AppConfigProvider = ({ children }) => {
     setAdvisorAvatar,
     addMyAvatar,
     myCustomAvatars,
+    disabledAdvisors,
+    availableAdvisors,
+    isAdvisorEnabled,
+    setAdvisorEnabled,
+    setAllAdvisorsEnabled,
+    hydrateAdvisorPreferences,
   };
 
   if (loading) {

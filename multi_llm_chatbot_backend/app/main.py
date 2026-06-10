@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 
@@ -10,18 +11,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
+import asyncio
+
 # Load configuration FIRST so every module can use it
 from app.config import load_settings
+from app.version import __version__
 settings = load_settings()
 
 # Import the new database functions
 from app.core.database import connect_to_mongo, close_mongo_connection
+from app.core.bootstrap import _backend_health_loop
 
 # Import all route modules
 from app.api.routes import router as main_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
 from app.api.routes.phd_canvas import router as phd_canvas_router
+from app.api.routes.preferences import router as preferences_router
 
 import logging
 
@@ -34,13 +40,20 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
+    from app.core.bootstrap import chat_orchestrator
+    from app.core.brainforge_sync import async_sync_brainforge_personas, periodic_sync_loop
+    await async_sync_brainforge_personas(chat_orchestrator)
+    sync_task = asyncio.create_task(periodic_sync_loop(chat_orchestrator))
+    health_task = asyncio.create_task(_backend_health_loop())
     yield
     # Shutdown
+    sync_task.cancel()
+    health_task.cancel()
     await close_mongo_connection()
 
 app = FastAPI(
     title=f"{settings.app.title} Backend",
-    version="2.0.0",
+    version=__version__,
     lifespan=lifespan
 )
 
@@ -60,6 +73,7 @@ app.include_router(main_router)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
+app.include_router(preferences_router, prefix="/api", tags=["preferences"])
 
 # Serve bundled avatar images
 _avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"
@@ -76,14 +90,51 @@ if _avatars_dir.is_dir():
 # ---------------------------------------------------------------------------
 @app.get("/api/config")
 def get_public_config():
-    """Return the public (non-secret) application configuration."""
-    return settings.get_frontend_config()
+    """Return the public (non-secret) application configuration.
+
+    Merges statically-configured personas (from YAML) with dynamically
+    discovered BrainForge personas so the frontend sees all advisors in
+    a single response.
+    """
+    from app.core.bootstrap import chat_orchestrator
+    from app.config import generate_persona_colors
+    from app.core.brainforge_sync import BRAINFORGE_PERSONA_PREFIX
+
+    config = settings.get_frontend_config()
+
+    static_ids = {p["id"] for p in config["personas"]["items"]}
+    allowed = settings.personas.allowed_advisors
+
+    for pid, persona in chat_orchestrator.personas.items():
+        if not pid.startswith(f"{BRAINFORGE_PERSONA_PREFIX}_"):
+            continue
+        if pid in static_ids:
+            continue
+        if allowed is not None and pid not in allowed:
+            continue
+
+        colors = generate_persona_colors(persona.name)
+        config["personas"]["items"].append({
+            "id": pid,
+            "name": persona.name,
+            "role": "BrainForge Advisor",
+            "summary": persona.system_prompt[:120] if persona.system_prompt else "",
+            "color": colors["color"],
+            "bg_color": colors["bg_color"],
+            "dark_color": colors["dark_color"],
+            "dark_bg_color": colors["dark_bg_color"],
+            "image": "icon://Brain",
+            "backend_locked": True,
+            "default_backend": "brainforge",
+        })
+
+    return config
 
 @app.get("/")
 def root():
     return {
         "message": f"{settings.app.title} Backend",
-        "version": "2.0.0",
+        "version": __version__,
         "features": [
             "User Authentication", 
             "Persistent Chat Sessions",
