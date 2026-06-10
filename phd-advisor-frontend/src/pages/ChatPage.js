@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
-import { Home, MessageCircle, Reply, X, Users, FileText, Menu, HelpCircle } from 'lucide-react';
+import { Home, MessageCircle, Reply, X, Users, FileText, Menu, HelpCircle, RefreshCw, Check } from 'lucide-react';
 
 import EnhancedChatInput from '../components/EnhancedChatInput';
 import ThinkingIndicator from '../components/ThinkingIndicator';
@@ -26,6 +26,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [currentProvider, setCurrentProvider] = useState('gemini');
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
+  const [editingMessage, setEditingMessage] = useState(null);
   const messagesEndRef = useRef(null);
   const { isDark } = useTheme();
 
@@ -190,6 +191,7 @@ const loadChatSession = async (sessionId) => {
         
         setMessages(formattedMessages);
         setReplyingTo(null);
+        setEditingMessage(null);
         setThinkingAdvisors([]);
         
         // Also get the session title from MongoDB
@@ -244,6 +246,7 @@ const handleCurrentSessionDeleted = () => {
   setCurrentSessionTitle('');
   setMessages([]);
   setReplyingTo(null);
+  setEditingMessage(null);
   setThinkingAdvisors([]);
   setUploadedDocuments([]);
 };
@@ -281,6 +284,7 @@ const handleNewChat = async (sessionId = null) => {
             setCurrentSessionId(newSessionId); // Set the new session ID immediately
             setCurrentSessionTitle(`Chat ${new Date().toLocaleDateString()}`);
             setReplyingTo(null);
+            setEditingMessage(null);
             setThinkingAdvisors([]);
             setUploadedDocuments([]);
             
@@ -306,6 +310,7 @@ const handleNewChat = async (sessionId = null) => {
       setCurrentSessionId(null);
       setCurrentSessionTitle('');
       setReplyingTo(null);
+      setEditingMessage(null);
       setThinkingAdvisors([]);
       setUploadedDocuments([]);
       
@@ -385,6 +390,7 @@ const handleNewChat = async (sessionId = null) => {
         },
         body: JSON.stringify({
           user_input: inputMessage,
+          user_message_id: userMessage.id,
           response_length: 'medium',
           chat_session_id: sessionId
         }),
@@ -654,6 +660,72 @@ const handleNewChat = async (sessionId = null) => {
     });
   };
 
+  const handleStartRegenerate = (message) => {
+    if (isLoading || !message || message.replyTo) return;
+    setReplyingTo(null);
+    setEditingMessage({
+      id: message.id,
+      content: message.content || ''
+    });
+  };
+
+  const handleCancelRegenerate = () => {
+    setEditingMessage(null);
+  };
+
+  const handleSubmitRegenerate = async () => {
+    if (!currentSessionId || isLoading) return;
+
+    const nextContent = editingMessage?.content?.trim();
+    if (!editingMessage?.id || !nextContent) return;
+
+    setIsLoading(true);
+    setThinkingAdvisors(['system']);
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/chat-sessions/${currentSessionId}/messages/truncate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from_message_id: editingMessage.id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const truncateIndex = messages.findIndex(msg => msg.id === editingMessage.id);
+      const retainedMessages = Array.isArray(result.messages)
+        ? result.messages.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+          persona_id: msg.persona_id || msg.advisor || msg.advisorId
+        }))
+        : truncateIndex === -1 ? messages : messages.slice(0, truncateIndex);
+
+      setMessages(retainedMessages);
+      setReplyingTo(null);
+      setEditingMessage(null);
+      setThinkingAdvisors([]);
+      await handleSendMessage(nextContent);
+    } catch (error) {
+      console.error('Error regenerating message:', error);
+      setMessages(prev => [...prev, {
+        id: generateMessageId(),
+        type: 'error',
+        content: `Failed to regenerate response: ${error.message}`,
+        timestamp: new Date()
+      }]);
+      setIsLoading(false);
+      setThinkingAdvisors([]);
+    }
+  };
+
   const handleMessageClick = (message) => {
     if (message.type === 'advisor') {
       const advisor = advisors[message.persona_id];
@@ -833,14 +905,61 @@ const handleNewChat = async (sessionId = null) => {
                       <div key={group.message.id}>
                         {group.message.type === 'user' && (
                           <div className="user-message-container">
-                            <div className="user-message">
-                              {group.message.replyTo && (
-                                <div className="reply-indicator">
-                                  <Reply size={12} />
-                                  <span>Reply to {group.message.replyTo.advisorName}</span>
+                            <div className="user-message-stack">
+                              {editingMessage?.id === group.message.id ? (
+                                <div className="user-edit-panel">
+                                  <textarea
+                                    className="user-edit-textarea"
+                                    value={editingMessage.content}
+                                    onChange={(event) => setEditingMessage(prev => ({ ...prev, content: event.target.value }))}
+                                    disabled={isLoading}
+                                    autoFocus
+                                  />
+                                  <div className="user-edit-actions">
+                                    <button
+                                      className="user-edit-action-button"
+                                      onClick={handleCancelRegenerate}
+                                      disabled={isLoading}
+                                      title="Cancel"
+                                      aria-label="Cancel edit"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                    <button
+                                      className="user-edit-action-button user-edit-submit"
+                                      onClick={handleSubmitRegenerate}
+                                      disabled={isLoading || !editingMessage.content.trim()}
+                                      title="Send again"
+                                      aria-label="Send edited question again"
+                                    >
+                                      <Check size={14} />
+                                    </button>
+                                  </div>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="user-message">
+                                    {group.message.replyTo && (
+                                      <div className="reply-indicator">
+                                        <Reply size={12} />
+                                        <span>Reply to {group.message.replyTo.advisorName}</span>
+                                      </div>
+                                    )}
+                                    <p>{group.message.content}</p>
+                                  </div>
+                                  {!group.message.replyTo && (
+                                    <button
+                                      className="user-regenerate-button"
+                                      onClick={() => handleStartRegenerate(group.message)}
+                                      disabled={isLoading || !currentSessionId}
+                                      title="Edit and regenerate"
+                                      aria-label="Edit and regenerate this question"
+                                    >
+                                      <RefreshCw size={14} />
+                                    </button>
+                                  )}
+                                </>
                               )}
-                              <p>{group.message.content}</p>
                             </div>
                           </div>
                         )}
