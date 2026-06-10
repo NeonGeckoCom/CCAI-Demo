@@ -89,7 +89,7 @@ function App() {
   };
 
   const navigateToAuth = () => setCurrentView('auth');
-  const navigateToCanvas = () => onNav('canvas');
+  const navigateToCanvas = (canvasTab) => onNav('canvas', canvasTab ? { canvasTab } : undefined);
   const navigateToChat = () => setCurrentView('chat');
   const navigateToHome = () => setCurrentView('home');
 

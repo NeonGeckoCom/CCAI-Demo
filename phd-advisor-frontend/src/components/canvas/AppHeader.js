@@ -75,6 +75,13 @@ const AppHeader = ({
           >
             <Icon name="FileText" size={14} /> Documents
           </button>
+          <button
+            role="tab"
+            className={`app-tab ${onCanvas && canvasTab === 'skills' ? 'active' : ''}`}
+            onClick={() => onNav('canvas', { canvasTab: 'skills' })}
+          >
+            <Icon name="BrainCircuit" size={14} /> Skills
+          </button>
         </div>
       </div>
 

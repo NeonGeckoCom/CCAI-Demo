@@ -4,7 +4,8 @@ import Icon from './Icon';
 const TABS = [
   { id: 'insights', label: 'Insights', icon: 'Sparkles' },
   { id: 'workspace', label: 'Workspace', icon: 'LayoutDashboard' },
-  { id: 'documents', label: 'Documents', icon: 'FileText' }
+  { id: 'documents', label: 'Documents', icon: 'FileText' },
+  { id: 'skills', label: 'Skills', icon: 'BrainCircuit' }
 ];
 
 const SubTabs = ({ value, onChange }) => (

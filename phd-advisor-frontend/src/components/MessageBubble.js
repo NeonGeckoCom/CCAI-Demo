@@ -361,6 +361,14 @@ const MessageBubble = ({
               {message.isReply && <span className="reply-badge">↳ Reply</span>}
               {message.isExpansion && <span className="expansion-badge">⤴ Expanded</span>}
             </h4>
+            {(message.advisor_skill_name || message.advisor_skill) && (
+              <span
+                className="advisor-skill-badge"
+                title={message.advisor_skill ? `Skill id: ${message.advisor_skill}` : 'Advisor skill'}
+              >
+                {message.advisor_skill_name || message.advisor_skill}
+              </span>
+            )}
             <span 
               className="message-time"
               style={{ 

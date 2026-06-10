@@ -642,6 +642,22 @@
   margin-left: 4px;
 }
 
+.advisor-skill-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .message-time {
   font-size: 12px;
 }

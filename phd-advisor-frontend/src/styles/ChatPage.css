@@ -706,6 +706,34 @@
   color: var(--text-primary-dark, #f9fafb);
 }
 
+.current-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-primary, #d1d5db);
+  border-radius: 6px;
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-primary, #111827);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.current-skill-chip span {
+  color: var(--text-secondary, #6b7280);
+  font-weight: 500;
+}
+
+.current-skill-chip:hover {
+  border-color: var(--accent-primary, #6366f1);
+  color: var(--accent-primary, #6366f1);
+}
+
 /* Optional header sign out button */
 .header-signout-btn {
   display: flex;

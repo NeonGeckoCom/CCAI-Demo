@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
-import { Home, MessageCircle, Reply, X, Users, FileText, Menu, HelpCircle, RefreshCw, Check } from 'lucide-react';
+import { Home, MessageCircle, Reply, X, Users, FileText, Menu, HelpCircle, Pencil, Check } from 'lucide-react';
 
 import EnhancedChatInput from '../components/EnhancedChatInput';
 import ThinkingIndicator from '../components/ThinkingIndicator';
@@ -27,6 +27,7 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [isProviderSwitching, setIsProviderSwitching] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [currentAdvisorSkill, setCurrentAdvisorSkill] = useState(null);
   const messagesEndRef = useRef(null);
   const { isDark } = useTheme();
 
@@ -192,6 +193,11 @@ const loadChatSession = async (sessionId) => {
         setMessages(formattedMessages);
         setReplyingTo(null);
         setEditingMessage(null);
+        const latestSkillMessage = [...formattedMessages].reverse().find(msg => msg.advisor_skill || msg.advisor_skill_name);
+        setCurrentAdvisorSkill(latestSkillMessage ? {
+          id: latestSkillMessage.advisor_skill,
+          name: latestSkillMessage.advisor_skill_name || latestSkillMessage.advisor_skill
+        } : null);
         setThinkingAdvisors([]);
         
         // Also get the session title from MongoDB
@@ -247,6 +253,7 @@ const handleCurrentSessionDeleted = () => {
   setMessages([]);
   setReplyingTo(null);
   setEditingMessage(null);
+  setCurrentAdvisorSkill(null);
   setThinkingAdvisors([]);
   setUploadedDocuments([]);
 };
@@ -285,6 +292,7 @@ const handleNewChat = async (sessionId = null) => {
             setCurrentSessionTitle(`Chat ${new Date().toLocaleDateString()}`);
             setReplyingTo(null);
             setEditingMessage(null);
+            setCurrentAdvisorSkill(null);
             setThinkingAdvisors([]);
             setUploadedDocuments([]);
             
@@ -311,6 +319,7 @@ const handleNewChat = async (sessionId = null) => {
       setCurrentSessionTitle('');
       setReplyingTo(null);
       setEditingMessage(null);
+      setCurrentAdvisorSkill(null);
       setThinkingAdvisors([]);
       setUploadedDocuments([]);
       
@@ -380,6 +389,7 @@ const handleNewChat = async (sessionId = null) => {
     // Set loading state
     setIsLoading(true);
     setThinkingAdvisors(['system']);
+    setCurrentAdvisorSkill(null);
 
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/chat-stream`, {
@@ -435,7 +445,15 @@ const handleNewChat = async (sessionId = null) => {
                 advisorName: d.persona_name || d.persona_id,
                 used_documents: d.used_documents || false,
                 document_chunks_used: d.document_chunks_used || 0,
+                advisor_skill: d.advisor_skill,
+                advisor_skill_name: d.advisor_skill_name,
               };
+              if (d.advisor_skill || d.advisor_skill_name) {
+                setCurrentAdvisorSkill({
+                  id: d.advisor_skill,
+                  name: d.advisor_skill_name || d.advisor_skill
+                });
+              }
               setMessages(prev => [...prev, msg]);
               setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
               break;
@@ -452,6 +470,12 @@ const handleNewChat = async (sessionId = null) => {
             case 'progress':
               if (d.phase === 'complete') {
                 break;
+              }
+              if (d.phase === 'classified' && (d.advisor_skill || d.advisor_skill_name)) {
+                setCurrentAdvisorSkill({
+                  id: d.advisor_skill,
+                  name: d.advisor_skill_name || d.advisor_skill
+                });
               }
               if (d.persona_id != null) {
                 setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
@@ -540,11 +564,13 @@ const handleNewChat = async (sessionId = null) => {
         id: generateMessageId(),
         type: 'advisor',
         persona_id: data.persona_id,
-        advisorName: data.persona,
-        content: data.response,
-        isReply: true,
-        timestamp: new Date()
-      };
+                advisorName: data.persona,
+                content: data.response,
+                isReply: true,
+                advisor_skill: data.advisor_skill,
+                advisor_skill_name: data.advisor_skill_name,
+                timestamp: new Date()
+              };
       setMessages(prev => [...prev, replyResponseMessage]);
     }
 
@@ -843,7 +869,18 @@ const handleNewChat = async (sessionId = null) => {
                     <span>{currentSessionTitle}</span>
                   </div>
                 )}
-                
+
+                {currentAdvisorSkill?.name && (
+                  <button
+                    className="current-skill-chip"
+                    onClick={() => onNavigateToCanvas && onNavigateToCanvas('skills')}
+                    title={currentAdvisorSkill.id ? `Skill id: ${currentAdvisorSkill.id}` : 'Current advisor skill'}
+                    type="button"
+                  >
+                    <span>Skill:</span> {currentAdvisorSkill.name}
+                  </button>
+                )}
+
                 {/* Export Button */}
                 <ExportButton
                   hasMessages={hasConversationMessages}
@@ -955,7 +992,7 @@ const handleNewChat = async (sessionId = null) => {
                                       title="Edit and regenerate"
                                       aria-label="Edit and regenerate this question"
                                     >
-                                      <RefreshCw size={14} />
+                                      <Pencil size={14} />
                                     </button>
                                   )}
                                 </>

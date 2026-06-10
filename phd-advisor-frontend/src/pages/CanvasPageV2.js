@@ -5,6 +5,7 @@ import SubTabs from '../components/canvas/SubTabs';
 import InsightsView from '../components/canvas/InsightsView';
 import WorkspaceView from '../components/canvas/WorkspaceView';
 import DocumentsView from '../components/canvas/DocumentsView';
+import SkillsView from '../components/canvas/SkillsView';
 import WidgetPalette from '../components/canvas/WidgetPalette';
 import Icon from '../components/canvas/Icon';
 import Toast from '../components/canvas/Toast';
@@ -22,7 +23,8 @@ const CanvasPageV2 = ({
   onNav,
   canvasTab = 'insights',
   onSetCanvasTab,
-  onSignOut
+  onSignOut,
+  authToken
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [toast, setToast] = useState('');
@@ -78,6 +80,7 @@ const CanvasPageV2 = ({
           {canvasTab === 'insights' && <InsightsView onRefresh={() => setToast('Refreshing insights — wire to /api/phd-canvas/refresh')} />}
           {canvasTab === 'workspace' && <WorkspaceView onOpenPalette={() => setPaletteOpen(true)} />}
           {canvasTab === 'documents' && <DocumentsView />}
+          {canvasTab === 'skills' && <SkillsView authToken={authToken} />}
 
           <footer style={{ marginTop: 40, padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12, borderTop: '1px solid var(--border-tertiary)' }}>
             © 2025 University of Colorado Boulder · Built on the Advisory Panel platform · Prototype v0.2 — dev handoff
