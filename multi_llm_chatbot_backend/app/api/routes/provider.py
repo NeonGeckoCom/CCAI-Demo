@@ -40,8 +40,8 @@ async def switch_provider(
                        f"Valid IDs: {sorted(registered)}",
             )
 
-        # BrainForge personas use a dedicated client; reject explicit overrides
-        # so stale mappings don't accumulate in the user's saved config.
+        # BrainForge personas use a dedicated client; reject overrides
+        # so incorrect mappings don't get persisted in the user's saved config.
         locked = {
             pid for pid in llm_config.persona_backends
             if chat_orchestrator.personas[pid].backend_locked

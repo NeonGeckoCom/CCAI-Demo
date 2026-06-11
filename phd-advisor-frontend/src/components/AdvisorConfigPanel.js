@@ -50,11 +50,12 @@ const optionStyle = { background: 'var(--bg-secondary)', color: 'var(--text-prim
 
 const titleStyle = { fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' };
 
-const buildInitial = (initialConfig, personaIds, availableBackends) => {
+const buildInitial = (initialConfig, personaIds, availableBackends, advisors) => {
   const fallback = initialConfig?.default_backend || availableBackends[0];
   const seed = initialConfig?.persona_backends || {};
   const personas = {};
   for (const id of personaIds) {
+    if (advisors?.[id]?.backendLocked) continue;
     personas[id] = seed[id] || DEFAULT_BACKEND;
   }
   return {
@@ -78,7 +79,7 @@ const AdvisorConfigPanel = ({
   const isControlled = value !== undefined;
 
   const [internal, setInternal] = useState(() =>
-    buildInitial(initialConfig, personaIds, availableBackends)
+    buildInitial(initialConfig, personaIds, availableBackends, advisors)
   );
 
   useEffect(() => {
@@ -87,6 +88,7 @@ const AdvisorConfigPanel = ({
       const next = { ...prev.persona_backends };
       let changed = false;
       for (const id of personaIds) {
+        if (advisors?.[id]?.backendLocked) continue;
         if (next[id] === undefined) {
           next[id] = DEFAULT_BACKEND;
           changed = true;
@@ -94,7 +96,7 @@ const AdvisorConfigPanel = ({
       }
       return changed ? { ...prev, persona_backends: next } : prev;
     });
-  }, [personaIds, availableBackends, isControlled]);
+  }, [personaIds, availableBackends, isControlled, advisors]);
 
   const config = isControlled ? value : internal;
 

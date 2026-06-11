@@ -152,11 +152,20 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
     }
   };
 
-  const handleHybridSubmit = async (hybridConfig) => {
-    const ok = await submitProviderConfig(
-      { mode: 'hybrid', ...hybridConfig },
-      'Hybrid configuration'
-    );
+  // Receives a stripped config (via stripDefaultBackends) and sends the
+  // appropriate mode: "uniform" when no per-advisor overrides exist,
+  // "hybrid" when the user has customized individual backends.
+  const handleConfigSubmit = async (config) => {
+    const hasOverrides =
+      (config.orchestrator_backend && config.orchestrator_backend !== config.default_backend) ||
+      Object.keys(config.persona_backends || {}).length > 0;
+
+    const payload = hasOverrides
+      ? { mode: 'hybrid', ...config }
+      : { mode: 'uniform', default_backend: config.default_backend };
+
+    const label = hasOverrides ? 'Hybrid configuration' : config.default_backend;
+    const ok = await submitProviderConfig(payload, label);
     if (ok) setIsSettingsOpen(false);
     return ok;
   };
@@ -1172,7 +1181,7 @@ const handleNewChat = async (sessionId = null) => {
           availableBackends={availableBackends}
           llmConfig={llmConfig}
           isSaving={isProviderSwitching}
-          onSubmitConfig={handleHybridSubmit}
+          onSubmitConfig={handleConfigSubmit}
           onClose={() => setIsSettingsOpen(false)}
         />
       )}
