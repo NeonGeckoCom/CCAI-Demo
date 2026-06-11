@@ -238,12 +238,13 @@ def _ensure_compact_shape(text: str, response_length: str) -> str:
     return "\n".join(parts).strip()
 
 class Persona:
-    def __init__(self, id: str, name: str, system_prompt: str, llm: LLMClient, temperature: int = 5):
+    def __init__(self, id: str, name: str, system_prompt: str, llm: LLMClient, temperature: int = 5, backend_locked: bool = False):
         self.id = id
         self.name = name
         self.system_prompt = system_prompt
         self.llm = llm
         self.temperature = temperature
+        self.backend_locked = backend_locked
 
     async def respond(self, context: List[Dict], response_length: str = "medium",
                       llm: LLMClient = None) -> str:

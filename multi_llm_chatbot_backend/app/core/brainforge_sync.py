@@ -94,6 +94,7 @@ def build_brainforge_personas(
                 system_prompt=system_prompt,
                 llm=llm_client,
                 temperature=5,
+                backend_locked=True,
             )
             personas.append(persona)
 
