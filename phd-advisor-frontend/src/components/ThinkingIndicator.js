@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
 
-const ThinkingIndicator = ({ advisorId }) => {
+const ThinkingIndicator = ({ advisorId, statusText }) => {
   const { advisors, getAdvisorColors } = useAppConfig();
   const advisor = advisors[advisorId];
   const { isDark } = useTheme();
@@ -65,7 +65,7 @@ const ThinkingIndicator = ({ advisorId }) => {
             opacity: 0.8 
           }}
         >
-          thinking...
+          {statusText || 'Preparing your response...'}
         </p>
       </div>
     </div>

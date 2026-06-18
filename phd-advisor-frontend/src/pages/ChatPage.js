@@ -17,8 +17,43 @@ import AdvisorStatusDropdown from '../components/AdvisorStatusDropdown';
 import AdvisorCarousel from '../components/AdvisorCarousel';
 import OnboardingTour from '../components/OnboardingTour';
 
+const responseStageText = (phase, data = {}) => {
+  switch (phase) {
+    case 'received':
+      return 'Sending your question...';
+    case 'checking_clarification':
+      return 'Checking whether one more detail would help...';
+    case 'preparing_clarification':
+      return 'Preparing a quick follow-up question...';
+    case 'checking_tools':
+      return 'Checking whether a lookup can answer this directly...';
+    case 'routing_request':
+      return 'Reading your question...';
+    case 'selecting_response_style':
+      return 'Reading your question...';
+    case 'classified':
+      return data.advisor_skill_name
+        ? `Using ${data.advisor_skill_name} for this answer...`
+        : 'Shaping the answer plan...';
+    case 'advisor_selected':
+      return data.persona_name
+        ? `Sending this to ${data.persona_name}...`
+        : 'Sending this to your advisor...';
+    case 'rag_checking_documents':
+      return 'Checking uploaded documents...';
+    case 'rag_rewriting_query':
+      return 'Finding document search keywords...';
+    case 'rag_retrieving':
+      return 'Searching uploaded documents...';
+    case 'rag_building_context':
+      return 'Reading the relevant passages...';
+    default:
+      return 'Preparing your response...';
+  }
+};
+
 const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSignOut, onUserUpdate }) => {
-  const { config, advisors, getAdvisorColors } = useAppConfig();
+  const { config, advisors, getAdvisorColors, disabledAdvisors } = useAppConfig();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [thinkingAdvisors, setThinkingAdvisors] = useState([]);
@@ -28,6 +63,11 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
   const [editingMessage, setEditingMessage] = useState(null);
   const [currentAdvisorSkill, setCurrentAdvisorSkill] = useState(null);
+  const [currentResponseStage, setCurrentResponseStage] = useState('');
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState(() => {
+    try { return localStorage.getItem('selectedAdvisorId') || ''; }
+    catch { return ''; }
+  });
   const messagesEndRef = useRef(null);
   const { isDark } = useTheme();
 
@@ -49,11 +89,42 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, thinkingAdvisors]);
+  }, [messages, thinkingAdvisors, currentResponseStage]);
 
   useEffect(() => {
     fetchCurrentProvider();
   }, []);
+
+  const enabledAdvisorIds = useMemo(() => (
+    Object.keys(advisors || {}).filter(id => !disabledAdvisors?.[id])
+  ), [advisors, disabledAdvisors]);
+
+  useEffect(() => {
+    if (!enabledAdvisorIds.length) {
+      setSelectedAdvisorId('');
+      return;
+    }
+
+    if (!selectedAdvisorId || !enabledAdvisorIds.includes(selectedAdvisorId)) {
+      setSelectedAdvisorId(enabledAdvisorIds[0]);
+    }
+  }, [enabledAdvisorIds, selectedAdvisorId]);
+
+  useEffect(() => {
+    try {
+      if (selectedAdvisorId) {
+        localStorage.setItem('selectedAdvisorId', selectedAdvisorId);
+      } else {
+        localStorage.removeItem('selectedAdvisorId');
+      }
+    } catch {
+      // localStorage is optional; chat still works with the in-memory choice.
+    }
+  }, [selectedAdvisorId]);
+
+  const handleSelectAdvisor = (advisorId) => {
+    setSelectedAdvisorId(advisorId);
+  };
 
   const fetchCurrentProvider = async () => {
     try {
@@ -123,6 +194,46 @@ const ChatPage = ({ user, authToken, onNavigateToHome, onNavigateToCanvas, onSig
 
   const generateMessageId = () => {
     return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+  };
+
+  const upsertAdvisorMessage = (data, buildPatch) => {
+    const id = data.message_id || data.id;
+    setMessages(prev => {
+      const existingIndex = prev.findIndex(msg => (
+        (id && msg.id === id) ||
+        (!id && msg.isStreaming && msg.persona_id === data.persona_id)
+      ));
+      const existing = existingIndex >= 0 ? prev[existingIndex] : null;
+      const messageId = id || existing?.id || generateMessageId();
+      const baseMessage = {
+        id: messageId,
+        type: 'advisor',
+        persona_id: data.persona_id,
+        content: '',
+        thoughts: '',
+        timestamp: new Date(),
+        advisorName: data.persona_name || data.persona_id,
+        advisor_skill: data.advisor_skill,
+        advisor_skill_name: data.advisor_skill_name,
+      };
+      const patch = buildPatch(existing || baseMessage);
+      const nextMessage = {
+        ...(existing || baseMessage),
+        ...patch,
+        id: messageId,
+        type: 'advisor',
+        persona_id: data.persona_id || existing?.persona_id,
+        advisorName: data.persona_name || existing?.advisorName || data.persona_id,
+      };
+
+      if (existingIndex === -1) {
+        return [...prev, nextMessage];
+      }
+
+      const next = [...prev];
+      next[existingIndex] = nextMessage;
+      return next;
+    });
   };
 
   const createNewSession = async (firstMessage = null) => {
@@ -386,9 +497,12 @@ const handleNewChat = async (sessionId = null) => {
       await updateSessionTitle(sessionId, newTitle);
     }
 
+    const advisorForRequest = selectedAdvisorId || enabledAdvisorIds[0] || '';
+
     // Set loading state
     setIsLoading(true);
     setThinkingAdvisors(['system']);
+    setCurrentResponseStage('Sending your question...');
     setCurrentAdvisorSkill(null);
 
     try {
@@ -402,7 +516,8 @@ const handleNewChat = async (sessionId = null) => {
           user_input: inputMessage,
           user_message_id: userMessage.id,
           response_length: 'medium',
-          chat_session_id: sessionId
+          chat_session_id: sessionId,
+          active_advisors: advisorForRequest ? [advisorForRequest] : []
         }),
       });
 
@@ -435,30 +550,67 @@ const handleNewChat = async (sessionId = null) => {
           const d = payload.data || {};
 
           switch (payload.type) {
-            case 'advisor': {
-              const msg = {
-                id: generateMessageId(),
-                type: 'advisor',
-                persona_id: d.persona_id,
-                content: d.content,
-                timestamp: new Date(),
-                advisorName: d.persona_name || d.persona_id,
-                used_documents: d.used_documents || false,
-                document_chunks_used: d.document_chunks_used || 0,
+            case 'advisor_start':
+              upsertAdvisorMessage(d, existing => ({
+                content: existing.content || '',
+                thoughts: existing.thoughts || '',
+                isStreaming: true,
+                timestamp: existing.timestamp || new Date(),
                 advisor_skill: d.advisor_skill,
                 advisor_skill_name: d.advisor_skill_name,
-              };
+              }));
               if (d.advisor_skill || d.advisor_skill_name) {
                 setCurrentAdvisorSkill({
                   id: d.advisor_skill,
                   name: d.advisor_skill_name || d.advisor_skill
                 });
               }
-              setMessages(prev => [...prev, msg]);
+              setCurrentResponseStage(
+                d.persona_name
+                  ? `${d.persona_name} is drafting your answer...`
+                  : 'Your advisor is drafting your answer...'
+              );
+              setThinkingAdvisors(d.persona_id ? [d.persona_id] : ['system']);
+              break;
+            case 'advisor_delta':
+              upsertAdvisorMessage(d, existing => ({
+                content: `${existing.content || ''}${d.delta || ''}`,
+                isStreaming: true,
+              }));
+              setCurrentResponseStage('');
               setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
+              break;
+            case 'advisor_thought_delta':
+              upsertAdvisorMessage(d, existing => ({
+                thoughts: `${existing.thoughts || ''}${d.delta || ''}`,
+                isStreaming: true,
+              }));
+              setCurrentResponseStage('Working through the answer...');
+              break;
+            case 'advisor': {
+              if (d.advisor_skill || d.advisor_skill_name) {
+                setCurrentAdvisorSkill({
+                  id: d.advisor_skill,
+                  name: d.advisor_skill_name || d.advisor_skill
+                });
+              }
+              upsertAdvisorMessage(d, existing => ({
+                content: d.content || existing.content || '',
+                thoughts: d.thoughts ?? existing.thoughts,
+                timestamp: existing.timestamp || new Date(),
+                used_documents: d.used_documents || false,
+                document_chunks_used: d.document_chunks_used || 0,
+                advisor_skill: d.advisor_skill,
+                advisor_skill_name: d.advisor_skill_name,
+                isStreaming: false,
+              }));
+              setCurrentResponseStage('');
+              setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id && a !== 'system'));
               break;
             }
             case 'clarification':
+              setCurrentResponseStage('');
+              setThinkingAdvisors([]);
               setMessages(prev => [...prev, {
                 id: generateMessageId(),
                 type: 'clarification',
@@ -469,19 +621,28 @@ const handleNewChat = async (sessionId = null) => {
               break;
             case 'progress':
               if (d.phase === 'complete') {
+                setCurrentResponseStage('');
+                setThinkingAdvisors([]);
                 break;
               }
+              setCurrentResponseStage(responseStageText(d.phase, d));
               if (d.phase === 'classified' && (d.advisor_skill || d.advisor_skill_name)) {
                 setCurrentAdvisorSkill({
                   id: d.advisor_skill,
                   name: d.advisor_skill_name || d.advisor_skill
                 });
               }
+              if (d.phase === 'advisor_selected' && d.persona_id) {
+                setThinkingAdvisors([d.persona_id]);
+                break;
+              }
               if (d.persona_id != null) {
                 setThinkingAdvisors(prev => prev.filter(a => a !== d.persona_id));
               }
               break;
             case 'error':
+              setCurrentResponseStage('');
+              setThinkingAdvisors([]);
               setMessages(prev => [...prev, {
                 id: generateMessageId(),
                 type: 'error',
@@ -506,6 +667,7 @@ const handleNewChat = async (sessionId = null) => {
     } finally {
       setIsLoading(false);
       setThinkingAdvisors([]);
+      setCurrentResponseStage('');
       setSidebarRefreshTrigger(prev => prev + 1);
     }
   };
@@ -538,6 +700,7 @@ const handleNewChat = async (sessionId = null) => {
 
   setIsLoading(true);
   setThinkingAdvisors([replyContext.persona_id]);
+  setCurrentResponseStage(`Sending your follow-up to ${replyContext.advisorName || 'your advisor'}...`);
 
   try {
     const response = await fetch(`${process.env.REACT_APP_API_URL}/reply-to-advisor`, {
@@ -587,6 +750,7 @@ const handleNewChat = async (sessionId = null) => {
 
   setIsLoading(false);
   setThinkingAdvisors([]);
+  setCurrentResponseStage('');
   setSidebarRefreshTrigger(prev => prev + 1);
 };
 
@@ -618,6 +782,7 @@ const handleNewChat = async (sessionId = null) => {
 
     setIsLoading(true);
     setThinkingAdvisors([advisorId]);
+    setCurrentResponseStage(`Asking ${advisor.name} to expand that answer...`);
 
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/chat/${advisorId}`, {
@@ -673,6 +838,7 @@ const handleNewChat = async (sessionId = null) => {
 
     setIsLoading(false);
     setThinkingAdvisors([]);
+    setCurrentResponseStage('');
     setSidebarRefreshTrigger(prev => prev + 1);
   };
 
@@ -750,6 +916,13 @@ const handleNewChat = async (sessionId = null) => {
       setIsLoading(false);
       setThinkingAdvisors([]);
     }
+  };
+
+  const ensureCurrentSessionId = async () => {
+    if (currentSessionId) {
+      return currentSessionId;
+    }
+    return await createNewSession(`Chat ${new Date().toLocaleDateString()}`);
   };
 
   const handleMessageClick = (message) => {
@@ -860,6 +1033,8 @@ const handleNewChat = async (sessionId = null) => {
                 thinkingAdvisors={thinkingAdvisors}
                 getAdvisorColors={getAdvisorColors}
                 isDark={isDark}
+                selectedAdvisorId={selectedAdvisorId}
+                onSelectAdvisor={handleSelectAdvisor}
               />
               
               <div className="header-controls">
@@ -874,7 +1049,7 @@ const handleNewChat = async (sessionId = null) => {
                   <button
                     className="current-skill-chip"
                     onClick={() => onNavigateToCanvas && onNavigateToCanvas('skills')}
-                    title={currentAdvisorSkill.id ? `Skill id: ${currentAdvisorSkill.id}` : 'Current advisor skill'}
+                    title={currentAdvisorSkill.name ? `Current advisor skill: ${currentAdvisorSkill.name}` : 'Current advisor skill'}
                     type="button"
                   >
                     <span>Skill:</span> {currentAdvisorSkill.name}
@@ -1064,7 +1239,9 @@ const handleNewChat = async (sessionId = null) => {
                           <MessageCircle size={20} />
                         </div>
                         <div className="thinking-content">
-                          <span className="thinking-label">Orchestrator is thinking...</span>
+                          <span className="thinking-label">
+                            {currentResponseStage || 'Preparing your response...'}
+                          </span>
                           <div className="thinking-animation">
                             <div className="dot"></div>
                             <div className="dot"></div>
@@ -1075,7 +1252,11 @@ const handleNewChat = async (sessionId = null) => {
                     )}
                     
                     {thinkingAdvisors.filter(id => id !== 'system').map(advisorId => (
-                      <ThinkingIndicator key={advisorId} advisorId={advisorId} />
+                      <ThinkingIndicator
+                        key={advisorId}
+                        advisorId={advisorId}
+                        statusText={currentResponseStage}
+                      />
                     ))}
 
                     <div ref={messagesEndRef} />
@@ -1105,6 +1286,7 @@ const handleNewChat = async (sessionId = null) => {
               isLoading={isLoading}
               currentChatSessionId={currentSessionId}
               authToken={authToken}
+              ensureSessionId={ensureCurrentSessionId}
               placeholder={
                 replyingTo 
                   ? `Reply to ${replyingTo.advisorName}...`

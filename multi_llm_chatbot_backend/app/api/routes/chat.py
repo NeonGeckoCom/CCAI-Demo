@@ -75,53 +75,41 @@ async def chat_stream(
                     type="progress", data={"phase": "received"},
                 ).to_ndjson()
 
-            if await chat_orchestrator.needs_clarification_improved(session, message.user_input):
-                clar = await chat_orchestrator.generate_contextual_clarification(message.user_input)
+            yield ChatStreamLine(
+                type="progress",
+                data={"phase": "routing_request"},
+            ).to_ndjson()
+
+            # Tool routing is temporarily disabled while this stage does not
+            # use external tools. Re-enable by restoring the get_tool_response
+            # pass before advisor selection.
+            # tool_result = await chat_orchestrator.get_tool_response(message.user_input)
+
+            skill_classification = await chat_orchestrator.classify_advisor_skill(
+                message.user_input,
+                session,
+                requested_skill_id=message.advisor_skill,
+                user_id=str(current_user.id),
+            )
+
+            if skill_classification.needs_clarification:
+                yield ChatStreamLine(
+                    type="progress",
+                    data={"phase": "preparing_clarification"},
+                ).to_ndjson()
                 clarification_message = PersistMessage(
                     id=str(ObjectId()),
                     type="clarification",
-                    content=clar["question"],
-                    suggestions=clar["suggestions"],
+                    content=skill_classification.clarification_question,
+                    suggestions=skill_classification.clarification_suggestions,
                 )
                 if message.chat_session_id:
                     await persist_message(message.chat_session_id, clarification_message)
                 yield ChatStreamLine(
                     type="clarification",
                     data={
-                        "message": clar["question"],
-                        "suggestions": clar["suggestions"],
-                    },
-                ).to_ndjson()
-                yield ChatStreamLine(
-                    type="progress",
-                    data={"phase": "complete"},
-                ).to_ndjson()
-                return
-
-            # If an enabled tool can handle this query, return its response
-            # directly and skip persona generation.
-            tool_result = await chat_orchestrator.get_tool_response(message.user_input)
-            if tool_result.used_tool:
-                # Append user message to in-memory session and persist to MongoDB
-                session.append_message("orchestrator", tool_result.text)
-                if message.chat_session_id:
-                    await persist_message(
-                        message.chat_session_id,
-                        PersistMessage(
-                            type="advisor",
-                            persona_id="orchestrator",
-                            advisorName="Orchestrator",
-                            content=tool_result.text,
-                        ),
-                    )
-                yield ChatStreamLine(
-                    type="advisor",
-                    data={
-                        "persona_id": "orchestrator",
-                        "persona_name": "Orchestrator",
-                        "content": tool_result.text,
-                        "used_documents": False,
-                        "document_chunks_used": 0,
+                        "message": skill_classification.clarification_question,
+                        "suggestions": skill_classification.clarification_suggestions,
                     },
                 ).to_ndjson()
                 yield ChatStreamLine(
@@ -137,12 +125,6 @@ async def chat_stream(
                 user_disabled=current_user.disabled_advisors,
             )
 
-            skill_classification = await chat_orchestrator.classify_advisor_skill(
-                message.user_input,
-                session,
-                requested_skill_id=message.advisor_skill,
-                user_id=str(current_user.id),
-            )
             yield ChatStreamLine(
                 type="progress",
                 data={
@@ -153,17 +135,21 @@ async def chat_stream(
                 },
             ).to_ndjson()
 
-            # Get personas most relevant to the current session
-            top_personas = await chat_orchestrator.get_top_personas(
-                session_id=sid,
-                allowed_ids=available,
-                advisor_skill=skill_classification.skill,
+            # Use the user's fixed advisor selection instead of LLM-ranking a
+            # multi-persona panel for every message.
+            requested_advisor_id = next(
+                (pid for pid in (message.active_advisors or []) if pid),
+                None,
             )
+            if requested_advisor_id:
+                selected_personas = [requested_advisor_id] if requested_advisor_id in available else []
+            else:
+                selected_personas = available[:1]
 
-            # Guard against race condition where all selected advisors
-            # become unavailable (e.g. service update) between preference
+            # Guard against race condition where the selected advisor
+            # becomes unavailable (e.g. service update) between preference
             # save and chat request.
-            if not top_personas:
+            if not selected_personas:
                 error_detail = (
                     "None of your selected advisors are currently available. "
                     "Please check your advisor settings and try again."
@@ -190,48 +176,124 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
-            done_queue: asyncio.Queue = asyncio.Queue()
+            selected_persona = chat_orchestrator.get_persona(selected_personas[0])
+            yield ChatStreamLine(
+                type="progress",
+                data={
+                    "phase": "advisor_selected",
+                    "persona_id": selected_personas[0],
+                    "persona_name": selected_persona.name if selected_persona else selected_personas[0],
+                },
+            ).to_ndjson()
+
+            event_queue: asyncio.Queue = asyncio.Queue()
 
             async def _run(pid: str) -> None:
+                persona = None
+                advisor_message_id = str(ObjectId())
+                thought_chunks = []
+
+                async def _put_line(event_type: str, data: dict) -> None:
+                    await event_queue.put(ChatStreamLine(type=event_type, data=data))
+
                 try:
                     # Guard against the persona being removed mid-request — return a
                     # fallback response instead of crashing and hanging the stream.
                     persona = chat_orchestrator.get_persona(pid)
                     if persona is None:
                         logger.warning("Persona %s was unregistered before response generation", pid)
-                        await done_queue.put({
-                            "persona_id": pid,
-                            "persona_name": pid,
-                            "response": "This advisor is temporarily unavailable. Please try again.",
-                            "used_documents": False,
-                            "document_chunks_used": 0,
+                        await event_queue.put({
+                            "_done": True,
+                            "result": {
+                                "message_id": advisor_message_id,
+                                "persona_id": pid,
+                                "persona_name": pid,
+                                "response": "This advisor is temporarily unavailable. Please try again.",
+                                "thoughts": None,
+                                "used_documents": False,
+                                "document_chunks_used": 0,
+                            },
                         })
                         return
-                    result = await chat_orchestrator.generate_single_persona_response(
+
+                    await _put_line(
+                        "advisor_start",
+                        {
+                            "message_id": advisor_message_id,
+                            "persona_id": pid,
+                            "persona_name": persona.name,
+                            "advisor_skill": skill_classification.skill_id,
+                            "advisor_skill_name": skill_classification.skill.name,
+                        },
+                    )
+
+                    async def on_chunk(chunk) -> None:
+                        if chunk.kind == "thought":
+                            thought_chunks.append(chunk.text)
+                            await _put_line(
+                                "advisor_thought_delta",
+                                {
+                                    "message_id": advisor_message_id,
+                                    "persona_id": pid,
+                                    "delta": chunk.text,
+                                },
+                            )
+                            return
+
+                        await _put_line(
+                            "advisor_delta",
+                            {
+                                "message_id": advisor_message_id,
+                                "persona_id": pid,
+                                "delta": chunk.text,
+                            },
+                        )
+
+                    async def on_stage(phase: str, data: dict) -> None:
+                        await _put_line("progress", {"phase": phase, **(data or {})})
+
+                    result = await chat_orchestrator.generate_single_persona_response_stream(
                         session, persona,
                         message.response_length or "medium",
                         skill_classification.skill,
+                        on_chunk=on_chunk,
+                        on_stage=on_stage,
                     )
+                    result["message_id"] = advisor_message_id
+                    result["thoughts"] = "".join(thought_chunks).strip() or None
                     session.append_message(pid, result["response"])
-                    await done_queue.put(result)
+                    await event_queue.put({"_done": True, "result": result})
                 except Exception as e:
                     logger.exception(f"chat-stream _run failed for {pid}: {e}")
-                    await done_queue.put({
-                        "persona_id": pid,
-                        "persona_name": getattr(persona, "name", pid),
-                        "response": f"I ran into a technical issue. Please try again. ({e!s})",
-                        "used_documents": False,
-                        "document_chunks_used": 0,
+                    await event_queue.put({
+                        "_done": True,
+                        "result": {
+                            "message_id": advisor_message_id,
+                            "persona_id": pid,
+                            "persona_name": getattr(persona, "name", pid),
+                            "response": f"I ran into a technical issue. Please try again. ({e!s})",
+                            "thoughts": "".join(thought_chunks).strip() or None,
+                            "used_documents": False,
+                            "document_chunks_used": 0,
+                        },
                     })
 
-            tasks = [asyncio.create_task(_run(pid)) for pid in top_personas]
+            tasks = [asyncio.create_task(_run(pid)) for pid in selected_personas]
 
-            for _ in range(len(tasks)):
-                result = await done_queue.get()
+            completed = 0
+            while completed < len(tasks):
+                event = await event_queue.get()
+                if isinstance(event, ChatStreamLine):
+                    yield event.to_ndjson()
+                    continue
+
+                completed += 1
+                result = event["result"]
                 if message.chat_session_id:
                     await persist_message(
                         message.chat_session_id,
                         PersistMessage(
+                            id=result["message_id"],
                             type="advisor",
                             persona_id=result["persona_id"],
                             advisorName=result["persona_name"],
@@ -240,14 +302,17 @@ async def chat_stream(
                             document_chunks_used=result.get("document_chunks_used", 0),
                             advisor_skill=result.get("advisor_skill") or skill_classification.skill_id,
                             advisor_skill_name=skill_classification.skill.name,
+                            thoughts=result.get("thoughts"),
                         ),
                     )
                 line = ChatStreamLine(
                     type="advisor",
                     data={
+                        "message_id": result["message_id"],
                         "persona_id": result["persona_id"],
                         "persona_name": result["persona_name"],
                         "content": result["response"],
+                        "thoughts": result.get("thoughts"),
                         "used_documents": result.get("used_documents", False),
                         "document_chunks_used": result.get("document_chunks_used", 0),
                         "advisor_skill": result.get("advisor_skill") or skill_classification.skill_id,

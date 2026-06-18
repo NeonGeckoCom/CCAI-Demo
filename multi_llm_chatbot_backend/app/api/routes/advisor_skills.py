@@ -11,7 +11,10 @@ from app.advisor_skills.user_skills import (
     update_user_advisor_skill,
 )
 from app.core.auth import get_current_active_user
+from app.llm.classifier import draft_advisor_skill_spec
+from app.llm.clients.provider_manager import create_llm_client
 from app.models.advisor_skills import (
+    AdvisorSkillNeedRequest,
     AdvisorSkillListResponse,
     AdvisorSkillSpecRequest,
     AdvisorSkillUpdateRequest,
@@ -51,6 +54,32 @@ async def create_advisor_skill(
     """Create an editable custom skill owned by the authenticated user."""
     skill = await create_user_advisor_skill(current_user.id, body.model_dump())
     return serialize_advisor_skill(skill, scope="user")
+
+
+@router.post("/advisor-skills/from-need", status_code=status.HTTP_201_CREATED)
+async def create_advisor_skill_from_need(
+    body: AdvisorSkillNeedRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create an editable custom skill from a broad user need."""
+    try:
+        llm_client = create_llm_client()
+        spec = await draft_advisor_skill_spec(
+            llm_client,
+            body.need,
+            user_id=current_user.id,
+        )
+        skill = await create_user_advisor_skill(current_user.id, spec)
+        return serialize_advisor_skill(skill, scope="user")
+    except Exception as exc:
+        logger.warning("Advisor skill creation from need failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Could not write the skill from that description. "
+                "Please try adding a little more detail about the problem and the help you want."
+            ),
+        ) from exc
 
 
 @router.put("/advisor-skills/{skill_id}")

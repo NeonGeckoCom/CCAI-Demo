@@ -696,6 +696,45 @@
   margin-bottom: 0;
 }
 
+.advisor-thinking-details {
+  margin-top: 12px;
+  border-top: 1px solid var(--border-tertiary);
+  padding-top: 10px;
+}
+
+.advisor-thinking-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.advisor-thinking-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.advisor-thinking-text {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-tertiary);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.advisor-thinking-text p:last-child {
+  margin-bottom: 0;
+}
+
 
 /* Updated Message Actions Styles */
 .message-actions {

@@ -247,17 +247,9 @@ async def search_documents(request: Request, query: str = Body(..., embed=True),
         session_id = await get_or_create_session_for_request_async(request)  # FIXED: Added await
         rag_manager = get_rag_manager()
 
-        persona_contexts = {
-            "methodologist": "methodology research design analysis",
-            "theorist": "theory theoretical framework conceptual",
-            "pragmatist": "practical application implementation"
-        }
-        persona_context = persona_contexts.get(persona, "")
-
         results = rag_manager.search_documents_with_context(
             query=query,
             session_id=session_id,
-            persona_context=persona_context,
             n_results=5
         )
 

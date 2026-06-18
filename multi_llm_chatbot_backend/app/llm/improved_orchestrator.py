@@ -8,9 +8,20 @@ from app.core.session_manager import get_session_manager
 from app.rag.persona_context_builder import PersonaContextBuilder
 from app.llm.clients.llm_client import LLMClient
 from app.llm import llm_tasks
-from app.llm.responses import generate_single_persona_response
+from app.llm.responses import generate_single_persona_response, generate_single_persona_response_stream
+from app.rag.manager import get_rag_manager
 
 logger = logging.getLogger(__name__)
+
+CLASSIFICATION_DOCUMENT_CONTEXT_CHARS = 1800
+
+
+def _compact_text(value: object, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
 
 class ImprovedChatOrchestrator:
     """
@@ -80,13 +91,79 @@ class ImprovedChatOrchestrator:
         except Exception:
             has_documents = bool(getattr(session, "uploaded_files", []))
 
+        try:
+            user_message_count = len([
+                msg for msg in session.messages
+                if msg.get("role") == "user"
+            ])
+        except Exception:
+            user_message_count = 1
+
+        document_context = self._build_classification_document_context(session, user_input)
+
         return await classify_advisor_skill(
             self.llm_client,
             user_input,
             has_documents=has_documents,
+            document_context=document_context,
             requested_skill_id=requested_skill_id,
             user_id=user_id,
+            allow_clarification=user_message_count <= 1,
         )
+
+    def _build_classification_document_context(self, session, user_input: str) -> str:
+        """Build a small document hint for routing and clarification decisions."""
+        try:
+            stats = session.get_rag_stats()
+        except Exception as exc:
+            logger.debug("Could not read RAG stats for classification: %s", exc)
+            stats = {}
+
+        if stats.get("total_documents", 0) <= 0:
+            return ""
+
+        parts: List[str] = []
+        documents = stats.get("documents") or []
+        if documents:
+            lines = ["Uploaded documents:"]
+            for doc in documents[:4]:
+                sections = ", ".join(str(section) for section in doc.get("sections", [])[:6])
+                lines.append(
+                    "- "
+                    f"{doc.get('filename', 'unknown')} "
+                    f"(title: {doc.get('title', doc.get('filename', 'unknown'))}; "
+                    f"type: {doc.get('file_type', 'unknown')}; "
+                    f"chunks: {doc.get('chunks', 0)}; "
+                    f"sections: {sections or 'unknown'})"
+                )
+            parts.append("\n".join(lines))
+
+        try:
+            rag_manager = get_rag_manager()
+            relevant_chunks = rag_manager.search_documents_with_context(
+                query=user_input,
+                session_id=session.session_id,
+                n_results=3,
+            )
+        except Exception as exc:
+            logger.debug("Could not retrieve RAG context for classification: %s", exc)
+            relevant_chunks = []
+
+        if relevant_chunks:
+            lines = ["Relevant uploaded-document passages:"]
+            for chunk in relevant_chunks[:3]:
+                source = chunk.get("document_source", {})
+                filename = source.get("filename", "unknown")
+                title = source.get("document_title", filename)
+                section = source.get("section", "unknown section")
+                excerpt = _compact_text(chunk.get("text", ""), 360)
+                if excerpt:
+                    lines.append(f"- From {title} ({filename}), {section}: {excerpt}")
+            if len(lines) > 1:
+                parts.append("\n".join(lines))
+
+        context = "\n\n".join(parts)
+        return _compact_text(context, CLASSIFICATION_DOCUMENT_CONTEXT_CHARS)
 
     async def generate_single_persona_response(
         self,
@@ -103,9 +180,24 @@ class ImprovedChatOrchestrator:
             advisor_skill or get_advisor_skill("quick_advice"),
         )
 
-    def _get_persona_context_keywords(self, persona_id: str) -> str:
-        """Persona-specific retrieval keywords (see PersonaContextBuilder)."""
-        return self.context_builder.get_persona_context_keywords(persona_id)
+    async def generate_single_persona_response_stream(
+        self,
+        session,
+        persona,
+        response_length: str = "medium",
+        advisor_skill: Optional[AdvisorSkill] = None,
+        on_chunk=None,
+        on_stage=None,
+    ):
+        """Generate a document-grounded response while streaming chunks."""
+        return await generate_single_persona_response_stream(
+            session,
+            persona,
+            response_length,
+            advisor_skill or get_advisor_skill("quick_advice"),
+            on_chunk=on_chunk,
+            on_stage=on_stage,
+        )
 
     async def chat_with_persona(
         self,

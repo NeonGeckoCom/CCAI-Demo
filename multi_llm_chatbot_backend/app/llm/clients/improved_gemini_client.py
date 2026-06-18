@@ -1,16 +1,25 @@
 import httpx
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 
-from app.llm.clients.llm_client import LLMClient, ToolCallInfo, ToolCallResult
+from app.llm.clients.llm_client import LLMClient, LLMStreamChunk, ToolCallInfo, ToolCallResult
 
 from app.core.context_manager import get_context_manager
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+THINKING_DISABLED_CONFIG = {"thinkingBudget": 0}
+
+
+def _supports_thinking_config(model_name: str) -> bool:
+    """Return whether the Gemini model family supports thinkingConfig."""
+    normalized = (model_name or "").lower()
+    return normalized.startswith("gemini-3") or normalized.startswith("gemini-2.5")
+
 
 class ImprovedGeminiClient(LLMClient):
     def __init__(self, model_name: str = None):
@@ -54,14 +63,17 @@ class ImprovedGeminiClient(LLMClient):
             # DEBUG: Log the actual content being sent to Gemini
             logger.debug(f"Gemini payload preview: {str(context_window.messages)[:500]}...")
 
+            generation_config = {
+                "temperature": temperature,
+                "topK": 40,
+                "topP": 0.9,
+            }
+            if max_tokens is not None:
+                generation_config["maxOutputTokens"] = max_tokens
+
             payload = {
                 "contents": context_window.messages,
-                "generationConfig": {
-                    "temperature": temperature,
-                    "topK": 40,
-                    "topP": 0.9,
-                    "maxOutputTokens": max_tokens,
-                },
+                "generationConfig": generation_config,
                 "safetySettings": [
                     {
                         "category": "HARM_CATEGORY_HARASSMENT",
@@ -82,10 +94,14 @@ class ImprovedGeminiClient(LLMClient):
                 ]
             }
 
+            if _supports_thinking_config(self.model_name):
+                # Disable hidden thinking for latency-sensitive app responses.
+                # Otherwise Gemini preview models can spend the output budget on
+                # thought tokens, hit MAX_TOKENS, and force a second retry call.
+                payload["generationConfig"]["thinkingConfig"] = THINKING_DISABLED_CONFIG
+
             if response_mime_type is not None:
                 payload["generationConfig"]["responseMimeType"] = response_mime_type
-                # no thinking required for JSON responses; conserve token budget
-                payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -136,8 +152,140 @@ class ImprovedGeminiClient(LLMClient):
             logger.error("Gemini API timeout")
             return "The AI service is taking too long to respond. Please try again."
         except Exception as e:
-            logger.error(f"Unexpected error in Gemini client: {str(e)}")
+            logger.exception("Unexpected error in Gemini client")
             return "I encountered an unexpected error. Please try again."
+
+    async def stream_generate(
+        self,
+        system_prompt: str,
+        context: List[dict],
+        temperature: float,
+        max_tokens: Optional[int],
+        response_mime_type: str = None,
+        include_thoughts: bool = False,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Stream Gemini output through the native SSE endpoint."""
+        try:
+            context_window = self.context_manager.prepare_context_for_llm(
+                messages=context,
+                system_prompt=system_prompt,
+                llm_provider="gemini"
+            )
+
+            logger.debug(
+                "Streaming Gemini context prepared: %d messages, ~%s tokens, truncated=%s",
+                len(context_window.messages),
+                context_window.total_tokens,
+                context_window.truncated,
+            )
+
+            generation_config = {
+                "temperature": temperature,
+                "topK": 40,
+                "topP": 0.9,
+            }
+            if max_tokens is not None:
+                generation_config["maxOutputTokens"] = max_tokens
+
+            if response_mime_type is not None:
+                generation_config["responseMimeType"] = response_mime_type
+
+            if _supports_thinking_config(self.model_name):
+                generation_config["thinkingConfig"] = (
+                    {"includeThoughts": True}
+                    if include_thoughts
+                    else THINKING_DISABLED_CONFIG
+                )
+
+            payload = {
+                "contents": context_window.messages,
+                "generationConfig": generation_config,
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    }
+                ],
+            }
+
+            emitted_any = False
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/{self.model_name}:streamGenerateContent?alt=sse",
+                    json=payload,
+                    headers={"x-goog-api-key": self.api_key},
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+
+                        try:
+                            result = json.loads(data)
+                        except json.JSONDecodeError:
+                            logger.warning("Skipping malformed Gemini stream chunk: %r", data[:200])
+                            continue
+
+                        for candidate in result.get("candidates", []):
+                            finish_reason = candidate.get("finishReason")
+                            if finish_reason and finish_reason != "STOP":
+                                logger.warning(
+                                    "Gemini stream finished with finishReason=%s (model=%s, max_tokens=%s)",
+                                    finish_reason,
+                                    self.model_name,
+                                    max_tokens,
+                                )
+
+                            content = candidate.get("content") or {}
+                            for part in content.get("parts") or []:
+                                text = part.get("text") or ""
+                                if not text:
+                                    continue
+                                kind = "thought" if part.get("thought") else "text"
+                                emitted_any = True
+                                yield LLMStreamChunk(text=text, kind=kind)
+
+            if not emitted_any:
+                logger.warning("Empty Gemini stream response")
+
+        except httpx.HTTPStatusError as e:
+            logger.error("Gemini stream HTTP error: %s", e.response.status_code)
+            yield LLMStreamChunk(
+                text="I'm experiencing issues connecting to the AI service. Please try again.",
+                kind="text",
+            )
+        except httpx.TimeoutException:
+            logger.error("Gemini stream timeout")
+            yield LLMStreamChunk(
+                text="The AI service is taking too long to respond. Please try again.",
+                kind="text",
+            )
+        except Exception:
+            logger.exception("Unexpected error in Gemini stream client")
+            yield LLMStreamChunk(
+                text="I encountered an unexpected error. Please try again.",
+                kind="text",
+            )
 
     # ------------------------------------------------------------------
     # Tool-calling support (via Gemini OpenAI-compatible endpoint)

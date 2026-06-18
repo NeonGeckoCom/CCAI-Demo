@@ -360,12 +360,14 @@ class AppSettings(BaseModel):
             },
             "advisor_skills": {
                 "items": [
-                    {
-                        "id": skill.id,
-                        "name": skill.name,
-                        "description": skill.description,
-                        "headings": skill.headings,
-                    }
+                        {
+                            "id": skill.id,
+                            "name": skill.name,
+                            "description": skill.description,
+                            "response_moves": skill.response_moves,
+                            "format_guidance": skill.format_guidance,
+                            "headings": skill.headings,
+                        }
                     for skill in ADVISOR_SKILLS.values()
                 ],
             },

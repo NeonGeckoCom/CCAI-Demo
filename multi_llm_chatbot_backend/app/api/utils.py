@@ -65,25 +65,35 @@ async def load_chat_session_into_context(chat_session_id: str, user_id: str) -> 
         session_manager = get_session_manager()
         memory_session = session_manager.get_session(memory_session_id)
         
-        # Clear any existing data
-        memory_session.clear_all_data()
+        # Reload the conversation without deleting vector-store documents for
+        # this chat. Document chunks are keyed by the same memory_session_id.
+        memory_session.clear_messages()
+        memory_session.original_messages = []
+        memory_session.uploaded_files = []
         
         # Load messages into memory session
         messages = chat_session.get('messages', [])
         for msg_data in messages:
             try:
+                msg_type = msg_data.get('type')
+                role = 'user' if msg_type == 'user' else 'assistant'
+                if msg_type in {'system', 'document_upload'}:
+                    role = 'system'
+
                 message = {
                     'id': msg_data.get('id', 'unknown'),
-                    'role': 'user' if msg_data.get('type') == 'user' else 'assistant',
+                    'role': role,
                     'content': msg_data.get('content', ''),
                     'timestamp': msg_data.get('timestamp', '')
                 }
                 memory_session.append_message(message['role'], message['content'])
+
+                if msg_type == 'document_upload':
+                    filename = message['content'].removeprefix("Document uploaded: ").split(" (", 1)[0].strip()
+                    if filename and filename not in memory_session.uploaded_files:
+                        memory_session.uploaded_files.append(filename)
                 
                 # Store original message for export
-                if not hasattr(memory_session, 'original_messages'):
-                    memory_session.original_messages = []
-                
                 memory_session.original_messages.append(message)
             except Exception as msg_error:
                 logger.error(f"Error loading message: {msg_error}")

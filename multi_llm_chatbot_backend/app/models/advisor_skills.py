@@ -9,10 +9,16 @@ class AdvisorSkillSpecRequest(BaseModel):
     description: str = Field(min_length=1, max_length=500)
     use_when: str = Field(min_length=1, max_length=1800)
     how_to_work: List[str] = Field(default_factory=list)
+    response_moves: List[Dict[str, str]] = Field(default_factory=list)
+    format_guidance: Optional[str] = Field(default=None, max_length=1200)
     headings: List[Dict[str, str]] = Field(default_factory=list)
     preferred_advisors: List[str] = Field(default_factory=list)
     rag_policy: str = "optional"
     token_budgets: Dict[str, int] = Field(default_factory=dict)
+
+
+class AdvisorSkillNeedRequest(BaseModel):
+    need: str = Field(min_length=12, max_length=2500)
 
 
 class AdvisorSkillUpdateRequest(BaseModel):
@@ -20,6 +26,8 @@ class AdvisorSkillUpdateRequest(BaseModel):
     description: Optional[str] = Field(default=None, min_length=1, max_length=500)
     use_when: Optional[str] = Field(default=None, min_length=1, max_length=1800)
     how_to_work: Optional[List[str]] = None
+    response_moves: Optional[List[Dict[str, str]]] = None
+    format_guidance: Optional[str] = Field(default=None, max_length=1200)
     headings: Optional[List[Dict[str, str]]] = None
     preferred_advisors: Optional[List[str]] = None
     rag_policy: Optional[str] = None

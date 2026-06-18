@@ -25,7 +25,6 @@ async def debug_personas(request: Request):
                 pid: {
                     "name": persona.name,
                     "prompt": persona.system_prompt[:100] + "...",
-                    "retrieval_keywords": chat_orchestrator._get_persona_context_keywords(pid)
                 } for pid, persona in chat_orchestrator.personas.items()
             },
             "session_info": {
@@ -69,7 +68,6 @@ async def debug_rag_status(request: Request):
         test_search = rag_manager.search_documents_with_context(
             query="test methodology research",
             session_id=session_id,
-            persona_context="",
             n_results=3
         )
 
@@ -87,10 +85,6 @@ async def debug_rag_status(request: Request):
                 }
                 for chunk in test_search[:3]
             ],
-            "persona_keywords": {
-                pid: chat_orchestrator._get_persona_context_keywords(pid)
-                for pid in chat_orchestrator.personas.keys()
-            }
         }
 
     except Exception as e:

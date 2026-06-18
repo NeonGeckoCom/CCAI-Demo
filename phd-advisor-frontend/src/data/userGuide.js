@@ -14,8 +14,8 @@ export const userGuideTopics = [
 ## Your first steps
 1. **Start a new chat** using the pencil icon next to the search bar
 2. **Type a question.** Anything about your research, methodology, or PhD journey
-3. **Read multiple advisor responses.** Each persona brings a different lens
-4. **Reply to a specific advisor** to dig deeper into their perspective
+3. **Choose an advisor** from the header dropdown
+4. **Read that advisor's response** and continue with follow-up questions
 
 ## Need help?
 You can return to this guide anytime by clicking the **?** icon in the header.`,
@@ -32,7 +32,7 @@ You can return to this guide anytime by clicking the **?** icon in the header.`,
 {{advisorList}}
 
 ## Seeing who's available
-Click the **"X Advisors"** dropdown in the top right of the chat to see all of your advisors and their current status.`,
+Click the advisor dropdown in the top right of the chat to choose the persona that will answer your messages.`,
   },
   {
     id: 'conversations',
@@ -41,7 +41,7 @@ Click the **"X Advisors"** dropdown in the top right of the chat to see all of y
     content: `# Conversations & Replies
 
 ## Asking a question
-Type into the chat box at the bottom. All advisors will respond with their unique perspective.
+Type into the chat box at the bottom. Your selected advisor will respond with their unique perspective.
 
 ## Replying to a specific advisor
 Click on any advisor's response to **reply directly to them**. This continues the conversation with just that persona, letting you go deeper on their specific angle.
@@ -66,7 +66,7 @@ You can attach **PDFs, Word documents, and text files** to give your advisors co
 1. Click the paperclip icon in the chat input
 2. Select your file
 3. Wait for it to process
-4. Ask a question, and your advisors will reference the document
+4. Ask a question, and your selected advisor will reference the document
 
 ## What can it handle?
 - Research papers (PDF)
@@ -130,12 +130,12 @@ You can print or download the Canvas as a snapshot of your progress.`,
 ## Get better answers
 - **Provide context.** Mention your field, your stage, your specific concern.
 - **Quote your work.** Paste a paragraph from your draft for targeted feedback.
-- **Use multiple advisors.** Ask one for theory, another for practical next steps.
+- **Switch advisors when the lens should change.** Ask one for theory, then choose another for practical next steps.
 
 ## Useful workflows
-- **Stuck on methodology?** Ask the Methodologist + Theorist together.
-- **Feeling burnt out?** The Motivational Coach + Empathetic Listener help reframe.
-- **Need to be challenged?** Talk to the Constructive Critic and Socratic Mentor.
+- **Stuck on methodology?** Start with the Methodologist, then switch to the Theorist if the conceptual frame needs work.
+- **Feeling burnt out?** Choose the Motivational Coach or Empathetic Listener for a steadier reframe.
+- **Need to be challenged?** Choose the Constructive Critic or Socratic Mentor.
 
 ## Theme
 Switch between light and dark mode using the toggle in the top right.`,

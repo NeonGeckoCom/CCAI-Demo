@@ -1,8 +1,8 @@
 import logging
-from typing import Dict, List
+from typing import Awaitable, Callable, Dict, List, Optional
 
 from app.advisor_skills import DEFAULT_SKILL_ID, AdvisorSkill, get_advisor_skill
-from app.llm.clients.llm_client import LLMClient
+from app.llm.clients.llm_client import LLMClient, LLMStreamChunk
 
 SENTINEL = "</END>"
 logger = logging.getLogger(__name__)
@@ -97,19 +97,6 @@ def _normalize_skill_markdown(text: str, advisor_skill: AdvisorSkill) -> str:
             repaired.append(fixed)
         t = _collapse_blank_runs("\n".join(repaired))
 
-    skill_headings = advisor_skill.headings
-    expected = {heading.lower() for heading in skill_headings}
-    present = set()
-    for line in t.split("\n"):
-        match = re.match(r"^\s*###\s+(.+?)\s*$", line)
-        if match:
-            present.add(match.group(1).strip().lower())
-
-    # If the model ignored all headings, preserve its content but frame it
-    # under the first expected skill heading so the UI remains readable.
-    if t and expected and not (present & expected):
-        t = f"### {skill_headings[0]}\n{t}"
-
     return t.strip()
 
 def _has_sentinel(text: str) -> bool:
@@ -124,12 +111,50 @@ The previous answer did not finish with {sentinel}, so regenerate the full answe
 
 Recovery rules:
 - Do not mention the previous attempt or the retry.
-- Preserve the advisor skill's requested headings.
+- Preserve the advisor skill's intent and guardrails.
+- Use the most natural concise structure; do not force suggested response moves as headings.
 - Keep prose sections to one short paragraph.
 - Keep list sections to no more than three items.
 - Prioritize a complete answer over nuance or detail.
 - Finish your response with the sentinel token {sentinel}.
 """.strip()
+
+
+class _SentinelStreamFilter:
+    """Delay a few trailing chars so split sentinel tokens never reach the UI."""
+
+    def __init__(self, sentinel: str):
+        self.sentinel = sentinel
+        self.pending = ""
+        self.finished = False
+
+    def push(self, text: str) -> str:
+        if self.finished or not text:
+            return ""
+
+        self.pending += text
+        sentinel_idx = self.pending.find(self.sentinel)
+        if sentinel_idx != -1:
+            out = self.pending[:sentinel_idx]
+            self.pending = ""
+            self.finished = True
+            return out
+
+        keep_chars = max(len(self.sentinel) - 1, 0)
+        if len(self.pending) <= keep_chars:
+            return ""
+
+        out = self.pending[:-keep_chars]
+        self.pending = self.pending[-keep_chars:]
+        return out
+
+    def flush(self) -> str:
+        if self.finished:
+            self.pending = ""
+            return ""
+        out = self.pending
+        self.pending = ""
+        return out
 
 class Persona:
     def __init__(self, id: str, name: str, system_prompt: str, llm: LLMClient, temperature: int = 5):
@@ -211,4 +236,98 @@ class Persona:
         if len(compact) > 6000:
             compact = _truncate_words(compact, 900)
 
+        return compact
+
+    async def respond_stream(
+        self,
+        context: List[Dict],
+        response_length: str = "medium",
+        advisor_skill=None,
+        on_chunk: Optional[Callable[[LLMStreamChunk], Awaitable[None]]] = None,
+    ) -> str:
+        """Stream a skill-shaped Markdown response and return the final text."""
+        if isinstance(advisor_skill, AdvisorSkill):
+            skill = advisor_skill
+        else:
+            skill = get_advisor_skill(advisor_skill or DEFAULT_SKILL_ID)
+
+        temp_scaled = round(self.temperature / 10, 2)
+        max_tokens = skill.max_tokens(response_length)
+        full_prompt = (
+            f"{self.system_prompt}\n\n"
+            f"{skill.prompt_contract(response_length, SENTINEL)}"
+        )
+
+        text_filter = _SentinelStreamFilter(SENTINEL)
+        streamed_text: List[str] = []
+
+        async for chunk in self.llm.stream_generate(
+            system_prompt=full_prompt,
+            context=context,
+            temperature=temp_scaled,
+            max_tokens=None,
+            include_thoughts=True,
+        ):
+            if chunk.kind == "thought":
+                if on_chunk and chunk.text:
+                    await on_chunk(chunk)
+                continue
+
+            delta = text_filter.push(chunk.text)
+            if not delta:
+                if text_filter.finished:
+                    break
+                continue
+
+            streamed_text.append(delta)
+            if on_chunk:
+                await on_chunk(LLMStreamChunk(text=delta, kind="text"))
+
+            if text_filter.finished:
+                break
+
+        tail = text_filter.flush()
+        if tail:
+            streamed_text.append(tail)
+            if on_chunk:
+                await on_chunk(LLMStreamChunk(text=tail, kind="text"))
+
+        raw_text = "".join(streamed_text)
+        if raw_text and not text_filter.finished:
+            logger.warning(
+                "Streamed advisor response missing sentinel "
+                "(persona=%s, skill=%s, response_length=%s, chars=%s)",
+                self.id,
+                skill.id,
+                response_length,
+                len(raw_text),
+            )
+            retry_tokens = _retry_max_tokens(max_tokens)
+            retry_text = await self.llm.generate(
+                system_prompt=f"{full_prompt}\n\n{_compact_retry_instruction(SENTINEL)}",
+                context=context,
+                temperature=temp_scaled,
+                max_tokens=retry_tokens,
+            )
+            if _has_sentinel(retry_text):
+                logger.info(
+                    "Recovered incomplete streamed advisor response with compact retry "
+                    "(persona=%s, skill=%s, retry_tokens=%s)",
+                    self.id,
+                    skill.id,
+                    retry_tokens,
+                )
+                raw_text = retry_text
+            elif retry_text and len(retry_text) > len(raw_text):
+                logger.warning(
+                    "Streamed advisor compact retry still missing sentinel "
+                    "(persona=%s, skill=%s, retry_tokens=%s, chars=%s)",
+                    self.id,
+                    skill.id,
+                    retry_tokens,
+                    len(retry_text),
+                )
+                raw_text = retry_text
+
+        compact = _normalize_skill_markdown(raw_text, skill)
         return compact

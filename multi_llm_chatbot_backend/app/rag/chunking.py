@@ -16,6 +16,19 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+PROSE_CHUNK_SEPARATORS = [
+    "\n\n",
+    ". ",
+    "? ",
+    "! ",
+    "; ",
+    ": ",
+    "\n",
+    ", ",
+    " ",
+    "",
+]
+
 
 class DocumentChunker:
     """Preprocesses and chunks document text for the vector store."""
@@ -26,18 +39,25 @@ class DocumentChunker:
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.rag.chunk_size,
             chunk_overlap=settings.rag.chunk_overlap,
+            separators=PROSE_CHUNK_SEPARATORS,
+            keep_separator="end",
         )
 
     def preprocess_content(self, content: str) -> str:
         """Clean and preprocess document content"""
-        # Remove excessive whitespace
-        content = re.sub(r'\s+', ' ', content)
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
 
         # Remove page numbers and headers/footers
         content = re.sub(r'\n\s*\d+\s*\n', '\n', content)
 
         # Clean up encoding issues
-        content = content.replace('\\ufffd', ' ')
+        content = content.replace('\ufffd', ' ').replace('\\ufffd', ' ')
+
+        # Normalize horizontal whitespace without erasing paragraph and line
+        # boundaries; the recursive splitter depends on those boundaries.
+        content = re.sub(r'[ \t\f\v]+', ' ', content)
+        content = re.sub(r' *\n *', '\n', content)
+        content = re.sub(r'\n{3,}', '\n\n', content)
 
         return content.strip()
 
@@ -79,18 +99,20 @@ class DocumentChunker:
             if len(section_text.split()) > 300:  # Large section, needs chunking
                 section_chunks = self.text_splitter.split_text(section_text)
                 for chunk_text in section_chunks:
+                    chunk_type = "table_row" if self._looks_like_table_row(chunk_text) else "content"
                     chunks.append({
                         "text": chunk_text,
                         "section": section_type,
-                        "type": "content",
+                        "type": chunk_type,
                         "keywords": self._extract_keywords(chunk_text)
                     })
             else:
+                chunk_type = "table_row" if self._looks_like_table_row(section_text) else section_type
                 # Small section, keep as single chunk
                 chunks.append({
                     "text": section_text,
                     "section": section_type,
-                    "type": section_type,
+                    "type": chunk_type,
                     "keywords": self._extract_keywords(section_text)
                 })
 
@@ -109,7 +131,7 @@ class DocumentChunker:
                 continue
 
             # Check if this line starts a new section
-            section_match = re.match(r'(?:Chapter|Section|\d+\.?\s+)(.+)', line, re.IGNORECASE)
+            section_match = re.match(r'(?:(?:Chapter|Section)\s+|\d+\.\s+)(.+)', line, re.IGNORECASE)
             if section_match:
                 # Save previous section
                 if current_section:
@@ -133,6 +155,17 @@ class DocumentChunker:
             })
 
         return sections if sections else [{"text": content, "type": "content"}]
+
+    def _looks_like_table_row(self, text: str) -> bool:
+        """Detect compact row-like chunks without assuming a table schema."""
+        stripped = " ".join((text or "").split())
+        if not stripped:
+            return False
+        if re.search(r"^\d+\.\s+", stripped):
+            return True
+        if re.search(r"\b\d+\s+(?:minutes?|hours?|days?)\b", stripped, flags=re.IGNORECASE):
+            return True
+        return False
 
     def _classify_section_type(self, section_title: str) -> str:
         """Classify section type based on title"""

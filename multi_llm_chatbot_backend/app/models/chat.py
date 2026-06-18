@@ -41,7 +41,15 @@ class NewChatRequest(BaseModel):
     title: Optional[str] = "New Chat"
 
 
-ChatStreamEventType = Literal["error", "progress", "clarification", "advisor"]
+ChatStreamEventType = Literal[
+    "error",
+    "progress",
+    "clarification",
+    "advisor",
+    "advisor_start",
+    "advisor_delta",
+    "advisor_thought_delta",
+]
 
 
 class ChatStreamLine(BaseModel):

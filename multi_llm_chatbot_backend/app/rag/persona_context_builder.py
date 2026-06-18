@@ -6,29 +6,56 @@ relevance filtering, source attribution, and assembling the final
 message list passed to the LLM.
 """
 
+import json
 import logging
-from typing import Dict, List, Optional
+import re
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Dict, List, Optional
 
+from app.core.context_manager import get_context_manager
+from app.llm.clients.llm_client import LLMClient
 from app.rag.manager import get_rag_manager
 
 logger = logging.getLogger(__name__)
+
+CONVERSATION_RESPONSE_RESERVE_TOKENS = 500
+CONVERSATION_SUMMARY_MIN_TOKENS = 250
+CONVERSATION_SUMMARY_MAX_TOKENS = 800
+CONVERSATION_SUMMARY_RATIO = 0.25
+RAG_QUERY_KEYWORD_LIMIT = 12
+RAG_QUERY_REWRITE_MAX_TOKENS = 120
+
+StageCallback = Callable[[str, Dict[str, str]], Awaitable[None]]
+
+@dataclass
+class ConversationContext:
+    """Conversation history prepared for the prompt budget."""
+
+    messages: List[Dict[str, str]]
+    summary: str = ""
+    compacted: bool = False
 
 
 class PersonaContextBuilder:
     """Builds document-grounded prompt context for a persona response."""
 
-    def get_persona_context_keywords(self, persona_id: str) -> str:
-        """
-        Enhanced persona-specific keywords for better document retrieval
-        """
-        enhanced_keywords = {
-            "methodologist": "methodology research design experimental approach data collection sampling validity reliability statistical analysis quantitative qualitative mixed-methods procedures protocol IRB ethics",
-            "theorist": "theory theoretical framework conceptual model literature review philosophy epistemology ontology paradigm abstract concepts hypothesis proposition postulate axiom",
-            "pragmatist": "practical application implementation action steps next steps recommendation solution strategy timeline concrete advice roadmap execution deliverables milestones"
-        }
-        return enhanced_keywords.get(persona_id, "")
+    def __init__(
+        self,
+        max_context_tokens: Optional[int] = None,
+        chars_per_token: Optional[float] = None,
+    ):
+        context_manager = get_context_manager()
+        self.max_context_tokens = max_context_tokens or context_manager.max_context_tokens
+        self.chars_per_token = chars_per_token or context_manager.chars_per_token
 
-    async def retrieve_relevant_documents(self, user_input: str, session_id: str, persona_id: str = "") -> str:
+    async def retrieve_relevant_documents(
+        self,
+        user_input: str,
+        session_id: str,
+        persona_id: str = "",
+        llm_client: Optional[LLMClient] = None,
+        on_stage: Optional[StageCallback] = None,
+    ) -> str:
         """
         Enhanced document retrieval with document awareness and better attribution
         """
@@ -37,6 +64,7 @@ class PersonaContextBuilder:
             logger.info(f"Retrieving documents for session_id: {session_id}")
             logger.info(f"User input: {user_input[:100]}...")
 
+            await self._emit_stage(on_stage, "rag_checking_documents")
             rag_manager = get_rag_manager()
 
             # Check what documents are available for this session with detailed logging
@@ -71,18 +99,24 @@ class PersonaContextBuilder:
 
             # Extract document hints from user query
             document_hint = self._extract_document_hint_from_query(user_input)
-            logger.info(f"Document hint extracted from query: {document_hint}")
+            logger.info(
+                "Document filename hint extracted from query: %r",
+                document_hint,
+            )
 
-            # Get persona-specific context for better retrieval
-            persona_context = self.get_persona_context_keywords(persona_id)
+            search_query = await self._build_llm_retrieval_query(
+                user_input,
+                llm_client,
+                on_stage,
+            )
 
             # Search for relevant chunks with document awareness
-            logger.info(f"Searching with persona context: {persona_context[:100]}...")
+            await self._emit_stage(on_stage, "rag_retrieving")
+            logger.info("Searching documents with query: %r", search_query)
             relevant_chunks = rag_manager.search_documents_with_context(
-                query=user_input,
+                query=search_query,
                 session_id=session_id,
-                persona_context=persona_context,
-                n_results=6,  # Increased for better context
+                n_results=6,
                 document_hint=document_hint
             )
 
@@ -101,6 +135,7 @@ class PersonaContextBuilder:
                 return ""
 
             # Format retrieved content with enhanced attribution
+            await self._emit_stage(on_stage, "rag_building_context")
             formatted_context = self._format_document_context_with_attribution(relevant_chunks, persona_id)
 
             # Log final context length
@@ -114,6 +149,89 @@ class PersonaContextBuilder:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return ""
+
+    async def _emit_stage(
+        self,
+        on_stage: Optional[StageCallback],
+        phase: str,
+        **data: str,
+    ) -> None:
+        if on_stage:
+            await on_stage(phase, data)
+
+    async def _build_llm_retrieval_query(
+        self,
+        user_input: str,
+        llm_client: Optional[LLMClient],
+        on_stage: Optional[StageCallback],
+    ) -> str:
+        """Ask the LLM for retrieval keywords and append them to the user query."""
+        original_query = re.sub(r"\s+", " ", user_input or "").strip()
+        if not original_query or llm_client is None:
+            return original_query
+
+        await self._emit_stage(on_stage, "rag_rewriting_query")
+        try:
+            keyword_text = await llm_client.generate(
+                system_prompt=(
+                    "Extract concise retrieval keywords for searching uploaded documents. "
+                    "Return only a comma-separated list of important words or short phrases. "
+                    "Preserve exact labels, numbers, acronyms, and quoted terms. "
+                    "Do not answer the question and do not explain."
+                ),
+                context=[{
+                    "role": "user",
+                    "content": f"Question:\n{original_query}",
+                }],
+                temperature=0.0,
+                max_tokens=RAG_QUERY_REWRITE_MAX_TOKENS,
+            )
+        except Exception as exc:
+            logger.warning("RAG query keyword extraction failed: %s", exc)
+            return original_query
+
+        keywords = self._parse_retrieval_keywords(keyword_text)
+        if not keywords:
+            logger.info("RAG query keyword extraction returned no usable keywords")
+            return original_query
+
+        rewritten_query = f"{original_query} {' '.join(keywords)}"
+        logger.info(
+            "RAG LLM retrieval query: original=%r keywords=%s search_query=%r",
+            original_query,
+            keywords,
+            rewritten_query,
+        )
+        return rewritten_query
+
+    def _parse_retrieval_keywords(self, keyword_text: str) -> List[str]:
+        text = (keyword_text or "").strip()
+        if not text:
+            return []
+
+        raw_items: List[str]
+        try:
+            parsed = json.loads(text)
+            raw_items = parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            raw_items = re.split(r"[,;\n]+", text)
+
+        keywords: List[str] = []
+        seen = set()
+        for item in raw_items:
+            cleaned = re.sub(r"^\s*[-*\d.)]+\s*", "", str(item or "")).strip()
+            cleaned = cleaned.strip("\"'`[]{}() ")
+            cleaned = re.sub(r"\s+", " ", cleaned)
+            if not cleaned or len(cleaned) > 80:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            keywords.append(cleaned)
+            if len(keywords) >= RAG_QUERY_KEYWORD_LIMIT:
+                break
+        return keywords
 
     def _extract_document_hint_from_query(self, query: str) -> Optional[str]:
         """
@@ -184,7 +302,8 @@ class PersonaContextBuilder:
                 relevance = chunk.get("relevance_score", 0)
 
                 chunk_intro = f"[Source: {section}, Part {position}, Relevance: {relevance:.2f}]"
-                formatted_sections.append(f"{chunk_intro}\n{chunk['text']}\n")
+                chunk_text = self._format_chunk_text_for_prompt(chunk.get("text", ""))
+                formatted_sections.append(f"{chunk_intro}\n{chunk_text}\n")
 
         # Add context summary
         total_docs = len(documents)
@@ -204,6 +323,29 @@ Use this context to inform your response, and cite specific documents when refer
         formatted_context += f"\n\nSPECIAL INSTRUCTIONS FOR {persona_id.upper()}:\n{persona_instructions}"
 
         return formatted_context
+
+    def _format_chunk_text_for_prompt(self, text: str) -> str:
+        """Make flattened table-like passages easier for the model to read."""
+        compact_text = re.sub(r"\s+", " ", text or "").strip()
+        if not self._looks_like_flat_numbered_table(compact_text):
+            return text
+
+        def separator(match: re.Match) -> str:
+            prefix = compact_text[max(0, match.start() - 20):match.start()].lower()
+            if re.search(r"\b(table|figure|page|part|section|category)\s*$", prefix):
+                return match.group(0)
+            return f" | {match.group(1)}"
+
+        return re.sub(r"\s+(\d+\.\s+)", separator, compact_text)
+
+    def _looks_like_flat_numbered_table(self, text: str) -> bool:
+        row_markers = re.findall(r"\b\d+\.\s+\S", text or "")
+        if len(row_markers) < 2:
+            return False
+        return bool(
+            re.search(r"\b\d+\s+(?:minutes?|hours?|days?)\b", text, flags=re.IGNORECASE)
+            or re.search(r"\bdata\s+exists\b", text, flags=re.IGNORECASE)
+        )
 
     def _get_persona_document_instructions(self, persona_id: str) -> str:
         """
@@ -244,9 +386,6 @@ When analyzing the document context:
         """
         enhanced_context = []
 
-        # Get recent conversation history (last 6 messages for efficiency)
-        recent_messages = session.messages[-6:] if len(session.messages) > 6 else session.messages
-
         # Check if we actually have meaningful document content
         has_documents = bool(document_context and document_context.strip() and len(document_context.strip()) > 50)
 
@@ -261,6 +400,8 @@ When analyzing the document context:
     CURRENT SESSION CONTEXT:
     The student has uploaded the following documents: {doc_list}
 
+    {{conversation_summary}}
+
     DOCUMENT CONTENT:
     {document_context}
 
@@ -268,16 +409,13 @@ When analyzing the document context:
 
     Always cite your sources when referencing information from their documents using the format: "According to your [document_name]..." or "In your [section_name] from [document_name]..."
     """
-
-            enhanced_context.append({
-                "role": "system",
-                "content": system_message
-            })
         else:
             # NO DOCUMENTS - Explicitly tell persona not to reference documents
             system_message = f"""{persona.system_prompt}
 
     IMPORTANT: The student has NOT uploaded any documents yet. Do not reference any specific documents, files, or assume you have access to their research materials.
+
+    {{conversation_summary}}
 
     If they mention "my document," "my dissertation," "my proposal," etc., you should:
     1. Acknowledge that you don't have access to their specific documents
@@ -286,13 +424,24 @@ When analyzing the document context:
 
     Do NOT make up document names or pretend to have access to files that don't exist."""
 
-            enhanced_context.append({
-                "role": "system",
-                "content": system_message
-            })
+        conversation_context = self._prepare_conversation_context(
+            getattr(session, "messages", []),
+            system_message.replace("{conversation_summary}", ""),
+        )
+        conversation_summary = (
+            f"\n    {conversation_context.summary}\n"
+            if conversation_context.summary
+            else ""
+        )
+        system_message = system_message.replace("{conversation_summary}", conversation_summary)
 
-        # Add recent conversation messages (excluding system messages to avoid duplication)
-        for message in recent_messages:
+        enhanced_context.append({
+            "role": "system",
+            "content": system_message
+        })
+
+        # Add conversation messages (all messages when they fit; otherwise a token-budgeted recent tail).
+        for message in conversation_context.messages:
             if message.get('role') != 'system':
                 enhanced_context.append({
                     "role": message['role'],
@@ -300,3 +449,161 @@ When analyzing the document context:
                 })
 
         return enhanced_context
+
+    def _prepare_conversation_context(
+        self,
+        messages: List[Dict[str, str]],
+        base_system_message: str,
+    ) -> ConversationContext:
+        """Keep full history when it fits; otherwise summarize older turns."""
+        conversation_messages = [
+            {
+                "role": message.get("role", "assistant"),
+                "content": str(message.get("content", "")),
+            }
+            for message in messages
+            if message.get("role") != "system" and str(message.get("content", "")).strip()
+        ]
+        if not conversation_messages:
+            return ConversationContext(messages=[])
+
+        available_tokens = (
+            self.max_context_tokens
+            - self._estimate_tokens(base_system_message)
+            - CONVERSATION_RESPONSE_RESERVE_TOKENS
+        )
+        available_tokens = max(0, available_tokens)
+
+        if self._estimate_messages_tokens(conversation_messages) <= available_tokens:
+            return ConversationContext(messages=conversation_messages)
+
+        summary_budget = self._conversation_summary_budget(available_tokens)
+        recent_budget = max(0, available_tokens - summary_budget)
+        recent_messages = self._take_recent_messages_by_budget(
+            conversation_messages,
+            recent_budget,
+        )
+        older_count = len(conversation_messages) - len(recent_messages)
+        older_messages = conversation_messages[:older_count]
+        summary = self._summarize_messages_by_tokens(older_messages, summary_budget)
+
+        logger.info(
+            "Compacted conversation context: %s older messages summarized, "
+            "%s recent messages kept verbatim",
+            len(older_messages),
+            len(recent_messages),
+        )
+        return ConversationContext(
+            messages=recent_messages,
+            summary=summary,
+            compacted=True,
+        )
+
+    def _take_recent_messages_by_budget(
+        self,
+        messages: List[Dict[str, str]],
+        token_budget: int,
+    ) -> List[Dict[str, str]]:
+        """Walk backward from the latest turn and keep as much exact text as fits."""
+        selected: List[Dict[str, str]] = []
+        used_tokens = 0
+
+        for message in reversed(messages):
+            message_tokens = self._estimate_message_tokens(message)
+            if selected and used_tokens + message_tokens > token_budget:
+                break
+            if not selected and message_tokens > token_budget:
+                selected.insert(0, message)
+                break
+            selected.insert(0, message)
+            used_tokens += message_tokens
+
+        return selected
+
+    def _conversation_summary_budget(self, available_tokens: int) -> int:
+        """Allocate part of the conversation budget to the older-history summary."""
+        if available_tokens <= 0:
+            return 0
+        proportional_budget = int(available_tokens * CONVERSATION_SUMMARY_RATIO)
+        return max(
+            CONVERSATION_SUMMARY_MIN_TOKENS,
+            min(CONVERSATION_SUMMARY_MAX_TOKENS, proportional_budget),
+        )
+
+    def _summarize_messages_by_tokens(
+        self,
+        messages: List[Dict[str, str]],
+        token_budget: int,
+    ) -> str:
+        """Create a compact chronological summary without a second LLM call."""
+        if not messages or token_budget <= 0:
+            return ""
+
+        char_budget = max(0, int(token_budget * self.chars_per_token))
+        header = (
+            "EARLIER CONVERSATION SUMMARY:\n"
+            "Older turns were compacted because the full chat exceeded the prompt budget.\n"
+        )
+        if len(header) >= char_budget:
+            return header[:char_budget].rstrip()
+
+        summary_items = [
+            (
+                self._display_role(message.get("role", "assistant")),
+                self._compact_whitespace(message.get("content", "")),
+            )
+            for message in messages
+            if self._compact_whitespace(message.get("content", ""))
+        ]
+        lines = [header.rstrip()]
+        remaining_chars = char_budget - len(header)
+
+        for index, (role, content) in enumerate(summary_items):
+            prefix = f"- {role}: "
+            min_content_chars = 40
+            if remaining_chars <= len(prefix) + min_content_chars:
+                break
+
+            remaining_items = max(1, len(summary_items) - index)
+            fair_line_budget = max(
+                len(prefix) + min_content_chars + 1,
+                remaining_chars // remaining_items,
+            )
+            max_content_chars = min(
+                remaining_chars - len(prefix) - 1,
+                fair_line_budget - len(prefix) - 1,
+            )
+            line_content = self._truncate_chars(content, max_content_chars)
+            line = f"{prefix}{line_content}"
+            lines.append(line)
+            remaining_chars -= len(line) + 1
+
+        return "\n".join(lines).strip()
+
+    def _estimate_messages_tokens(self, messages: List[Dict[str, str]]) -> int:
+        return sum(self._estimate_message_tokens(message) for message in messages)
+
+    def _estimate_message_tokens(self, message: Dict[str, str]) -> int:
+        role_overhead_tokens = 4
+        return self._estimate_tokens(message.get("content", "")) + role_overhead_tokens
+
+    def _estimate_tokens(self, text: str) -> int:
+        return int(len(str(text or "")) / self.chars_per_token)
+
+    def _display_role(self, role: str) -> str:
+        normalized = (role or "assistant").strip().lower()
+        if normalized == "user":
+            return "User"
+        if normalized == "assistant":
+            return "Assistant"
+        return f"{normalized.title()} advisor"
+
+    def _compact_whitespace(self, text: str) -> str:
+        return " ".join(str(text or "").split())
+
+    def _truncate_chars(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        if limit <= 3:
+            return text[:limit]
+        return f"{text[:limit - 3].rstrip()}..."

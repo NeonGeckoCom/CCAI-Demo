@@ -12,41 +12,38 @@ token_budgets:
 
 # Document Feedback
 
-Use this skill when uploaded documents or draft text are part of the request.
+Use this skill when the student's file, draft, or pasted text should anchor the answer.
 
 ## Use when
 
-The student asks for review or feedback on an uploaded document, or refers to their proposal, chapter, manuscript, dissertation, thesis, paper, draft, or file.
+The student asks for review or feedback on an uploaded document, pasted draft text, proposal, chapter, manuscript, dissertation, thesis, paper, section, or file.
 
-## Evidence discipline
+## How to work
 
-- Clearly distinguish document evidence from inference and general best practice.
-- When citing document content, name the document or section if available.
-- If no document content is available, say that directly and give only general guidance.
+- Ground observations in the retrieved or pasted document context.
+- Separate document evidence from inference and general best practice.
+- When the user asks for a summary, prioritize what the document actually says
+  and keep critique or revision ideas out unless they are explicitly requested.
+- Prioritize the changes that would most improve the document.
+- Say plainly when document content is unavailable or too thin for a grounded review.
+
+## Response moves
+
+- **Evidence snapshot:** Briefly state what document material the answer is based on.
+- **Specific observation:** Tie feedback to visible features of the draft.
+- **Revision priority:** Name the most important change to make first.
+- **Missing or unclear:** Identify gaps, ambiguity, or underdeveloped material.
+- **Suggested edit:** Offer concrete additions, cuts, reorganizations, or wording moves.
+- **Source discipline:** Mark what came from the document, what is inferred, and what is general advice.
+
+## Format guidance
+
+Use sections for longer document reviews. For narrow questions, answer the question first and add only the evidence notes needed to keep the review grounded.
+
+## Guardrails
+
 - Do not invent document contents, titles, page numbers, or section names.
-
-## Suggested structure
-
-### Based on your document
-
-Summarize what the retrieved document context actually shows.
-
-### Specific observations
-
-Use bullets tied to document evidence.
-
-### Missing or unclear
-
-Use bullets for gaps, ambiguity, or underdeveloped material.
-
-### Suggested edits
-
-Give concrete edits, additions, or reorganization moves.
-
-### Source notes
-
-Explicitly separate:
-
-- What I saw in the uploaded document
-- What I infer from it
-- What is general best practice
+- Do not imply you reviewed a file when no document context is available.
+- Do not bury the student's requested focus under a generic full-document review.
+- Do not present advisor critique, probing questions, or suggested refinements
+  as if they are part of the document.

@@ -1,7 +1,7 @@
 ---
 id: quick_advice
 name: Quick Advice
-description: Lightweight orientation for a clear but relatively small question.
+description: Lightweight orientation for a clear, relatively small question.
 preferred_advisors: [pragmatist, minimalist, empathetic]
 rag_policy: optional
 token_budgets:
@@ -12,28 +12,30 @@ token_budgets:
 
 # Quick Advice
 
-Use this skill for lightweight orientation, first-step questions, reassurance, and small practical decisions.
+Use this skill when the student needs a useful answer now, not a full diagnostic pass.
 
 ## Use when
 
-The student asks for quick guidance, a first step, reassurance, or a practical orientation question.
+The student asks for a first step, a sanity check, reassurance, or practical orientation on a small decision.
 
 ## How to work
 
-- Keep the answer short, practical, and low-friction.
-- Give direct advice before nuance.
-- Avoid turning a small question into a full plan unless the student asks for one.
+- Lead with the answer instead of setting up a framework.
+- Keep nuance, caveats, and background proportional to the size of the question.
+- Give the student one concrete next move they can do without more planning.
 
-## Suggested structure
+## Response moves
 
-### Short answer
+- **Answer first:** Give the direct answer in plain language.
+- **Name the stake:** Briefly explain why this matters, only if it helps the student act.
+- **Next move:** Offer one to three low-friction actions.
+- **Small caveat:** Add a boundary condition when the advice depends on context.
 
-Give the direct answer in one short paragraph.
+## Format guidance
 
-### Why it matters
+For very small questions, use one short paragraph plus a few bullets. Use headings only when the answer has distinct parts.
 
-Explain the stakes briefly.
+## Guardrails
 
-### Do next
-
-Use two to four concrete bullets.
+- Do not expand a small question into a comprehensive plan.
+- Do not create artificial sections just because the skill has response moves.

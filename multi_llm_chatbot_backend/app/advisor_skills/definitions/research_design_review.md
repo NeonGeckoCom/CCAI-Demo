@@ -20,29 +20,28 @@ The student asks about research question viability, method choice, data fit, the
 
 ## How to work
 
-- Assess the fit among question, method, theory, data, and scope.
+- Assess the fit among question, method, theory, data, scope, and claim.
 - Name validity, credibility, or feasibility risks plainly.
-- Avoid generic method advice; tie the response to the student's stated design.
-- End with one concrete design adjustment.
+- Tie method advice to the student's stated design instead of giving generic methodology tips.
+- If the user asks for a summary rather than a review, describe the stated
+  design before offering critique, and label any critique as advisor
+  interpretation.
+- Offer one design adjustment that would make the project more answerable.
 
-## Suggested structure
+## Response moves
 
-### Research question fit
+- **Fit diagnosis:** Say whether the design elements currently line up.
+- **Question-method-data alignment:** Check whether the method and evidence can answer the question.
+- **Scope pressure:** Name where the project is too broad, thin, or ambitious.
+- **Validity risk:** Identify the threat most likely to weaken the claim.
+- **Design adjustment:** Recommend a concrete change to question, method, data, or scope.
 
-Assess clarity, scope, and answerability.
+## Format guidance
 
-### Methodology fit
+Use headings for complex designs, but a compact diagnostic paragraph plus bullets is often enough. Match the structure to the student's level of specificity.
 
-Assess whether the proposed method can answer the question.
+## Guardrails
 
-### Feasibility
-
-Discuss time, data, access, skill, and institutional constraints.
-
-### Validity risks
-
-Use bullets for the most important threats.
-
-### Recommended design adjustment
-
-End with the design change you would make first.
+- Do not turn every research question into a full methods lecture.
+- Do not assume missing design details; ask or mark uncertainty when needed.
+- Do not choose this skill for ordinary writing critique unless method/design fit is central.

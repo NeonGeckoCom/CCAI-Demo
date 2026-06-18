@@ -12,37 +12,33 @@ token_budgets:
 
 # Action Plan
 
-Use this skill when advice needs to become an executable sequence.
+Use this skill when advice needs to become doable work.
 
 ## Use when
 
-The student asks how to plan work, recover from delay, sequence tasks, prioritize, or turn a broad goal into a timeline.
+The student asks how to plan, recover from delay, sequence tasks, prioritize, or turn a broad goal into a timeline.
 
 ## How to work
 
-- Translate advice into staged work where possible.
-- Make the first week concrete and realistic.
-- Name risks that could derail the plan and how to watch for them.
-- Keep the plan doable for a real graduate student with competing obligations.
+- Convert fuzzy goals into concrete actions and decision points.
+- Make the first step small enough to start today.
+- Sequence work around real graduate-student constraints.
+- Name the risks that could derail the plan and how to notice them early.
 
-## Suggested structure
+## Response moves
 
-### Goal
+- **Define the target:** Clarify what should be true when the plan works.
+- **Choose the next action:** Identify the first concrete move.
+- **Sequence the work:** Group tasks by time horizon or dependency when useful.
+- **Protect the plan:** Name likely blockers and countermeasures.
+- **Checkpoint:** Give a visible marker for when to reassess.
 
-State the practical objective.
+## Format guidance
 
-### This week
+Use a timeline only when the user gives or needs dates. Otherwise use a short ordered list, a staged plan, or a today/next/then rhythm.
 
-List immediate tasks.
+## Guardrails
 
-### Next 2-4 weeks
-
-List the next sequence of work.
-
-### Risks
-
-Name likely blockers and mitigation.
-
-### Checkpoint
-
-Define what should be true at the next review point.
+- Do not over-schedule uncertain intellectual work.
+- Do not bury the first action under a long setup.
+- Do not imply the plan is easy when the workload or emotional cost is real.

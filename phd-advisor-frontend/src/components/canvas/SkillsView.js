@@ -9,8 +9,8 @@ const EMPTY_FORM = {
   description: '',
   use_when: '',
   how_to_work: '',
-  headings: '',
-  preferred_advisors: '',
+  response_moves: '',
+  format_guidance: '',
   rag_policy: 'optional',
 };
 
@@ -21,8 +21,8 @@ function linesToList(value) {
     .filter(Boolean);
 }
 
-function headingsToText(skill) {
-  const details = skill?.heading_details || [];
+function movesToText(skill) {
+  const details = skill?.response_moves || skill?.heading_details || [];
   if (details.length) {
     return details
       .map((item) => `${item.heading || ''}: ${item.instruction || ''}`.trim())
@@ -31,7 +31,7 @@ function headingsToText(skill) {
   return (skill?.headings || []).join('\n');
 }
 
-function textToHeadings(value) {
+function textToMoves(value) {
   return (value || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -56,8 +56,8 @@ function skillToForm(skill) {
     description: skill?.description || '',
     use_when: skill?.use_when || '',
     how_to_work: (skill?.how_to_work || []).join('\n'),
-    headings: headingsToText(skill),
-    preferred_advisors: (skill?.preferred_advisors || []).join(', '),
+    response_moves: movesToText(skill),
+    format_guidance: skill?.format_guidance || '',
     rag_policy: skill?.rag_policy || 'optional',
   };
 }
@@ -68,8 +68,9 @@ function formToPayload(form, includeId = false) {
     description: form.description.trim(),
     use_when: form.use_when.trim(),
     how_to_work: linesToList(form.how_to_work),
-    headings: textToHeadings(form.headings),
-    preferred_advisors: linesToList(form.preferred_advisors),
+    response_moves: textToMoves(form.response_moves),
+    headings: textToMoves(form.response_moves),
+    format_guidance: form.format_guidance.trim(),
     rag_policy: form.rag_policy || 'optional',
   };
   if (includeId && form.id.trim()) {
@@ -87,10 +88,9 @@ const SkillCard = ({ skill, selected, onSelect }) => (
     <div className="skill-card-head">
       <span className="skill-name">{skill.name}</span>
       <span className={`skill-scope ${skill.scope === 'user' ? 'custom' : ''}`}>
-        {skill.scope === 'user' ? 'Custom' : 'Default'}
+        {skill.scope === 'user' ? 'Yours' : 'Built-in'}
       </span>
     </div>
-    <div className="skill-id">{skill.id}</div>
     <p>{skill.description}</p>
   </button>
 );
@@ -99,6 +99,7 @@ const SkillsView = ({ authToken }) => {
   const [skills, setSkills] = useState([]);
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [skillNeed, setSkillNeed] = useState('');
   const [mode, setMode] = useState('view');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -154,6 +155,7 @@ const SkillsView = ({ authToken }) => {
   const selectSkill = (skill) => {
     setSelectedSkill(skill);
     setForm(skillToForm(skill));
+    setSkillNeed('');
     setMode('view');
     setStatus('');
     setError('');
@@ -162,6 +164,7 @@ const SkillsView = ({ authToken }) => {
   const startNew = () => {
     setSelectedSkill(null);
     setForm(EMPTY_FORM);
+    setSkillNeed('');
     setMode('new');
     setStatus('');
     setError('');
@@ -177,12 +180,19 @@ const SkillsView = ({ authToken }) => {
 
   const cancelEdit = () => {
     setForm(skillToForm(selectedSkill));
+    setSkillNeed('');
     setMode('view');
   };
 
   const saveSkill = async () => {
-    if (!form.name.trim() || !form.description.trim() || !form.use_when.trim()) {
-      setError('Name, description, and use-when are required.');
+    const isNew = mode === 'new';
+    if (isNew && skillNeed.trim().length < 12) {
+      setError('Describe the kind of problem you want advisors to learn how to solve.');
+      return;
+    }
+
+    if (!isNew && (!form.name.trim() || !form.description.trim() || !form.use_when.trim())) {
+      setError('Please add a name, a short description, and when to use this skill.');
       return;
     }
 
@@ -190,21 +200,21 @@ const SkillsView = ({ authToken }) => {
     setError('');
     setStatus('');
     try {
-      const isNew = mode === 'new';
-      const response = await fetch(`${API_URL}/api/advisor-skills${isNew ? '' : `/${selectedSkill.id}`}`, {
+      const response = await fetch(`${API_URL}/api/advisor-skills${isNew ? '/from-need' : `/${selectedSkill.id}`}`, {
         method: isNew ? 'POST' : 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formToPayload(form, isNew)),
+        body: JSON.stringify(isNew ? { need: skillNeed.trim() } : formToPayload(form)),
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
         throw new Error(detail.detail || `Could not save skill (${response.status})`);
       }
       const saved = await response.json();
-      setStatus(isNew ? 'Custom skill created.' : 'Custom skill updated.');
+      setStatus(isNew ? 'Skill written and saved.' : 'Skill updated.');
+      setSkillNeed('');
       await fetchSkills();
       setSelectedSkill(saved);
       setForm(skillToForm(saved));
@@ -232,9 +242,10 @@ const SkillsView = ({ authToken }) => {
       if (!response.ok) {
         throw new Error(`Could not delete skill (${response.status})`);
       }
-      setStatus('Custom skill deleted.');
+      setStatus('Skill deleted.');
       setSelectedSkill(null);
       setForm(EMPTY_FORM);
+      setSkillNeed('');
       await fetchSkills();
     } catch (err) {
       setError(err.message);
@@ -250,14 +261,14 @@ const SkillsView = ({ authToken }) => {
       <div className="skills-toolbar">
         <div>
           <h2>Advisor Skills</h2>
-          <p>Default skills are read-only. Custom skills can be edited or deleted.</p>
+          <p>Teach advisors a skill by describing your problem and the kind of help you want in everyday language.</p>
         </div>
         <div className="skills-toolbar-actions">
           <button className="btn ghost" onClick={fetchSkills} disabled={isLoading || isSaving} type="button">
             <Icon name="RefreshCw" size={14} /> Refresh
           </button>
           <button className="btn primary" onClick={startNew} disabled={isSaving} type="button">
-            <Icon name="Plus" size={14} color="#fff" /> New custom skill
+            <Icon name="Plus" size={14} color="#fff" /> New skill
           </button>
         </div>
       </div>
@@ -271,9 +282,9 @@ const SkillsView = ({ authToken }) => {
       <div className="skills-layout">
         <div className="skills-list-panel">
           <section>
-            <div className="skills-section-title">Custom ({grouped.custom.length})</div>
+            <div className="skills-section-title">Your skills ({grouped.custom.length})</div>
             {grouped.custom.length === 0 ? (
-              <div className="skills-empty">No custom skills yet.</div>
+              <div className="skills-empty">No skills created yet.</div>
             ) : grouped.custom.map((skill) => (
               <SkillCard
                 key={skill.id}
@@ -285,7 +296,7 @@ const SkillsView = ({ authToken }) => {
           </section>
 
           <section>
-            <div className="skills-section-title">Default ({grouped.defaults.length})</div>
+            <div className="skills-section-title">Built-in skills ({grouped.defaults.length})</div>
             {grouped.defaults.map((skill) => (
               <SkillCard
                 key={skill.id}
@@ -304,94 +315,105 @@ const SkillsView = ({ authToken }) => {
             <div className="skill-form">
               <div className="skill-form-head">
                 <div>
-                  <h3>{mode === 'new' ? 'New custom skill' : `Edit ${selectedSkill?.name}`}</h3>
-                  <p>Keep it simple for now. The backend will turn this into the skill prompt contract.</p>
+                  <h3>{mode === 'new' ? 'Teach a new skill' : `Edit ${selectedSkill?.name}`}</h3>
+                  <p>
+                    {mode === 'new'
+                      ? 'Describe the recurring problem in your own words. The app will write the advisor skill for you.'
+                      : 'Fine-tune how advisors recognize this skill and how they should help.'}
+                  </p>
                 </div>
                 <button className="btn ghost" onClick={cancelEdit} type="button" disabled={isSaving}>
                   Cancel
                 </button>
               </div>
 
-              {mode === 'new' && (
-                <label>
-                  Optional ID
-                  <input
-                    value={form.id}
-                    onChange={(event) => setForm((prev) => ({ ...prev, id: event.target.value }))}
-                    placeholder="custom_literature_review"
-                  />
-                </label>
+              {mode === 'new' ? (
+                <>
+                  <label>
+                    What should advisors learn to help with?
+                    <textarea
+                      value={skillNeed}
+                      onChange={(event) => setSkillNeed(event.target.value)}
+                      placeholder="Example: I often get scattered comments from my advisor and need help turning them into a clear revision plan with priorities."
+                    />
+                  </label>
+
+                  <button className="btn primary skill-save" onClick={saveSkill} type="button" disabled={isSaving}>
+                    <Icon name="Sparkles" size={14} color="#fff" /> {isSaving ? 'Writing skill...' : 'Write skill'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label>
+                    Skill name
+                    <input
+                      value={form.name}
+                      onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                      placeholder="Review my literature review"
+                    />
+                  </label>
+
+                  <label>
+                    What should it help with?
+                    <input
+                      value={form.description}
+                      onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+                      placeholder="Helps organize sources, spot gaps, and improve the argument."
+                    />
+                  </label>
+
+                  <label>
+                    When should the app use this skill?
+                    <textarea
+                      value={form.use_when}
+                      onChange={(event) => setForm((prev) => ({ ...prev, use_when: event.target.value }))}
+                      placeholder="Use this when I ask for help planning, revising, or diagnosing a literature review."
+                    />
+                  </label>
+
+                  <label>
+                    How should the advisor help?
+                    <textarea
+                      value={form.how_to_work}
+                      onChange={(event) => setForm((prev) => ({ ...prev, how_to_work: event.target.value }))}
+                      placeholder={'One instruction per line\nStart with the main issue\nGive concrete next steps\nKeep the tone supportive'}
+                    />
+                  </label>
+
+                  <label>
+                    Optional response moves
+                    <textarea
+                      value={form.response_moves}
+                      onChange={(event) => setForm((prev) => ({ ...prev, response_moves: event.target.value }))}
+                      placeholder={'Main diagnosis: Name the core issue\nUseful move: Offer the most relevant strategy\nNext step: Give one concrete action'}
+                    />
+                  </label>
+
+                  <label>
+                    Format guidance
+                    <textarea
+                      value={form.format_guidance}
+                      onChange={(event) => setForm((prev) => ({ ...prev, format_guidance: event.target.value }))}
+                      placeholder="Use headings only for complex answers. Prefer short paragraphs and bullets for quick questions."
+                    />
+                  </label>
+
+                  <label>
+                    Documents
+                    <select
+                      value={form.rag_policy}
+                      onChange={(event) => setForm((prev) => ({ ...prev, rag_policy: event.target.value }))}
+                    >
+                      <option value="optional">Use if helpful</option>
+                      <option value="required_when_available">Use when available</option>
+                    </select>
+                  </label>
+
+                  <button className="btn primary skill-save" onClick={saveSkill} type="button" disabled={isSaving}>
+                    <Icon name="Save" size={14} color="#fff" /> {isSaving ? 'Saving...' : 'Save skill'}
+                  </button>
+                </>
               )}
-
-              <label>
-                Name
-                <input
-                  value={form.name}
-                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                  placeholder="Literature Review Coach"
-                />
-              </label>
-
-              <label>
-                Description
-                <input
-                  value={form.description}
-                  onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                  placeholder="Helps structure and critique literature reviews."
-                />
-              </label>
-
-              <label>
-                Use when
-                <textarea
-                  value={form.use_when}
-                  onChange={(event) => setForm((prev) => ({ ...prev, use_when: event.target.value }))}
-                  placeholder="Use when the user asks for literature review planning, synthesis, gap-finding, or source organization."
-                />
-              </label>
-
-              <label>
-                How to work
-                <textarea
-                  value={form.how_to_work}
-                  onChange={(event) => setForm((prev) => ({ ...prev, how_to_work: event.target.value }))}
-                  placeholder={'One instruction per line\nAsk for corpus boundaries\nSeparate synthesis from summary'}
-                />
-              </label>
-
-              <label>
-                Response headings
-                <textarea
-                  value={form.headings}
-                  onChange={(event) => setForm((prev) => ({ ...prev, headings: event.target.value }))}
-                  placeholder={'Heading: instruction\nWhat I see: Identify the core issue\nNext move: Give concrete steps'}
-                />
-              </label>
-
-              <div className="skill-form-row">
-                <label>
-                  Preferred advisors
-                  <input
-                    value={form.preferred_advisors}
-                    onChange={(event) => setForm((prev) => ({ ...prev, preferred_advisors: event.target.value }))}
-                    placeholder="methodologist, constructive_critic"
-                  />
-                </label>
-                <label>
-                  RAG policy
-                  <select
-                    value={form.rag_policy}
-                    onChange={(event) => setForm((prev) => ({ ...prev, rag_policy: event.target.value }))}
-                  >
-                    <option value="optional">Optional</option>
-                    <option value="required_when_available">Required when available</option>
-                  </select>
-                </label>
-              </div>
-
-              <button className="btn primary skill-save" onClick={saveSkill} type="button" disabled={isSaving}>
-                <Icon name="Save" size={14} color="#fff" /> {isSaving ? 'Saving...' : 'Save skill'}
-              </button>
             </div>
           ) : selectedSkill ? (
             <div className="skill-detail">
@@ -400,10 +422,9 @@ const SkillsView = ({ authToken }) => {
                   <div className="skill-detail-title-row">
                     <h3>{selectedSkill.name}</h3>
                     <span className={`skill-scope ${selectedSkill.scope === 'user' ? 'custom' : ''}`}>
-                      {selectedSkill.scope === 'user' ? 'Custom' : 'Default'}
+                      {selectedSkill.scope === 'user' ? 'Yours' : 'Built-in'}
                     </span>
                   </div>
-                  <div className="skill-id">{selectedSkill.id}</div>
                 </div>
                 <div className="skill-detail-actions">
                   {selectedSkill.scope === 'user' && (
@@ -423,34 +444,37 @@ const SkillsView = ({ authToken }) => {
 
               <div className="skill-detail-grid">
                 <section>
-                  <h4>Use when</h4>
+                  <h4>When to use</h4>
                   <p>{selectedSkill.use_when}</p>
                 </section>
                 <section>
-                  <h4>How to work</h4>
+                  <h4>How it helps</h4>
                   {(selectedSkill.how_to_work || []).length ? (
                     <ul>{selectedSkill.how_to_work.map((item) => <li key={item}>{item}</li>)}</ul>
-                  ) : <p>No steps defined.</p>}
+                  ) : <p>No guidance added yet.</p>}
                 </section>
                 <section>
-                  <h4>Response headings</h4>
-                  {(selectedSkill.heading_details || []).length ? (
+                  <h4>Response moves</h4>
+                  {(selectedSkill.response_moves || selectedSkill.heading_details || []).length ? (
                     <ul>
-                      {selectedSkill.heading_details.map((item) => (
+                      {(selectedSkill.response_moves || selectedSkill.heading_details || []).map((item) => (
                         <li key={item.heading}><strong>{item.heading}</strong>{item.instruction ? ` - ${item.instruction}` : ''}</li>
                       ))}
                     </ul>
-                  ) : <p>No headings defined.</p>}
+                  ) : <p>No response moves added yet.</p>}
                 </section>
                 <section>
-                  <h4>Routing</h4>
-                  <p>RAG: {selectedSkill.rag_policy || 'optional'}</p>
-                  <p>Preferred advisors: {(selectedSkill.preferred_advisors || []).join(', ') || 'Any'}</p>
+                  <h4>Format</h4>
+                  <p>{selectedSkill.format_guidance || 'Use the shape that fits the request.'}</p>
+                </section>
+                <section>
+                  <h4>Documents</h4>
+                  <p>{selectedSkill.rag_policy === 'required_when_available' ? 'Use when available' : 'Use if helpful'}</p>
                 </section>
               </div>
             </div>
           ) : (
-            <div className="skills-empty large">Select a skill or create a custom one.</div>
+            <div className="skills-empty large">Select a skill or create your own.</div>
           )}
         </div>
       </div>

@@ -12,7 +12,7 @@ token_budgets:
 
 # Deep Review
 
-Use this skill when the student needs critique, judgment, or feedback on an idea, plan, argument, or draft.
+Use this skill when the student wants a serious judgment about quality, coherence, persuasiveness, or readiness.
 
 ## Use when
 
@@ -20,29 +20,25 @@ The student asks whether something is good enough, too broad, weak, convincing, 
 
 ## How to work
 
-- Make a clear judgment while staying constructive.
-- Separate strengths from concerns so the student can act on both.
-- Prioritize the most important revision instead of listing every possible issue.
-- Give nuance when the question calls for it, especially for proposals, chapters, theory, and methods.
+- Make a clear judgment without pretending the evidence is stronger than it is.
+- Separate high-leverage issues from nice-to-have improvements.
+- Preserve what is working before recommending changes.
+- Give enough reasoning that the student can transfer the feedback to the next draft.
 
-## Suggested structure
+## Response moves
 
-### Overall assessment
+- **Bottom line:** State the central judgment and confidence level.
+- **What works:** Name the strongest elements worth keeping.
+- **Main concern:** Identify the limiting weakness or risk.
+- **Revision logic:** Explain why the change would improve the work.
+- **Priority move:** End with the revision that should happen first.
 
-Give the central judgment.
+## Format guidance
 
-### Strengths
+Use sections for longer reviews, but keep short reviews conversational. Bullets work well for strengths and concerns; prose works better for the overall judgment.
 
-Use bullets for what is working.
+## Guardrails
 
-### Concerns
-
-Use bullets for weaknesses, risks, gaps, or ambiguities.
-
-### What I would revise
-
-Name the concrete changes you would make.
-
-### Priority next move
-
-End with the highest-leverage next move.
+- Do not list every possible flaw.
+- Do not rewrite the student's work unless they ask.
+- Do not treat method-design problems as ordinary critique when research_design_review would be a better fit.

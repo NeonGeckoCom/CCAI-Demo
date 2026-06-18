@@ -87,6 +87,7 @@ class PersistMessage(BaseModel):
     document_chunks_used: int = 0
     advisor_skill: Optional[str] = None
     advisor_skill_name: Optional[str] = None
+    thoughts: Optional[str] = None
     # Clarification-specific
     suggestions: Optional[List[str]] = None
     # Reply/expand metadata

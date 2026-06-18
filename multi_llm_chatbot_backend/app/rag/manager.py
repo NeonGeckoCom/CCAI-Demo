@@ -130,11 +130,11 @@ class EnhancedRAGManager:
             }
 
     def search_documents_with_context(self, query: str, session_id: str,
-                                      persona_context: str = "", n_results: int = 5,
+                                      n_results: int = 5,
                                       document_hint: str = None) -> List[Dict[str, Any]]:
         """Enhanced document-aware search (delegates to DocumentRetriever)."""
         return self.retriever.search(
-            query, session_id, persona_context, n_results, document_hint
+            query, session_id, n_results, document_hint
         )
 
     def delete_session_documents(self, session_id: str) -> bool:

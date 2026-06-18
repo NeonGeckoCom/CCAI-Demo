@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { Users, ChevronDown, Pencil, AlertTriangle, X } from 'lucide-react';
+import { Users, ChevronDown, Pencil, AlertTriangle, X, Check } from 'lucide-react';
 import AvatarPickerModal from './AvatarPickerModal';
 import Toggle from './Toggle';
 import { useAppConfig } from '../contexts/AppConfigContext';
 
-const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, isDark }) => {
+const AdvisorStatusDropdown = ({
+  advisors,
+  thinkingAdvisors,
+  getAdvisorColors,
+  isDark,
+  selectedAdvisorId,
+  onSelectAdvisor,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState(null);
   const [pickerAdvisor, setPickerAdvisor] = useState(null);
@@ -32,8 +39,8 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
   const thinkingCount = Array.isArray(thinkingAdvisors)
     ? thinkingAdvisors.filter(id => id !== 'system').length
     : 0;
-  const totalAdvisors = advisorEntries.length;
   const enabledCount = advisorEntries.filter(([id]) => isAdvisorEnabled(id)).length;
+  const selectedAdvisor = selectedAdvisorId ? advisors[selectedAdvisorId] : null;
 
   const handleToggle = () => {
     setIsOpen(!isOpen);
@@ -45,6 +52,12 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
       return;
     }
     setAdvisorEnabled(id, next);
+  };
+
+  const handleAdvisorSelect = (id, enabled) => {
+    if (!enabled) return;
+    onSelectAdvisor?.(id);
+    setIsOpen(false);
   };
 
   const confirmDisable = () => {
@@ -61,7 +74,7 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         <div className="advisor-status-info">
           <Users size={16} />
           <span className="advisor-count">
-            {enabledCount} of {totalAdvisors} Advisor{totalAdvisors !== 1 ? 's' : ''}
+            {selectedAdvisor ? selectedAdvisor.name : 'Choose Advisor'}
           </span>
           {thinkingCount > 0 && (
             <div className="thinking-badge">
@@ -118,19 +131,26 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
               const colors = getAdvisorColors(id, isDark);
               const isThinking = Array.isArray(thinkingAdvisors) && thinkingAdvisors.includes(id);
               const enabled = isAdvisorEnabled(id);
+              const selected = id === selectedAdvisorId;
 
               return (
                 <div
                   key={id}
-                  className={`advisor-item ${isThinking ? 'thinking' : ''} ${enabled ? '' : 'disabled'}`}
+                  className={`advisor-item ${isThinking ? 'thinking' : ''} ${enabled ? '' : 'disabled'} ${selected ? 'selected' : ''}`}
                   style={{ '--advisor-color': colors.color, '--advisor-bg': colors.bgColor }}
+                  onClick={() => handleAdvisorSelect(id, enabled)}
+                  role="menuitemradio"
+                  aria-checked={selected}
                 >
                   <div
                     className="advisor-icon"
                     style={{ position: 'relative', cursor: 'pointer', overflow: 'hidden', width: 32, height: 32, borderRadius: 8, flexShrink: 0 }}
                     onMouseEnter={() => setHoveredId(id)}
                     onMouseLeave={() => setHoveredId(null)}
-                    onClick={() => setPickerAdvisor({ id, name: advisor.name })}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPickerAdvisor({ id, name: advisor.name });
+                    }}
                   >
                     {advisor.avatarUrl
                       ? <img src={advisor.avatarUrl} alt={advisor.name} style={{ width: 32, height: 32, objectFit: 'cover', display: 'block' }} />
@@ -148,10 +168,19 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
                       {!enabled
                         ? <span className="advisor-off-label">Off — won't reply</span>
                         : isThinking
-                          ? <span className="advisor-thinking-label">Thinking…</span>
-                          : advisor.description}
+                          ? <span className="advisor-thinking-label">Thinking...</span>
+                          : selected
+                            ? <span className="advisor-selected-label">Selected for chat</span>
+                            : advisor.description}
                     </div>
                   </div>
+                  {selected && (
+                    <Check
+                      size={16}
+                      className="advisor-selected-icon"
+                      aria-label={`${advisor.name} selected`}
+                    />
+                  )}
                   <Toggle
                     checked={enabled}
                     onChange={(next) => handleAdvisorToggle(id, next)}
@@ -209,6 +238,10 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         .advisor-count {
           font-weight: 600;
           color: var(--text-primary);
+          max-width: 150px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         
         .thinking-badge {
@@ -277,6 +310,7 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
           padding: 12px 16px;
           border-bottom: 1px solid var(--border-primary);
           transition: background-color 0.2s ease;
+          cursor: pointer;
         }
         
         .advisor-item:last-child {
@@ -289,6 +323,14 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         
         .advisor-item.thinking {
           background: var(--advisor-bg);
+        }
+
+        .advisor-item.selected {
+          background: var(--advisor-bg);
+        }
+
+        .advisor-item.disabled {
+          cursor: not-allowed;
         }
 
         .advisor-item.disabled .advisor-icon,
@@ -308,6 +350,12 @@ const AdvisorStatusDropdown = ({ advisors, thinkingAdvisors, getAdvisorColors, i
         .advisor-thinking-label {
           color: var(--advisor-color);
           font-weight: 500;
+        }
+
+        .advisor-selected-label,
+        .advisor-selected-icon {
+          color: var(--advisor-color);
+          font-weight: 600;
         }
         
         .advisor-icon {

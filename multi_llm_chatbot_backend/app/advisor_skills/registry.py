@@ -35,30 +35,32 @@ class AdvisorSkill:
 
     @property
     def headings(self) -> List[str]:
-        """Return suggested response headings found in the markdown body."""
-        return [
-            heading.strip()
-            for heading in re.findall(r"^###\s+(.+?)\s*$", self.markdown, flags=re.MULTILINE)
-        ]
+        """Return compatibility labels for optional response moves."""
+        return [detail["heading"] for detail in self.heading_details]
 
     @property
     def heading_details(self) -> List[Dict[str, str]]:
-        """Return suggested headings with their body instructions."""
-        details: List[Dict[str, str]] = []
-        matches = list(re.finditer(r"^###\s+(.+?)\s*$", self.markdown, flags=re.MULTILINE))
-        for idx, match in enumerate(matches):
-            start = match.end()
-            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(self.markdown)
-            instruction = re.sub(r"\s+", " ", self.markdown[start:end]).strip()
-            details.append({
-                "heading": match.group(1).strip(),
-                "instruction": instruction,
-            })
-        return details
+        """Return optional response moves, with legacy heading fallback."""
+        return _response_move_details(self.markdown) or _legacy_heading_details(self.markdown)
+
+    @property
+    def response_moves(self) -> List[Dict[str, str]]:
+        return self.heading_details
 
     @property
     def how_to_work(self) -> List[str]:
         return _section_bullets(self.markdown, "How to work")
+
+    @property
+    def format_guidance(self) -> str:
+        return _section_text(self.markdown, "Format guidance")
+
+    @property
+    def guardrails(self) -> List[str]:
+        return _section_bullets(self.markdown, "Guardrails") or _section_bullets(
+            self.markdown,
+            "Evidence discipline",
+        )
 
     @property
     def preferred_advisors(self) -> List[str]:
@@ -87,7 +89,9 @@ class AdvisorSkill:
         return f"""
 You are using the advisor skill: {self.name} (`{self.id}`).
 
-The skill definition below is authoritative. Follow its intent, style guidance, and suggested structure. The definition is markdown so it may contain prose, headings, examples, or notes rather than a fixed schema.
+The skill definition below is an advising brief, not a fill-in template. Follow
+its intent, routing criteria, response moves, and guardrails. Choose the answer
+shape that best fits the user's actual request.
 
 --- BEGIN ADVISOR SKILL ---
 {self.markdown}
@@ -95,10 +99,16 @@ The skill definition below is authoritative. Follow its intent, style guidance, 
 
 Response rules:
 - Use GitHub-Flavored Markdown.
-- Use `###` for major response sections unless the skill definition asks for another format.
-- Use `-` for bullets.
+- Start directly with useful advice; do not announce the skill or explain the format.
+- Use natural paragraphs, bullets, numbered steps, or short `###` sections as helpful.
+- When the user asks to summarize or explain what a document says, answer
+  descriptively first. Do not turn the answer into a critique, revision plan,
+  or probing-question sequence unless the user asks for evaluation; if you add
+  advisor interpretation, label it clearly.
+- Treat response moves as optional ingredients: combine, rename, skip, or reorder them when the request calls for it.
+- Do not march through every move like a worksheet unless the user asks for a comprehensive review.
+- Use `-` for unordered bullets when bullets improve scanability.
 - Do not use tables unless the user explicitly requests one.
-- Do not include a preamble before the first response section or a conclusion after the last section.
 - {length_hint}
 - Prioritize a complete answer over extra detail; shorten sections if needed so the response ends cleanly.
 - Finish your response with the sentinel token {sentinel}.
@@ -199,6 +209,11 @@ def _first_paragraph(markdown: str) -> str:
 
 
 def _section_text(markdown: str, heading: str) -> str:
+    section = _section_markdown(markdown, heading)
+    return re.sub(r"\s+", " ", section).strip()
+
+
+def _section_markdown(markdown: str, heading: str) -> str:
     pattern = rf"^##\s+{re.escape(heading)}\s*$"
     match = re.search(pattern, markdown, flags=re.IGNORECASE | re.MULTILINE)
     if not match:
@@ -206,17 +221,70 @@ def _section_text(markdown: str, heading: str) -> str:
 
     rest = markdown[match.end():]
     next_heading = re.search(r"^##\s+", rest, flags=re.MULTILINE)
-    section = rest[: next_heading.start()] if next_heading else rest
-    return re.sub(r"\s+", " ", section).strip()
+    return (rest[: next_heading.start()] if next_heading else rest).strip()
 
 
 def _section_bullets(markdown: str, heading: str) -> List[str]:
-    section = _section_text(markdown, heading)
-    return [
-        item.strip()
-        for item in re.findall(r"(?:^|\s)-\s+(.+?)(?=\s+-\s+|$)", section)
-        if item.strip()
-    ]
+    section = _section_markdown(markdown, heading)
+    bullets: List[str] = []
+    current: List[str] = []
+
+    for line in section.splitlines():
+        bullet = re.match(r"^\s*-\s+(.*)$", line)
+        if bullet:
+            if current:
+                bullets.append(_flatten_markdown(" ".join(current)))
+            current = [bullet.group(1).strip()]
+        elif current and line.strip():
+            current.append(line.strip())
+        elif current:
+            bullets.append(_flatten_markdown(" ".join(current)))
+            current = []
+
+    if current:
+        bullets.append(_flatten_markdown(" ".join(current)))
+
+    return [item for item in bullets if item]
+
+
+def _flatten_markdown(text: str) -> str:
+    text = re.sub(r"`([^`]+)`", r"\1", text or "")
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _response_move_details(markdown: str) -> List[Dict[str, str]]:
+    section = _section_markdown(markdown, "Response moves")
+    if not section:
+        return []
+
+    details: List[Dict[str, str]] = []
+    for item in _section_bullets(markdown, "Response moves"):
+        match = re.match(r"^(?:\*\*)?(.+?)(?:\*\*)?\s*:\s*(.+)$", item)
+        if match:
+            heading = _flatten_markdown(match.group(1)).strip(" :")
+            instruction = _flatten_markdown(match.group(2))
+        else:
+            heading = _flatten_markdown(item)
+            instruction = ""
+        if heading:
+            details.append({"heading": heading, "instruction": instruction})
+    return details
+
+
+def _legacy_heading_details(markdown: str) -> List[Dict[str, str]]:
+    details: List[Dict[str, str]] = []
+    matches = list(re.finditer(r"^###\s+(.+?)\s*$", markdown, flags=re.MULTILINE))
+    for idx, match in enumerate(matches):
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(markdown)
+        instruction = re.sub(r"\s+", " ", markdown[start:end]).strip()
+        details.append({
+            "heading": match.group(1).strip(),
+            "instruction": instruction,
+        })
+    return details
 
 
 def _load_advisor_skills() -> Dict[str, AdvisorSkill]:
@@ -415,7 +483,15 @@ def _generated_skill_markdown(spec: Dict[str, Any], skill_id: str) -> str:
             "Give a complete response that can be reused for similar requests.",
         ],
     )
-    headings = _clean_generated_headings(spec.get("headings"))
+    response_moves = _clean_generated_headings(spec.get("response_moves") or spec.get("headings"))
+    format_guidance = _clean_generated_text(
+        spec.get("format_guidance"),
+        (
+            "Choose the response shape that best fits the request. Use headings "
+            "only when they make the answer easier to scan."
+        ),
+        max_len=500,
+    )
 
     lines = [
         "---",
@@ -442,13 +518,19 @@ def _generated_skill_markdown(spec: Dict[str, Any], skill_id: str) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in how_to_work)
-    lines.extend(["", "## Suggested structure", ""])
-    for heading in headings:
-        lines.extend([
-            f"### {heading['heading']}",
-            "",
-            heading["instruction"],
-            "",
-        ])
+    lines.extend(["", "## Response moves", ""])
+    for move in response_moves:
+        lines.append(f"- **{move['heading']}:** {move['instruction']}")
+    lines.extend([
+        "",
+        "## Format guidance",
+        "",
+        format_guidance,
+        "",
+        "## Guardrails",
+        "",
+        "- Do not force every response move into the answer.",
+        "- Keep the advisor persona visible, but let the skill shape the work.",
+    ])
 
     return "\n".join(lines).strip() + "\n"

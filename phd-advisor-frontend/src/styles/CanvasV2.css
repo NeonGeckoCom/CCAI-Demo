@@ -1569,11 +1569,6 @@
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
-.skill-form-row {
-  display: grid;
-  grid-template-columns: 1fr 220px;
-  gap: 12px;
-}
 .skill-save {
   align-self: flex-start;
 }

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Reply, Copy, Check, Maximize2, FileText, Hash, Target, Volume2, VolumeX, Search, X, Loader2 } from 'lucide-react';
+import { Reply, Copy, Check, Maximize2, FileText, Hash, Target, Volume2, VolumeX, Search, X, Loader2, BrainCircuit } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -303,6 +303,7 @@ const MessageBubble = ({
     const Icon = advisor.icon;
     const colors = getAdvisorColors(personaId, isDark);
     const isCopied = copiedStates[message.id];
+    const thoughtText = (message?.thoughts || message?.thinking || '').trim();
 
     const avatarElement = (size = 40) => (
       advisor.avatarUrl ? (
@@ -364,7 +365,7 @@ const MessageBubble = ({
             {(message.advisor_skill_name || message.advisor_skill) && (
               <span
                 className="advisor-skill-badge"
-                title={message.advisor_skill ? `Skill id: ${message.advisor_skill}` : 'Advisor skill'}
+                title={message.advisor_skill_name ? `Advisor skill: ${message.advisor_skill_name}` : 'Advisor skill'}
               >
                 {message.advisor_skill_name || message.advisor_skill}
               </span>
@@ -395,6 +396,24 @@ const MessageBubble = ({
               {preprocessMarkdown(message?.compact_markdown || message?.content || message?.text)}
             </ReactMarkdown>
           </div>
+
+          {thoughtText && (
+            <details className="advisor-thinking-details">
+              <summary>
+                <BrainCircuit size={14} />
+                <span>Thinking</span>
+              </summary>
+              <div className="advisor-thinking-text">
+                <ReactMarkdown
+                  components={markdownComponents}
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[]}
+                >
+                  {preprocessMarkdown(thoughtText)}
+                </ReactMarkdown>
+              </div>
+            </details>
+          )}
           
           {showReplyButton && (
             <div className="message-actions">
