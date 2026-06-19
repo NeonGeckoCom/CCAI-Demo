@@ -1,17 +1,9 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+/*
+ * The frontend is now the static "PhD Navigator" app, served from public/.
+ * It boots itself (React 18 + in-browser Babel via <script> tags in
+ * public/index.html) and mounts into <div id="root"> from public/coach-app2.jsx.
+ *
+ * react-scripts still requires a src entry point, so this is intentionally a
+ * no-op — it must NOT mount a second React tree into #root.
+ */
+export {};

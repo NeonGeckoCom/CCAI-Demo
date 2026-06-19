@@ -1,43 +1,84 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="AI Advisor Panel — AI-Powered Guidance from Multiple Experts"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PhD Navigator — know the path ahead</title>
+  <script>
+    /* Backend origin for auth + chat. On Vercel the backend is NOT on the same
+       host, so set this to your deployed API origin (e.g. "https://api.example.com")
+       to enable real auth/chat. Leave "" to use the local dev default
+       (http://<host>:8000); if unreachable the app runs in offline demo mode. */
+    window.PHD_API_BASE = "";
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="coach-styles.css" />
+</head>
+<body>
+  <div id="root"></div>
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+  <template id="__bundler_thumbnail" data-bg-color="#D9774B">
+    <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+      <rect width="1200" height="800" fill="#D9774B" />
+      <circle cx="600" cy="380" r="190" fill="none" stroke="#FBEEE4" stroke-width="22" />
+      <circle cx="600" cy="380" r="190" fill="none" stroke="#FFFFFF" stroke-width="22"
+        stroke-linecap="round" stroke-dasharray="1194" stroke-dashoffset="430"
+        transform="rotate(-90 600 380)" />
+      <polygon points="600,300 645,395 600,460 555,395" fill="#FFFFFF" />
+      <circle cx="600" cy="380" r="16" fill="#FFFFFF" />
+      <text x="600" y="650" font-family="Georgia, serif" font-size="64" font-weight="600"
+        fill="#FFFFFF" text-anchor="middle">PhD Navigator</text>
+    </svg>
+  </template>
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+  <!-- lucide icons -->
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
-  </body>
+  <!-- mammoth: extract editable text from uploaded .docx files -->
+  <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Data (advisors, suggestions, stages, user) + the roadmap engine (the brain) -->
+  <script src="canvas-data.js"></script>
+  <script src="roadmap-engine.js"></script>
+
+  <!-- Real backend wiring (auth, streaming chat, sessions). Defines window.CoachAPI. -->
+  <script src="coach-api.js"></script>
+
+  <!-- Shared Icon helper (must run before the tools module) -->
+  <script type="text/babel" src="coach-shared.jsx" data-presets="react"></script>
+
+  <!-- Functional persistent tools (notes, tasks, reading, pomodoro, bib) -->
+  <script type="text/babel" src="canvas-tools.jsx" data-presets="react"></script>
+
+  <!-- Committee Builder (chair helper + match scoring) -->
+  <script type="text/babel" src="coach-committee.jsx" data-presets="react"></script>
+
+  <!-- App: onboarding + dashboard (defines window.coachHelpers) -->
+  <script type="text/babel" src="coach-app.jsx" data-presets="react"></script>
+
+  <!-- Marketing landing + login (website-style home) -->
+  <script type="text/babel" src="coach-landing.jsx" data-presets="react"></script>
+
+  <!-- Insights / Workspace / Documents (warm redesign — uses coachHelpers) -->
+  <script type="text/babel" src="coach-views.jsx" data-presets="react"></script>
+
+  <!-- Chat v3 — personas + skills in composer, single/multiple toggle, skill actions -->
+  <script type="text/babel" src="coach-chat.jsx" data-presets="react"></script>
+
+  <!-- Skills library (Chen's specialized-LLM skills) -->
+  <script type="text/babel" src="coach-skills.jsx" data-presets="react"></script>
+
+  <!-- Welcome tutorial — guided walkthrough -->
+  <script type="text/babel" src="coach-tour.jsx" data-presets="react"></script>
+
+  <!-- App: plan/step, recovery, chat, settings, router + mount -->
+  <script type="text/babel" src="coach-app2.jsx" data-presets="react"></script>
+</body>
 </html>

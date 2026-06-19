@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo 'no install — static app'",
+  "buildCommand": "echo 'no build — app self-boots via CDN React + Babel'",
+  "outputDirectory": "phd-advisor-frontend/public",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
