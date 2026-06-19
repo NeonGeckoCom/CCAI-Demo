@@ -120,8 +120,8 @@ class TestResolveLlmClients(unittest.TestCase):
 
     @patch("app.api.routes.chat.chat_orchestrator")
     @patch("app.api.routes.chat.get_llm_client")
-    def test_uniform_same_client_for_all(self, mock_get, mock_orch):
-        mock_orch.personas = {"a": MagicMock(), "b": MagicMock(), "c": MagicMock()}
+    def test_uniform_same_client_for_unlocked_personas(self, mock_get, mock_orch):
+        mock_orch.personas = {"a": MagicMock(backend_locked=False), "b": MagicMock(backend_locked=False), "c": MagicMock(backend_locked=False)}
         sentinel = MagicMock(name="shared_client")
         mock_get.return_value = sentinel
 
@@ -136,7 +136,7 @@ class TestResolveLlmClients(unittest.TestCase):
     @patch("app.api.routes.chat.chat_orchestrator")
     @patch("app.api.routes.chat.get_llm_client")
     def test_hybrid_orchestrator_override(self, mock_get, mock_orch):
-        mock_orch.personas = {"a": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False)}
         clients = {"gemini": MagicMock(), "ollama": MagicMock()}
         mock_get.side_effect = lambda b: clients[b]
 
@@ -151,7 +151,7 @@ class TestResolveLlmClients(unittest.TestCase):
     @patch("app.api.routes.chat.chat_orchestrator")
     @patch("app.api.routes.chat.get_llm_client")
     def test_hybrid_orchestrator_falls_back_to_default(self, mock_get, mock_orch):
-        mock_orch.personas = {"a": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False)}
         sentinel = MagicMock()
         mock_get.return_value = sentinel
 
@@ -165,7 +165,7 @@ class TestResolveLlmClients(unittest.TestCase):
     @patch("app.api.routes.chat.chat_orchestrator")
     @patch("app.api.routes.chat.get_llm_client")
     def test_hybrid_persona_override(self, mock_get, mock_orch):
-        mock_orch.personas = {"a": MagicMock(), "b": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False), "b": MagicMock(backend_locked=False)}
         clients = {"gemini": MagicMock(), "vllm": MagicMock()}
         mock_get.side_effect = lambda b: clients[b]
 
@@ -179,7 +179,7 @@ class TestResolveLlmClients(unittest.TestCase):
     @patch("app.api.routes.chat.chat_orchestrator")
     @patch("app.api.routes.chat.get_llm_client")
     def test_hybrid_unmapped_persona_uses_default(self, mock_get, mock_orch):
-        mock_orch.personas = {"a": MagicMock(), "unmapped": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False), "unmapped": MagicMock(backend_locked=False)}
         clients = {"gemini": MagicMock(), "vllm": MagicMock()}
         mock_get.side_effect = lambda b: clients[b]
 
@@ -193,7 +193,7 @@ class TestResolveLlmClients(unittest.TestCase):
     @patch("app.api.routes.chat.chat_orchestrator")
     @patch("app.api.routes.chat.get_llm_client")
     def test_hybrid_mixed(self, mock_get, mock_orch):
-        mock_orch.personas = {"a": MagicMock(), "b": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False), "b": MagicMock(backend_locked=False)}
         clients = {"gemini": MagicMock(), "ollama": MagicMock(), "vllm": MagicMock()}
         mock_get.side_effect = lambda b: clients[b]
 
@@ -207,6 +207,45 @@ class TestResolveLlmClients(unittest.TestCase):
         self.assertIs(result["personas"]["a"], clients["vllm"])
         self.assertIs(result["personas"]["b"], clients["gemini"])
 
+    @patch("app.api.routes.chat.chat_orchestrator")
+    @patch("app.api.routes.chat.get_llm_client")
+    def test_uniform_uses_locked_persona_own_client(self, mock_get, mock_orch):
+        bf_client = MagicMock(name="brainforge_client")
+        locked_persona = MagicMock(backend_locked=True, llm=bf_client)
+        mock_orch.personas = {
+            "regular": MagicMock(backend_locked=False),
+            "bf_neonai_NeonAI": locked_persona,
+        }
+        gemini_client = MagicMock(name="gemini_client")
+        mock_get.return_value = gemini_client
+
+        user = _make_user(UserLLMConfig(mode="uniform", default_backend="gemini"))
+        result = resolve_llm_clients(user)
+
+        self.assertIs(result["personas"]["regular"], gemini_client)
+        self.assertIs(result["personas"]["bf_neonai_NeonAI"], bf_client)
+
+    @patch("app.api.routes.chat.chat_orchestrator")
+    @patch("app.api.routes.chat.get_llm_client")
+    def test_hybrid_uses_locked_persona_own_client(self, mock_get, mock_orch):
+        bf_client = MagicMock(name="brainforge_client")
+        locked_persona = MagicMock(backend_locked=True, llm=bf_client)
+        mock_orch.personas = {
+            "regular": MagicMock(backend_locked=False),
+            "bf_neonai_NeonAI": locked_persona,
+        }
+        clients = {"gemini": MagicMock(), "vllm": MagicMock()}
+        mock_get.side_effect = lambda b: clients[b]
+
+        user = _make_user(UserLLMConfig(
+            mode="hybrid", default_backend="gemini",
+            persona_backends={"regular": "vllm"},
+        ))
+        result = resolve_llm_clients(user)
+
+        self.assertIs(result["personas"]["regular"], clients["vllm"])
+        self.assertIs(result["personas"]["bf_neonai_NeonAI"], bf_client)
+
 
 # ===================================================================
 # 3. switch_provider — endpoint validation
@@ -219,7 +258,7 @@ class TestSwitchProvider(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.routes.provider.get_llm_client")
     @patch("app.api.routes.provider.chat_orchestrator")
     async def test_rejects_unknown_persona_id(self, mock_orch, mock_get, mock_db):
-        mock_orch.personas = {"known": MagicMock()}
+        mock_orch.personas = {"known": MagicMock(backend_locked=False)}
         mock_get.return_value = MagicMock()
 
         cfg = UserLLMConfig(
@@ -235,7 +274,7 @@ class TestSwitchProvider(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.routes.provider.get_llm_client")
     @patch("app.api.routes.provider.chat_orchestrator")
     async def test_accepts_known_persona_ids(self, mock_orch, mock_get, mock_db):
-        mock_orch.personas = {"a": MagicMock(), "b": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False), "b": MagicMock(backend_locked=False)}
         mock_get.return_value = MagicMock()
         mock_db.return_value.users.update_one = AsyncMock()
 
@@ -284,7 +323,7 @@ class TestSwitchProvider(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.routes.provider.get_llm_client")
     @patch("app.api.routes.provider.chat_orchestrator")
     async def test_rejects_unconfigured_persona_backend(self, mock_orch, mock_get, mock_db):
-        mock_orch.personas = {"a": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False)}
 
         def side_effect(backend):
             if backend == "vllm":
@@ -305,7 +344,7 @@ class TestSwitchProvider(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.routes.provider.get_llm_client")
     @patch("app.api.routes.provider.chat_orchestrator")
     async def test_checks_all_distinct_backends(self, mock_orch, mock_get, mock_db):
-        mock_orch.personas = {"a": MagicMock(), "b": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False), "b": MagicMock(backend_locked=False)}
         mock_get.return_value = MagicMock()
         mock_db.return_value.users.update_one = AsyncMock()
 
@@ -344,8 +383,27 @@ class TestSwitchProvider(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.routes.provider.get_database")
     @patch("app.api.routes.provider.get_llm_client")
     @patch("app.api.routes.provider.chat_orchestrator")
+    async def test_rejects_locked_persona_override(self, mock_orch, mock_get, mock_db):
+        mock_orch.personas = {
+            "regular": MagicMock(backend_locked=False),
+            "bf_neonai_NeonAI": MagicMock(backend_locked=True),
+        }
+        mock_get.return_value = MagicMock()
+
+        cfg = UserLLMConfig(
+            mode="hybrid", default_backend="gemini",
+            persona_backends={"bf_neonai_NeonAI": "gemini"},
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            await switch_provider(cfg, _make_user())
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("locked", ctx.exception.detail.lower())
+
+    @patch("app.api.routes.provider.get_database")
+    @patch("app.api.routes.provider.get_llm_client")
+    @patch("app.api.routes.provider.chat_orchestrator")
     async def test_returns_updated_config(self, mock_orch, mock_get, mock_db):
-        mock_orch.personas = {"a": MagicMock()}
+        mock_orch.personas = {"a": MagicMock(backend_locked=False)}
         mock_get.return_value = MagicMock()
         mock_db.return_value.users.update_one = AsyncMock()
 

@@ -44,7 +44,8 @@ def resolve_llm_clients(user: User) -> Dict[str, Any]:
     if config.mode == "uniform":
         client = get_llm_client(config.default_backend)
         persona_clients = {
-            pid: client for pid in chat_orchestrator.personas
+            pid: persona.llm if persona.backend_locked else client
+            for pid, persona in chat_orchestrator.personas.items()
         }
         return {"orchestrator": client, "personas": persona_clients}
 
@@ -53,9 +54,12 @@ def resolve_llm_clients(user: User) -> Dict[str, Any]:
     orchestrator_client = get_llm_client(orchestrator_backend)
 
     persona_clients = {}
-    for pid in chat_orchestrator.personas:
-        backend = (config.persona_backends or {}).get(pid, config.default_backend)
-        persona_clients[pid] = get_llm_client(backend)
+    for pid, persona in chat_orchestrator.personas.items():
+        if persona.backend_locked:
+            persona_clients[pid] = persona.llm
+        else:
+            backend = (config.persona_backends or {}).get(pid, config.default_backend)
+            persona_clients[pid] = get_llm_client(backend)
 
     return {"orchestrator": orchestrator_client, "personas": persona_clients}
 

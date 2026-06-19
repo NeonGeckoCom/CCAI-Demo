@@ -120,7 +120,10 @@ const SettingsModal = ({
     const fallback = llmConfig?.default_backend || availableBackends?.[0];
     const seed = llmConfig?.persona_backends || {};
     const personas = {};
-    for (const id of personaIds) personas[id] = seed[id] || DEFAULT_BACKEND;
+    for (const id of personaIds) {
+      if (advisors?.[id]?.backendLocked) continue;
+      personas[id] = seed[id] || DEFAULT_BACKEND;
+    }
     return {
       default_backend: fallback,
       orchestrator_backend: llmConfig?.orchestrator_backend || DEFAULT_BACKEND,

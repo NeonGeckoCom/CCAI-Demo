@@ -124,7 +124,7 @@ def get_public_config():
             "dark_color": colors["dark_color"],
             "dark_bg_color": colors["dark_bg_color"],
             "image": "icon://Brain",
-            "backend_locked": True,
+            "backend_locked": persona.backend_locked,
             "default_backend": "brainforge",
         })
 
