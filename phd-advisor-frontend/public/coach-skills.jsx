@@ -51,6 +51,32 @@ function runSkill(id, roadmap) {
       });
       return { to: "documents", msg: "Meeting prep drafted in Documents" };
     }
+    case "idp": {
+      A.createDoc("idp", "My Individual Development Plan", {
+        goals: `Near-term focus: ${cur.title}. ${cur.objective}\n\n1-year goal: …\n3-year goal: …`,
+        skills: "Methods / technical: …\nWriting & communication: …\nProfessional (teaching, networking): …",
+        milestones: (roadmap?.steps || []).filter(s => s.gate).map(s => `• ${s.title} — ${s.estimate}`).join("\n") || "• (Your gate milestones will list here)",
+        mentoring: "Primary advisor: …\nCommittee / additional mentors: …\nMeeting cadence: …",
+        career: "Target path (academic / industry / other): …\nWhat I need to get there: …",
+        review: "Revisit this plan with my advisor every: (e.g. each semester)"
+      });
+      return { to: "documents", msg: "Individual Development Plan drafted in Documents" };
+    }
+    case "progress": {
+      const steps = roadmap?.steps || [];
+      const done = steps.filter(s => s.status === "done");
+      const pct = steps.length ? Math.round((done.length / steps.length) * 100) : 0;
+      const next = steps.find(s => s.status !== "done");
+      A.createDoc("progress-report", "Progress Report", {
+        summary: `${pct}% of the plan complete (${done.length}/${steps.length} milestones). Currently on “${cur.title}.”`,
+        completed: done.length ? done.map(s => `• ${s.title}`).join("\n") : "• (Nothing marked complete yet)",
+        current: `${cur.title} — ${cur.objective}`,
+        blockers: "• (List anything blocking progress)",
+        next: next ? `• ${next.title} (${next.estimate})` : "• Final defense / submission",
+        asks: "• (What do you need from your committee?)"
+      });
+      return { to: "documents", msg: "Progress report generated in Documents" };
+    }
     default: return null;
   }
 }

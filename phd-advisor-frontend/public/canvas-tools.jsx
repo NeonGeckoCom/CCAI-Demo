@@ -229,7 +229,76 @@ function renderTool(featureId) {
   return fn ? fn("phd-tool-" + featureId) : null;
 }
 
+// 6. DEADLINES (real countdown tracker) --------------------------------------
+const DEADLINES_KEY = "phd-coach-deadlines-v1";
+function dlCountdown(date) {
+  if (!date) return null;
+  const d = new Date(date + "T00:00:00");
+  if (isNaN(d)) return null;
+  const days = Math.ceil((d - new Date(new Date().toDateString())) / 86400000);
+  if (days === 0) return { text: "today", past: false };
+  if (days < 0) return { text: `${-days}d ago`, past: true };
+  return { text: `in ${days}d`, past: false };
+}
+function DeadlinesTool({ storeKey = DEADLINES_KEY, title = "Deadlines" }) {
+  const [items, setItems] = useStored(storeKey, []);
+  const [label, setLabel] = useStateT("");
+  const [date, setDate] = useStateT("");
+  const add = () => { if (!label.trim()) return; setItems([...items, { id: uid("d-"), label: label.trim(), date }]); setLabel(""); setDate(""); };
+  const sorted = [...items].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
+  return (
+    <ToolCard icon="Calendar" title={title} foot={<span className="tool-count">{items.length}</span>}>
+      <div className="tool-input-row bib">
+        <input style={{ flex: 2 }} value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") add(); }} placeholder="Deadline name" />
+        <input style={{ flex: 1 }} type="date" value={date} onChange={e => setDate(e.target.value)} aria-label="Due date" />
+        <button className="tool-add" onClick={add} aria-label="Add deadline"><IconT name="Plus" size={14} /></button>
+      </div>
+      <div className="tool-list">
+        {sorted.length === 0 && <div className="tool-empty">No deadlines yet.</div>}
+        {sorted.map(d => { const cd = dlCountdown(d.date); return (
+          <div key={d.id} className="tool-row">
+            <span className="tool-row-text">{d.label}{d.date && <span style={{ color: "var(--text-3)" }}> · {d.date}</span>}</span>
+            {cd && <span style={{ color: cd.past ? "var(--rose)" : "var(--primary-deep)", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>{cd.text}</span>}
+            <button className="tool-del" onClick={() => setItems(items.filter(x => x.id !== d.id))} aria-label="Remove deadline"><IconT name="X" size={12} /></button>
+          </div>); })}
+      </div>
+    </ToolCard>
+  );
+}
+
+// 7. FUNDING (fellowships & grants tracker) ----------------------------------
+const FUNDING_KEY = "phd-coach-funding-v1";
+const FUND_STATUS = ["planned", "applied", "awarded", "rejected"];
+function fundColor(s) { return s === "awarded" ? "var(--sage)" : s === "rejected" ? "var(--rose)" : s === "applied" ? "var(--amber)" : "var(--text-3)"; }
+function FundingTool({ storeKey = FUNDING_KEY, title = "Funding" }) {
+  const [items, setItems] = useStored(storeKey, []);
+  const [f, setF] = useStateT({ name: "", amount: "", deadline: "" });
+  const add = () => { if (!f.name.trim()) return; setItems([{ id: uid("g-"), name: f.name.trim(), amount: f.amount.trim(), deadline: f.deadline, status: "planned" }, ...items]); setF({ name: "", amount: "", deadline: "" }); };
+  const cycle = (id) => setItems(items.map(x => x.id === id ? { ...x, status: FUND_STATUS[(FUND_STATUS.indexOf(x.status) + 1) % FUND_STATUS.length] } : x));
+  return (
+    <ToolCard icon="Award" title={title} foot={<span className="tool-count">{items.length}</span>}>
+      <div className="tool-input-row bib">
+        <input style={{ flex: 2 }} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="Fellowship / grant" />
+        <input style={{ flex: 1 }} value={f.amount} onChange={e => setF({ ...f, amount: e.target.value })} placeholder="$ amount" />
+        <button className="tool-add" onClick={add} aria-label="Add funding"><IconT name="Plus" size={14} /></button>
+      </div>
+      <input className="tool-fullinput" type="date" value={f.deadline} onChange={e => setF({ ...f, deadline: e.target.value })} onKeyDown={e => { if (e.key === "Enter") add(); }} aria-label="Funding deadline" />
+      <div className="tool-list">
+        {items.length === 0 && <div className="tool-empty">No funding tracked yet.</div>}
+        {items.map(g => (
+          <div key={g.id} className="tool-row">
+            <span className="tool-row-text">{g.name}{g.amount && <span style={{ color: "var(--text-3)" }}> · {g.amount}</span>}{g.deadline && <span style={{ color: "var(--text-3)" }}> · {g.deadline}</span>}</span>
+            <button onClick={() => cycle(g.id)} title="Cycle status" style={{ color: fundColor(g.status), border: "1px solid var(--border)", borderRadius: 999, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", background: "var(--surface-2)", cursor: "pointer", textTransform: "capitalize", whiteSpace: "nowrap" }}>{g.status}</button>
+            <button className="tool-del" onClick={() => setItems(items.filter(x => x.id !== g.id))} aria-label="Remove funding"><IconT name="X" size={12} /></button>
+          </div>
+        ))}
+      </div>
+    </ToolCard>
+  );
+}
+
 Object.assign(window, {
-  ToolCard, NotesTool, TasksTool, ReadingTool, BibTool, PomodoroTool,
+  ToolCard, NotesTool, TasksTool, ReadingTool, BibTool, PomodoroTool, DeadlinesTool, FundingTool,
+  DEADLINES_KEY, FUNDING_KEY,
   hasTool, renderTool, TOOL_REGISTRY
 });

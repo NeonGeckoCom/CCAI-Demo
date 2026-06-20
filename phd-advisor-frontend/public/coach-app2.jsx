@@ -9,11 +9,12 @@ const H = window.coachHelpers;
 // ============================================================================
 // PLAN / STEP VIEW  (spine + focused current step + live tools)
 // ============================================================================
-function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, onOpenSos }) {
+function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touchStep, onCelebrate, onOpenSos, onAsk, onNav, onOpenStep }) {
   const [selected, setSelected] = useS2(() => {
     const c = roadmap.steps.findIndex(s => s.status === "current");
     return c >= 0 ? c : 0;
   });
+  const [openTask, setOpenTask] = useS2(-1); // which sub-task's "how to" drawer is open
 
   const step = roadmap.steps[selected];
   const fs = RE2.computeFeatureState(roadmap, selected);
@@ -25,13 +26,18 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, o
   const tkey = (t) => `${step.id}::${t}`;
   const doneN = step.subtasks.filter(t => doneTasks.has(tkey(t))).length;
   const allDone = doneN === step.subtasks.length;
+  const risks = RE2.risks ? RE2.risks(step.id) : [];
+  const stuck = H.stallDays ? H.stallDays(roadmap, activity) : 0;
+  const stepIsCurrentNow = step.status === "current" || step.status === "redo";
 
   const toggleTask = (t) => {
     setDoneTasks(prev => { const n = new Set(prev); const k = tkey(t); n.has(k) ? n.delete(k) : n.add(k); return n; });
+    touchStep && touchStep(step.id);
   };
   const setCurrent = (id) => {
     const res = RE2.setCurrent(roadmap, id);
     setRoadmap(res.roadmap);
+    touchStep && touchStep(id);
     const i = res.roadmap.steps.findIndex(s => s.id === id);
     if (i >= 0) setSelected(i);
   };
@@ -40,7 +46,7 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, o
     setRoadmap(res.roadmap);
     onCelebrate(res);
     const ni = res.roadmap.steps.findIndex(s => s.status === "current");
-    if (ni >= 0) setSelected(ni);
+    if (ni >= 0) { touchStep && touchStep(res.roadmap.steps[ni].id); setSelected(ni); }
   };
 
   const doneCount = roadmap.steps.filter(s => s.status === "done").length;
@@ -65,7 +71,7 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, o
             return (
               <React.Fragment key={s.id}>
                 {showPhase && <div className="spine-phase">{s.phase}</div>}
-                <button className={`spine-item ${i === selected ? "sel" : ""}`} onClick={() => setSelected(i)}>
+                <button className={`spine-item ${i === selected ? "sel" : ""}`} onClick={() => { setSelected(i); onOpenStep && onOpenStep(s.id); }}>
                   <span className={`spine-dot ${dotClass} ${s.gate ? "gate" : ""}`}>
                     {s.status === "done" ? <Ico name="Check" size={14} color="#fff" />
                       : s.recovery ? <Ico name="AlertTriangle" size={13} color="#fff" /> : i + 1}
@@ -91,6 +97,9 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, o
               <div className="meta">
                 <span className="chip"><Ico name="Clock" size={12} /> {step.estimate}</span>
                 {step.deliverable && <span className="chip deliv-sat"><Ico name="CheckCircle2" size={12} /> Satisfies: {step.deliverable}</span>}
+                {stepIsCurrentNow && stuck >= (H.STALL_DAYS || 14) && (
+                  <span className="chip chip-risk"><Ico name="AlertTriangle" size={12} /> Stuck {stuck} days — let's unblock it</span>
+                )}
               </div>
             </div>
             {!isCurrent && (
@@ -99,6 +108,16 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, o
               </button>
             )}
           </div>
+
+          {/* What trips people up here — surfaces tacit knowledge at the right moment */}
+          {risks.length > 0 && (
+            <div className="risks">
+              <div className="risks-h"><Ico name="Lightbulb" size={14} /> What trips people up here</div>
+              <ul className="risks-list">
+                {risks.map((r, i) => <li key={i}><Ico name="AlertTriangle" size={12} /> <span>{r}</span></li>)}
+              </ul>
+            </div>
+          )}
 
           {isDone && (
             <div className="tip tip-coach" style={{ marginBottom: 16 }}>
@@ -130,10 +149,28 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, onCelebrate, o
           <div className="tasklist">
             {step.subtasks.map((t, i) => {
               const d = doneTasks.has(tkey(t));
+              const open = openTask === i;
               return (
-                <button key={i} className={`taskrow ${d ? "done" : ""}`} onClick={() => toggleTask(t)}>
-                  <span className="cb">{d && <Ico name="Check" size={12} color="#fff" />}</span> <span>{t}</span>
-                </button>
+                <div key={i} className={`taskrow ${d ? "done" : ""} ${open ? "open" : ""}`}>
+                  <div className="taskrow-main">
+                    <button className="cb" onClick={() => toggleTask(t)} aria-label={d ? "Mark not done" : "Mark done"}>{d && <Ico name="Check" size={12} color="#fff" />}</button>
+                    <button className="taskrow-text" onClick={() => setOpenTask(open ? -1 : i)}>{t}</button>
+                    <button className="taskrow-go" onClick={() => setOpenTask(open ? -1 : i)} aria-label="How do I do this?">
+                      <span className="taskrow-help">How?</span> <Ico name={open ? "ChevronUp" : "ChevronDown"} size={15} />
+                    </button>
+                  </div>
+                  {open && (
+                    <div className="taskrow-actions">
+                      <button className="btn sm primary" onClick={() => onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${t} Assume I'm new to this and give concrete first actions.`)}>
+                        <Ico name="MessageCircle" size={13} color="#fff" /> Ask your advisors how
+                      </button>
+                      <button className="btn sm" onClick={() => onNav && onNav("skills")}>
+                        <Ico name="Sparkles" size={13} /> Find a tool for this
+                      </button>
+                      {!d && <button className="btn sm ghost" onClick={() => { toggleTask(t); setOpenTask(-1); }}><Ico name="Check" size={13} /> Mark done</button>}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -405,6 +442,177 @@ function SettingsView({ theme, onToggleTheme, onRebuild, onReplayOnboarding, onS
 }
 
 // ============================================================================
+// STEP WORKSPACE — click a milestone → a focused popup that DYNAMICALLY loads
+// the right tools, guidance, checklist and "do the work" actions for that step.
+// The tools come from the roadmap engine's per-step feature lifecycle, so each
+// step shows different contents. (Backend can later enrich each section.)
+// ============================================================================
+// Per-step starter document (frontend default; backend can personalize).
+const STEP_DOC = {
+  proposal: "thesis-chapter", writing: "thesis-chapter", defense: "defense-slides",
+  irb: "irb-protocol", submission: "dissertation-format", literature: "research-statement",
+  committee: "faculty-hunt", analysis: "research-paper", "early-writing": "thesis-chapter", "first-paper": "conference-abstract"
+};
+function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, onAsk, onNav, onClose, onToast }) {
+  const [openTask, setOpenTask] = useS2(-1);
+  useE2(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const idx = roadmap.steps.findIndex(s => s.id === stepId);
+  const step = roadmap.steps[idx];
+  if (!step) return null;
+  const fs = RE2.computeFeatureState(roadmap, idx);
+  const liveTools = fs.active.filter(f => window.hasTool(f));
+  const risks = RE2.risks ? RE2.risks(step.id) : [];
+  const tkey = (t) => `${step.id}::${t}`;
+  const doneN = step.subtasks.filter(t => doneTasks.has(tkey(t))).length;
+  const allDone = doneN === step.subtasks.length;
+  const isCurrent = step.status === "current" || step.status === "redo" || step.status === "paused";
+  const tpl = STEP_DOC[step.id] && (window.DOC_TEMPLATES || []).find(t => t.id === STEP_DOC[step.id]);
+
+  const askHow = (what) => { onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${what} I'm new to this — give concrete first actions.`); onClose(); };
+  const makeBoard = () => { if (window.CoachActions) { window.CoachActions.addWidget("kanban", step.subtasks.slice(0, 6)); onToast && onToast("Task board added to Workspace"); } };
+  const startDoc = () => { if (window.CoachActions && tpl) { window.CoachActions.createDoc(tpl.id, `${step.title} — ${tpl.name}`, {}); onClose(); onNav && onNav("documents"); } };
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="stepws" role="dialog" aria-modal="true" aria-label={step.title} onClick={e => e.stopPropagation()}>
+        <div className="stepws-head">
+          <div className="stepws-ico"><Ico name={step.recovery ? "LifeBuoy" : step.icon} size={20} color="#fff" /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="stepws-eyebrow">{step.phase} · {step.estimate}</div>
+            <h2 className="display">{step.title}</h2>
+          </div>
+          <button className="modal-x" onClick={onClose} aria-label="Close workspace"><Ico name="X" size={15} /></button>
+        </div>
+
+        <div className="stepws-body">
+          <p className="stepws-obj">{step.objective}</p>
+
+          {/* Do the work — context actions for this step */}
+          <div className="stepws-actions">
+            <button className="btn primary" onClick={() => askHow(step.title.toLowerCase())}><Ico name="MessageCircle" size={15} color="#fff" /> Ask your advisors</button>
+            {tpl && <button className="btn" onClick={startDoc}><Ico name={tpl.icon} size={15} /> Start: {tpl.name}</button>}
+            <button className="btn" onClick={makeBoard}><Ico name="Columns3" size={15} /> Make a task board</button>
+            <button className="btn ghost" onClick={() => { onNav && onNav("skills"); onClose(); }}><Ico name="Sparkles" size={15} /> Browse skills</button>
+          </div>
+
+          {/* Committee builder — special interactive tool for that step */}
+          {step.id === "committee" && window.CommitteeBuilder && (
+            <div className="stepws-sec">
+              <div className="section-label"><span className="ic"><Ico name="Users" size={13} /></span> Committee builder</div>
+              <window.CommitteeBuilder />
+            </div>
+          )}
+
+          {/* Dynamically-loaded working tools for THIS step */}
+          {liveTools.length > 0 && (
+            <div className="stepws-sec">
+              <div className="section-label"><span className="ic"><Ico name="Wrench" size={13} /></span> Your tools for this step</div>
+              <div className="toolgrid">{liveTools.map(f => <React.Fragment key={f}>{window.renderTool(f)}</React.Fragment>)}</div>
+            </div>
+          )}
+
+          {/* Checklist launchpad */}
+          <div className="stepws-sec">
+            <div className="section-label"><span className="ic"><Ico name="ListChecks" size={13} /></span> Steps to complete · {doneN}/{step.subtasks.length}</div>
+            <div className="tasklist">
+              {step.subtasks.map((t, i) => {
+                const d = doneTasks.has(tkey(t));
+                const open = openTask === i;
+                return (
+                  <div key={i} className={`taskrow ${d ? "done" : ""} ${open ? "open" : ""}`}>
+                    <div className="taskrow-main">
+                      <button className="cb" onClick={() => onToggleTask(step.id, t)} aria-label={d ? "Mark not done" : "Mark done"}>{d && <Ico name="Check" size={12} color="#fff" />}</button>
+                      <button className="taskrow-text" onClick={() => setOpenTask(open ? -1 : i)}>{t}</button>
+                      <button className="taskrow-go" onClick={() => setOpenTask(open ? -1 : i)} aria-label="How do I do this?"><span className="taskrow-help">How?</span> <Ico name={open ? "ChevronUp" : "ChevronDown"} size={15} /></button>
+                    </div>
+                    {open && (
+                      <div className="taskrow-actions">
+                        <button className="btn sm primary" onClick={() => askHow(t)}><Ico name="MessageCircle" size={13} color="#fff" /> Ask your advisors how</button>
+                        {!d && <button className="btn sm ghost" onClick={() => { onToggleTask(step.id, t); setOpenTask(-1); }}><Ico name="Check" size={13} /> Mark done</button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* What trips people up */}
+          {risks.length > 0 && (
+            <div className="risks">
+              <div className="risks-h"><Ico name="Lightbulb" size={14} /> What trips people up here</div>
+              <ul className="risks-list">{risks.map((r, i) => <li key={i}><Ico name="AlertTriangle" size={12} /> <span>{r}</span></li>)}</ul>
+            </div>
+          )}
+        </div>
+
+        <div className="stepws-foot">
+          <span className="stepws-foot-note">{allDone ? "All steps checked — ready to complete." : `${step.subtasks.length - doneN} step${step.subtasks.length - doneN === 1 ? "" : "s"} left`}</span>
+          <button className="btn primary" disabled={!allDone || !isCurrent} onClick={() => { onComplete(step.id); onClose(); }}>
+            <Ico name="Flag" size={15} color="#fff" /> Complete milestone
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// COMMAND PALETTE (⌘K) — jump anywhere, or type to capture a note/deadline.
+// ============================================================================
+function CommandPalette({ onClose, onNav, onSos, onToggleTheme, onReplayTour, onToast }) {
+  const [q, setQ] = useS2("");
+  const inputRef = useR2(null);
+  useE2(() => { inputRef.current && inputRef.current.focus(); }, []);
+
+  const NAV = [
+    ["home", "Home", "Home"], ["plan", "My Plan", "Map"], ["chat", "Chat", "MessageCircle"],
+    ["skills", "Skills", "Sparkles"], ["insights", "Insights", "Lightbulb"],
+    ["workspace", "Workspace", "LayoutDashboard"], ["documents", "Documents", "FileText"], ["settings", "Settings", "Settings"]
+  ].map(([id, label, icon]) => ({ id: "nav-" + id, label: "Go to " + label, icon, run: () => { onNav(id); onClose(); } }));
+  const ACTIONS = [
+    { id: "act-newchat", label: "Start a new chat", icon: "Plus", run: () => { onNav("chat"); onClose(); } },
+    { id: "act-sos", label: "Something came up (re-plan)", icon: "LifeBuoy", run: () => { onSos(); onClose(); } },
+    { id: "act-theme", label: "Toggle light / dark theme", icon: "Moon", run: () => { onToggleTheme(); onClose(); } },
+    { id: "act-tour", label: "Replay the welcome tour", icon: "Rocket", run: () => { onReplayTour(); onClose(); } }
+  ];
+  const ql = q.trim().toLowerCase();
+  const matches = (ql ? [...NAV, ...ACTIONS].filter(c => c.label.toLowerCase().includes(ql)) : [...NAV, ...ACTIONS]);
+  const captures = ql ? [
+    { id: "cap-note", label: `Add note: “${q.trim()}”`, icon: "StickyNote", run: () => { const k = "phd-tool-notes"; const a = H.loadJSON(k, []); a.unshift({ id: "n" + Date.now(), text: q.trim(), at: Date.now() }); H.saveJSON(k, a); onToast && onToast("Note saved — find it in a Notes widget"); onClose(); } },
+    { id: "cap-dl", label: `Add deadline: “${q.trim()}”`, icon: "Calendar", run: () => { const k = window.DEADLINES_KEY || "phd-coach-deadlines-v1"; const a = H.loadJSON(k, []); a.push({ id: "d" + Date.now(), label: q.trim(), date: "" }); H.saveJSON(k, a); onToast && onToast("Deadline added — set a date in the Deadlines widget"); onClose(); } }
+  ] : [];
+  const list = [...matches, ...captures];
+  const onKeyDown = (e) => { if (e.key === "Escape") onClose(); else if (e.key === "Enter" && list[0]) list[0].run(); };
+
+  return (
+    <div className="backdrop cmd-backdrop" onClick={onClose}>
+      <div className="cmd" role="dialog" aria-modal="true" aria-label="Command palette" onClick={e => e.stopPropagation()}>
+        <div className="cmd-input">
+          <Ico name="Search" size={16} />
+          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKeyDown}
+            placeholder="Search actions, or type to add a note / deadline…" aria-label="Command search" />
+          <kbd>esc</kbd>
+        </div>
+        <div className="cmd-list">
+          {list.length === 0 && <div className="cmd-empty">No matches.</div>}
+          {list.map((c, i) => (
+            <button key={c.id} className="cmd-item" onClick={c.run}>
+              <span className="cmd-i"><Ico name={c.icon} size={15} /></span> {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // ROOT
 // ============================================================================
 function CoachRoot() {
@@ -424,10 +632,37 @@ function CoachRoot() {
   const [toast, setToast] = useS2("");
   const [showTour, setShowTour] = useS2(false);
   const [authMode, setAuthMode] = useS2("login"); // login | signup
+  const [palette, setPalette] = useS2(false); // ⌘K command palette
+  const [activity, setActivity] = useS2(() => H.loadJSON(H.ACT_KEY, {})); // per-step last-touched
+  const touchStep = (id) => { if (id) setActivity(a => ({ ...a, [id]: Date.now() })); };
+  const [chatSeed, setChatSeed] = useS2(null); // prefill the chat composer + jump there
+  const askInChat = (q) => { setChatSeed(q); setView("chat"); };
+  const [wsStep, setWsStep] = useS2(null); // step id whose workspace popup is open
+  const openWorkspace = (id) => setWsStep(id);
+  const toggleTaskFor = (stepId, t) => {
+    setDoneTasks(prev => { const n = new Set(prev); const k = `${stepId}::${t}`; n.has(k) ? n.delete(k) : n.add(k); return n; });
+    touchStep(stepId);
+  };
+  const completeStep = (id) => {
+    const res = RE2.markComplete(roadmap, id);
+    setRoadmap(res.roadmap);
+    setCelebrate(res);
+    const ni = res.roadmap.steps.findIndex(s => s.status === "current");
+    if (ni >= 0) touchStep(res.roadmap.steps[ni].id);
+  };
 
   useE2(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem(H.THEME_KEY, theme); } catch (e) {} }, [theme]);
   useE2(() => { H.saveJSON(H.RM_KEY, roadmap); }, [roadmap]);
   useE2(() => { H.saveJSON(H.TASK_KEY, [...doneTasks]); }, [doneTasks]);
+  useE2(() => { H.saveJSON(H.ACT_KEY, activity); }, [activity]);
+  // ⌘K / Ctrl+K opens the command palette anywhere in the app.
+  useE2(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); setPalette(p => !p); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   useE2(() => { try { localStorage.setItem("phd-coach-authed", authed ? "1" : "0"); } catch (e) {} }, [authed]);
   useE2(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 2400); return () => clearTimeout(t); }, [toast]);
   // Auto-launch the welcome tour the first time someone lands in the app with a plan.
@@ -473,9 +708,9 @@ function CoachRoot() {
   }
 
   let body;
-  if (view === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} onNav={setView} onOpenSos={() => setSosOpen(true)} theme={theme} />;
-  else if (view === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} />;
-  else if (view === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} />;
+  if (view === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} onNav={setView} onOpenSos={() => setSosOpen(true)} onOpenStep={openWorkspace} theme={theme} />;
+  else if (view === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} />;
+  else if (view === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} />;
   else if (view === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
   else if (view === "insights") body = <window.CoachInsights onNav={setView} />;
   else if (view === "workspace") body = <window.CoachWorkspace roadmap={roadmap} />;
@@ -494,7 +729,8 @@ function CoachRoot() {
             <Ico name="Compass" size={15} /> {roadmap.program?.name || "PhD Navigator"}
           </div>
           <div className="tb-r">
-            <button className="btn icon sm" onClick={toggleTheme} title="Theme"><Ico name={theme === "light" ? "Moon" : "Sun"} size={16} /></button>
+            <button className="btn sm" onClick={() => setPalette(true)} title="Command palette" aria-label="Open command palette"><Ico name="Search" size={15} /> <kbd className="kbd-inline">⌘K</kbd></button>
+            <button className="btn icon sm" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle light or dark theme"><Ico name={theme === "light" ? "Moon" : "Sun"} size={16} /></button>
             <button className="btn sm" onClick={() => setView("chat")}><Ico name="MessageCircle" size={15} /> Chat</button>
           </div>
         </div>
@@ -539,6 +775,23 @@ function CoachRoot() {
           </div>
         </div>
       )}
+      {wsStep && <StepWorkspace
+        roadmap={roadmap}
+        stepId={wsStep}
+        doneTasks={doneTasks}
+        onToggleTask={toggleTaskFor}
+        onComplete={completeStep}
+        onAsk={askInChat}
+        onNav={setView}
+        onToast={setToast}
+        onClose={() => setWsStep(null)} />}
+      {palette && <CommandPalette
+        onClose={() => setPalette(false)}
+        onNav={setView}
+        onSos={() => setSosOpen(true)}
+        onToggleTheme={toggleTheme}
+        onReplayTour={() => { setView("home"); setShowTour(true); }}
+        onToast={setToast} />}
       {toast && <div className="toast"><Ico name="CheckCircle2" size={15} /> {toast}</div>}
     </div>
   );

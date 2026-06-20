@@ -114,7 +114,7 @@ function personaReply(advisor, current) {
 }
 
 // ============================================================================
-function CoachChatView({ roadmap, setRoadmap, onNav, onToast }) {
+function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsumed }) {
   const current = roadmap.steps.find(s => s.status === "current") || roadmap.steps.find(s => s.status === "redo") || roadmap.steps[0];
   const advisors = window.ADVISORS || [];
 
@@ -134,6 +134,9 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast }) {
   useEC(() => { try { localStorage.setItem("phd-chat-mode", mode); } catch (e) {} }, [mode]);
   useEC(() => { try { localStorage.setItem("phd-chat-personas", JSON.stringify(active)); } catch (e) {} }, [active]);
   useEC(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // Arriving from a "Help me with this step" action — prefill the composer so the
+  // student just reviews and hits Send (no surprise auto-send to the backend).
+  useEC(() => { if (seed) { setInput(seed); onSeedConsumed && onSeedConsumed(); } }, [seed]);
   useEC(() => {
     if (!pop) return;
     const onDown = (e) => { if (toolsRef.current && !toolsRef.current.contains(e.target)) setPop(null); };

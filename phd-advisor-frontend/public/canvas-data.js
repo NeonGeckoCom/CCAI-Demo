@@ -612,7 +612,7 @@ window.WIDGET_CATALOG = [
   { type: "focus",          name: "Focus Playlist",      icon: "Music",        cat: "wellness", desc: "Ambient sounds & music", stub: true },
 
   { type: "cfp",            name: "CFP Tracker",         icon: "Send",         cat: "career",   desc: "Conference deadlines & submission status", stub: true },
-  { type: "grants",         name: "Grant Tracker",       icon: "Award",        cat: "career",   desc: "Applications, deadlines, awards", stub: true },
+  { type: "grants",         name: "Funding Tracker",     icon: "Award",        cat: "career",   desc: "Fellowships & grants: amount, deadline, status" },
   { type: "crm",            name: "Networking CRM",      icon: "Users",        cat: "career",   desc: "Collaborators, last touch", stub: true },
 
   { type: "reviewer-2",     name: "Reviewer 2",          icon: "Gavel",        cat: "critic",   desc: "Harsh peer-review-style critique on your draft", critic: true },
@@ -665,6 +665,11 @@ window.WORKSPACE_PRESETS = [
 
 // Document templates (Deliverables / Documents view)
 window.DOC_TEMPLATES = [
+  // Evidence-based advising artifacts (CGS "Promising Practices": written compacts,
+  // individual development plans, structured progress reviews).
+  { id: "idp",                  name: "Individual Development Plan", icon: "Compass", desc: "Goals, skills, milestones & mentoring plan — the standard advising artifact.", sections: 6, mode: "document", evidence: "CGS mentoring practice: individual development plans" },
+  { id: "advisor-compact",      name: "Advisor–Student Compact", icon: "Handshake", desc: "Written agreement of mutual expectations between you and your advisor.", sections: 6, mode: "document", evidence: "CGS mentoring practice: advisor–student compacts" },
+  { id: "progress-report",      name: "Progress Report",      icon: "TrendingUp", desc: "Committee-ready summary of where you are, what's done, and what's next.", sections: 6, mode: "document", evidence: "CGS mentoring practice: annual progress reviews" },
   { id: "research-paper",       name: "Research Paper",       icon: "FileText",   desc: "Abstract → Intro → Methods → Results → Discussion → References", sections: 6, mode: "paper" },
   { id: "thesis-chapter",       name: "Thesis Chapter",       icon: "BookOpen",   desc: "Standard chapter scaffolding for a dissertation.",                sections: 5, mode: "paper" },
   { id: "nsf-grfp",             name: "NSF GRFP",             icon: "Award",      desc: "Personal Statement (3 pages) + Research Plan (2 pages).",        sections: 2, mode: "document" },
@@ -752,6 +757,10 @@ window.SKILL_LIBRARY = [
     desc: "Turns your current milestone into a concrete, ordered task board.", runnable: true, featured: true },
   { id: "meeting", name: "Meeting Prep", icon: "MessageSquare", cat: "admin", model: "Planner-LLM", output: "documents",
     desc: "Drafts an advisor-meeting one-pager from where you are now — agenda, progress, asks.", runnable: true },
+  { id: "idp", name: "Development Plan (IDP)", icon: "Compass", cat: "admin", model: "Planner-LLM", output: "documents",
+    desc: "Builds an Individual Development Plan from your roadmap — goals, skills, timeline, mentoring.", runnable: true, featured: true },
+  { id: "progress", name: "Progress Report", icon: "TrendingUp", cat: "admin", model: "Planner-LLM", output: "documents",
+    desc: "Generates a committee-ready progress report from your plan: done, in-progress, blockers, next.", runnable: true },
   { id: "irb", name: "IRB Drafter", icon: "ShieldCheck", cat: "admin", model: "Compliance-LLM", output: "documents",
     desc: "Starts an IRB protocol with the standard human-subjects sections pre-structured." },
   // critic

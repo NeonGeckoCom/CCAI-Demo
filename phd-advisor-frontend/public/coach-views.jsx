@@ -231,7 +231,9 @@ function WidgetBody({ def, seed }) {
     case "reviewer-2":
       return <div style={{ fontSize: 12.5, fontStyle: "italic", color: "var(--text-2)", lineHeight: 1.5 }}>"The framing assumes predictive coding without justifying it. A skeptical reader won't be convinced…"</div>;
     case "deadlines":
-      return <div>{[["Aim 2 draft", "8d"], ["Quals proposal", "32d"]].map(([d, t]) => <div key={d} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, borderBottom: "1px solid var(--border)" }}><span>{d}</span><b style={{ color: "var(--primary-deep)" }}>in {t}</b></div>)}</div>;
+      return window.DeadlinesTool ? <window.DeadlinesTool /> : null;
+    case "grants":
+      return window.FundingTool ? <window.FundingTool /> : null;
     default:
       return <div style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.5 }}>{def.desc}</div>;
   }
@@ -297,7 +299,10 @@ function WidgetPalette({ onClose, onAdd, suggested = [], stepTitle }) {
 const DOC_KEY = "phd-coach-docs-v1";
 const SECTIONS = {
   "research-paper": [["abstract", "Abstract", 250], ["intro", "Introduction", 1000], ["methods", "Methods", 800], ["results", "Results", 800], ["discussion", "Discussion", 1000], ["refs", "References", 0]],
-  "meeting-prep": [["agenda", "Agenda", 80], ["progress", "Progress since last", 200], ["blockers", "Blockers", 150], ["decisions", "Decisions needed", 200], ["questions", "Questions", 150], ["followup", "Action items", 100]]
+  "meeting-prep": [["agenda", "Agenda", 80], ["progress", "Progress since last", 200], ["blockers", "Blockers", 150], ["decisions", "Decisions needed", 200], ["questions", "Questions", 150], ["followup", "Action items", 100]],
+  "idp": [["goals", "Goals (1–3 years)", 200], ["skills", "Skills to develop", 200], ["milestones", "Milestones & timeline", 200], ["mentoring", "Mentoring & support plan", 150], ["career", "Career objectives", 150], ["review", "Review cadence", 80]],
+  "advisor-compact": [["meeting", "Meeting cadence & communication", 150], ["advisee", "What I commit to (advisee)", 200], ["advisor", "What my advisor commits to", 200], ["feedback", "Feedback & turnaround expectations", 150], ["authorship", "Authorship & data ownership", 150], ["conflict", "How we'll handle disagreements", 120]],
+  "progress-report": [["summary", "Summary", 150], ["completed", "Completed since last review", 200], ["current", "In progress now", 150], ["blockers", "Blockers & risks", 150], ["next", "Next steps", 150], ["asks", "Asks for my committee", 100]]
 };
 function sectionsFor(id) {
   if (SECTIONS[id]) return SECTIONS[id].map(([sid, name, target]) => ({ id: sid, name, target }));
@@ -388,8 +393,11 @@ function CoachDocuments() {
         ) : (
           <div className="doc-editor">
             <div className="doc-page" style={{ gridColumn: "1 / -1" }}>
+              <h1 className="display doc-print-title">{active.name}</h1>
               {active.converted && <div className="doc-converted-note"><IcoV name="Info" size={13} /> Converted from Word — text is fully editable; original formatting was simplified. Your original is kept for download.</div>}
               <textarea className="doc-upload-edit" value={active.content || ""} onChange={e => updContent(e.target.value)} placeholder="This document is empty — start typing…" />
+              {/* Print-only flowing mirror so long content never clips. */}
+              <div className="doc-print">{active.content || ""}</div>
             </div>
           </div>
         )}
@@ -417,7 +425,7 @@ function CoachDocuments() {
             <div className="meta"><span className="chip">{tpl.name}</span><span className="chip">{total} / {target} words</span><span className="chip">~{Math.max(1, Math.round(total / 220))} min read</span></div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="btn sm"><IcoV name="Download" size={14} /> Export</button>
+            <button className="btn sm" onClick={() => window.print()} title="Print or save as PDF"><IcoV name="Printer" size={14} /> Print / PDF</button>
             <button className="btn icon sm" onClick={() => del(active.id)} style={{ color: "var(--rose)" }}><IcoV name="Trash2" size={14} /></button>
           </div>
         </div>
@@ -435,6 +443,8 @@ function CoachDocuments() {
                 <section key={s.id} id={`dsec-${s.id}`} className="doc-sec">
                   <h2>{s.name}</h2>
                   <textarea value={text} onChange={e => upd(s.id, e.target.value)} placeholder={`Start writing ${s.name.toLowerCase()}…`} />
+                  {/* Print-only flowing mirror so long sections never clip. */}
+                  <div className="doc-print">{text}</div>
                   <div className="doc-checks">
                     {s.target > 0 && <span className={`doc-check ${ok ? "ok" : ""}`}>{ok && <IcoV name="Check" size={10} />} {w} / {s.target} words</span>}
                     {/\d/.test(text) && <span className="doc-check ok"><IcoV name="Check" size={10} /> Has a number</span>}

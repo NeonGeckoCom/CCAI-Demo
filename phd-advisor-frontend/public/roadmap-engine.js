@@ -638,11 +638,85 @@
   }
 
   // --------------------------------------------------------------------------
+  // MILESTONE_RISKS — "what trips people up here" + the questions students often
+  // don't know to ask. Surfaces tacit knowledge at the moment it's relevant
+  // (the core idea behind the PhD knowledge-graph research). Plain content; a
+  // backend can later personalize these per program.
+  // --------------------------------------------------------------------------
+  const MILESTONE_RISKS = {
+    orientation: [
+      "The handbook is the contract — read the residency, credit, and timeline rules before you plan anything.",
+      "Funding terms (TA/RA/fellowship) often cap how long you're covered. Find that number now.",
+      "Ask: who is my official advisor for year one, and how often do we meet?"
+    ],
+    "topic-ideas": [
+      "The #1 mistake is a topic too broad to finish — narrow until you can state it in one sentence.",
+      "Confirm data/access feasibility before you fall in love with a question.",
+      "Get your chair to say the topic is defensible in writing before you invest months."
+    ],
+    committee: [
+      "A co-chair adds resilience but slows feedback when chairs disagree — decide deliberately.",
+      "Confirm at least one outside/external member early; it's a common last-minute scramble.",
+      "Ask each prospective member how many students they currently chair (bandwidth matters)."
+    ],
+    literature: [
+      "Reading forever is a form of avoidance — stop when you can recite your gap from memory.",
+      "Track every paper in one matrix from day one; rebuilding it later is brutal.",
+      "Engage the counter-evidence to your thesis — committees probe the gap you skipped."
+    ],
+    proposal: [
+      "A proposal is a promise, not a contract — aim defensible, not perfect.",
+      "Map every aim to a concrete method; unmapped aims get cut at the defense.",
+      "Circulate to the committee ~3 weeks ahead; last-minute sends read as unprepared."
+    ],
+    prelim: [
+      "Prelims reward synthesis, not recall — practice linking three papers in one paragraph.",
+      "Circulate the reading list early and mock the oral with peers before the real thing."
+    ],
+    candidacy: [
+      "Candidacy is paperwork that's easy to forget — a missed form can cost a whole semester.",
+      "Verify your committee is officially registered with the graduate school."
+    ],
+    irb: [
+      "Submit ≥8 weeks before collection — first reviews are slow; amendments are fast.",
+      "Submit the protocol you can defend now, not the ideal one; you can amend later.",
+      "No data collection — none — before approval, or it can't be used."
+    ],
+    pilot: [
+      "Skipping the pilot is the costliest shortcut in research — run the full pipeline on tiny data first.",
+      "If the protocol changes after the pilot, file the IRB amendment before collecting more."
+    ],
+    collection: [
+      "Log every deviation in a research journal as it happens — memory won't survive to the defense.",
+      "Hold a standing weekly check-in with your chair; silent months are where projects drift."
+    ],
+    analysis: [
+      "Freeze the pipeline and commit the script — the result you defend must be reproducible.",
+      "One chart per finding, tested in grayscale; kitchen-sink figures lose the reader."
+    ],
+    writing: [
+      "This is where most ABD students stall — produce a bad draft, don't polish a blank page.",
+      "Adopt the institution's formatting from day one; retrofitting it later wastes a week.",
+      "Send chapters on a fixed cadence so feedback never becomes the bottleneck."
+    ],
+    defense: [
+      "Most defenses are won in the first 3 minutes — open with question, gap, headline finding.",
+      "Mock it twice (peers + chair); the Q&A is what's actually being graded."
+    ],
+    submission: [
+      "Reserve a full week for formatting alone — grad schools reject for margins faster than content.",
+      "Collect committee + dean signatures early; chasing signatures is the classic last delay."
+    ]
+  };
+
+  // --------------------------------------------------------------------------
   // PUBLIC API
   // --------------------------------------------------------------------------
   window.RoadmapEngine = {
     FEATURES,
     MILESTONES,
+    MILESTONE_RISKS,
+    risks: (id) => MILESTONE_RISKS[id] || [],
     START_POSITIONS,
     PROGRAM_DB,
     discoverDeliverables,

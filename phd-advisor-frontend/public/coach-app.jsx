@@ -327,7 +327,7 @@ function greetWord() {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
-function Dashboard({ roadmap, onNav, onOpenSos, doneTasks }) {
+function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activity, onOpenStep }) {
   const steps = roadmap.steps;
   const doneCount = steps.filter(s => s.status === "done").length;
   const pct = Math.round((doneCount / steps.length) * 100);
@@ -343,6 +343,13 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks }) {
   const pending = (current.subtasks || []).filter(t => !dts.has(`${current.id}::${t}`));
   const nudge = pending[0];
   const reopened = steps.find(s => s.status === "redo" || s.recovery);
+  const stuck = stallDays(roadmap, activity);
+  const atRisk = stuck >= STALL_DAYS;
+
+  const checkNudge = () => {
+    if (!nudge || !setDoneTasks) return;
+    setDoneTasks(prev => { const n = new Set(prev); n.add(`${current.id}::${nudge}`); return n; });
+  };
 
   return (
     <div className="page">
@@ -354,7 +361,28 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks }) {
         </div>
       </div>
 
-      <Timeline steps={steps} onSelect={() => onNav("plan")} />
+      {/* TODAY — one focused next action, to cut cognitive load */}
+      <div className={`today ${atRisk ? "at-risk" : ""}`}>
+        <div className="today-l">
+          <div className="today-eyebrow">
+            <Icon name="Sun" size={13} /> Today · {current.title}
+            {atRisk && <span className="risk-pill"><Icon name="AlertTriangle" size={11} /> stuck {stuck}d</span>}
+          </div>
+          {nudge ? (
+            <div className="today-action">
+              <button className="today-check" onClick={checkNudge} title="Mark done"><span /></button>
+              <span className="today-text">{nudge}</span>
+            </div>
+          ) : (
+            <div className="today-action"><Icon name="CheckCircle2" size={16} color="var(--sage)" /> <span className="today-text">All steps here are checked — ready to complete this milestone.</span></div>
+          )}
+        </div>
+        <button className="btn primary" onClick={() => onOpenStep ? onOpenStep(current.id) : onNav("plan")}>
+          {nudge ? "Work on this" : "Complete milestone"} <Icon name="ArrowRight" size={15} color="#fff" />
+        </button>
+      </div>
+
+      <Timeline steps={steps} onSelect={(s) => onOpenStep ? onOpenStep(s.id) : onNav("plan")} />
 
       {/* Gentle accountability nudge — one, not a guilt machine */}
       {nudge && (
@@ -430,4 +458,16 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks }) {
 window.CoachOnboarding = Onboarding;
 window.CoachRail = Rail;
 window.CoachDashboard = Dashboard;
-window.coachHelpers = { RM_KEY, TASK_KEY, THEME_KEY, loadJSON, saveJSON, boldMd, PHASE_TIPS, advisorById, greetWord };
+// Activity timestamps per milestone → power stall / at-risk detection.
+const ACT_KEY = "phd-coach-activity-v1";
+const STALL_DAYS = 14; // a current step untouched this long is flagged "at risk"
+// Days the current step has gone untouched (falls back to roadmap creation date).
+function stallDays(roadmap, activity) {
+  if (!roadmap || !roadmap.steps) return 0;
+  const cur = roadmap.steps.find(s => s.status === "current") || roadmap.steps.find(s => s.status === "redo");
+  if (!cur) return 0;
+  const last = (activity && activity[cur.id]) || roadmap.createdAt || Date.now();
+  return Math.max(0, Math.floor((Date.now() - last) / 86400000));
+}
+
+window.coachHelpers = { RM_KEY, TASK_KEY, THEME_KEY, ACT_KEY, STALL_DAYS, loadJSON, saveJSON, boldMd, PHASE_TIPS, advisorById, greetWord, stallDays };
