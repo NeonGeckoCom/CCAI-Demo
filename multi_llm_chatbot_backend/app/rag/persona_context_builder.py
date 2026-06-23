@@ -258,7 +258,11 @@ class PersonaContextBuilder:
 
     def _format_document_context_with_attribution(self, chunks: List[Dict], persona_id: str) -> str:
         """
-        Format document context with clear attribution and source information
+        Format document context with clear attribution and source information.
+
+        Chunk positions and relevance scores are intentionally omitted from the
+        prompt text because models tend to repeat those internal labels back to
+        users as citations like "(Part 12)".
         """
         if not chunks:
             return ""
@@ -295,13 +299,8 @@ class PersonaContextBuilder:
 
             formatted_sections.append(f"=== FROM DOCUMENT: {doc_title} ===")
 
-            for i, chunk in enumerate(doc_chunks):
-                doc_source = chunk.get("document_source", {})
-                section = doc_source.get("section", "unknown section")
-                position = doc_source.get("chunk_position", "unknown position")
-                relevance = chunk.get("relevance_score", 0)
-
-                chunk_intro = f"[Source: {section}, Part {position}, Relevance: {relevance:.2f}]"
+            for chunk in doc_chunks:
+                chunk_intro = "[Document excerpt]"
                 chunk_text = self._format_chunk_text_for_prompt(chunk.get("text", ""))
                 formatted_sections.append(f"{chunk_intro}\n{chunk_text}\n")
 
@@ -312,7 +311,7 @@ class PersonaContextBuilder:
         context_header = f"""
 DOCUMENT CONTEXT FOR {persona_id.upper()} ANALYSIS:
 Found {total_chunks} relevant passages from {total_docs} document(s).
-Use this context to inform your response, and cite specific documents when referencing information.
+Use this context to inform your response. When referencing information from documents, cite the document by name only; do not mention internal passage labels, chunk numbers, positions, or relevance scores.
 
 """
 
@@ -407,7 +406,7 @@ When analyzing the document context:
 
     IMPORTANT: When the student refers to "my document," "my dissertation," "my proposal," etc., they are referring to one of their uploaded documents. Use the document context above to understand which specific document they mean and reference it by name in your response.
 
-    Always cite your sources when referencing information from their documents using the format: "According to your [document_name]..." or "In your [section_name] from [document_name]..."
+    When referencing information from their documents, cite the document by name only, using phrasing like: "According to your [document_name]..." Do not expose internal passage labels, chunk numbers, relevance scores, or positions.
     """
         else:
             # NO DOCUMENTS - Explicitly tell persona not to reference documents

@@ -292,7 +292,7 @@ class RAGConfig(BaseModel):
     embedding_model: str = "all-MiniLM-L6-v2"
     chroma_collection: str = "phd_advisor_documents"
     # Document chunking (RecursiveCharacterTextSplitter), sizes in characters
-    chunk_size: int = 1000
+    chunk_size: int = 2000
     chunk_overlap: int = 200
 
 

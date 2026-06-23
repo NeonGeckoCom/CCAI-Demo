@@ -148,6 +148,32 @@ class PersonaContextBuilderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("| 1. Intake Form", formatted)
         self.assertIn("| 2. Follow-up Interview", formatted)
 
+    def test_document_context_does_not_expose_internal_chunk_labels(self):
+        builder = PersonaContextBuilder()
+
+        context = builder._format_document_context_with_attribution(
+            [
+                {
+                    "text": "The proposal identifies a motivation gap.",
+                    "relevance_score": 0.93,
+                    "document_source": {
+                        "filename": "proposal.pdf",
+                        "document_title": "Dissertation Proposal",
+                        "section": "Chapter 2",
+                        "chunk_position": "45 of 300",
+                    },
+                }
+            ],
+            "methodologist",
+        )
+
+        self.assertIn("Dissertation Proposal", context)
+        self.assertIn("[Document excerpt]", context)
+        self.assertNotIn("[Document excerpt (Chapter 2)]", context)
+        self.assertNotIn("Part 45", context)
+        self.assertNotIn("45 of 300", context)
+        self.assertNotIn("Relevance", context)
+
     async def test_retrieval_appends_llm_keywords_when_documents_exist(self):
         builder = PersonaContextBuilder()
         rag_manager = FakeRagManager()
