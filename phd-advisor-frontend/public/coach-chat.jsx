@@ -28,6 +28,16 @@ const CoachActions = {
     store.activeId = id;
     csave(DOC_STORE, store);
     return id;
+  },
+  // Navigator-crafted custom tool: a persistent tool instance built from a
+  // primitive (checklist | notes | tracker). Lives in the Workspace like any
+  // widget. A backend can later generate richer bespoke tools the same way.
+  addCustomTool(custom) {
+    const arr = cload(WS_STORE, []);
+    const inst = { ...custom, key: custom.key || `phd-custom-${Date.now()}` };
+    arr.push({ id: `w-custom-${Date.now()}`, type: "custom", size: "M", custom: inst });
+    csave(WS_STORE, arr);
+    return inst;
   }
 };
 window.CoachActions = CoachActions;
@@ -114,9 +124,11 @@ function personaReply(advisor, current) {
 }
 
 // ============================================================================
-function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsumed }) {
+function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsumed, unlocked = { multiple: true, skills: true, personas10: true }, onMessage }) {
   const current = roadmap.steps.find(s => s.status === "current") || roadmap.steps.find(s => s.status === "redo") || roadmap.steps[0];
   const advisors = window.ADVISORS || [];
+  // Until 15 messages (or reveal-all), only the first 3 advisor lenses are offered.
+  const availableAdvisors = unlocked.personas10 ? advisors : advisors.slice(0, 3);
 
   const [mode, setMode] = useSC(() => { try { return localStorage.getItem("phd-chat-mode") || "single"; } catch (e) { return "single"; } });
   const [active, setActive] = useSC(() => {
@@ -130,10 +142,35 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
   const [busy, setBusy] = useSC(false);
   const endRef = useRC(null);
   const toolsRef = useRC(null);
+  // Chat history — persisted locally so it works offline (backend wires real sessions later).
+  const CHATS_KEY = "phd-coach-chats-v1";
+  const [chats, setChats] = useSC(() => { try { return JSON.parse(localStorage.getItem(CHATS_KEY)) || []; } catch (e) { return []; } });
+  const [activeChatId, setActiveChatId] = useSC(null); // null = a fresh, not-yet-saved chat
+  const [attached, setAttached] = useSC([]); // document names attached to the next message
+  const fileRef = useRC(null);
+  const [histOpen, setHistOpen] = useSC(false); // chat-history dropdown
+  const histRef = useRC(null);
 
   useEC(() => { try { localStorage.setItem("phd-chat-mode", mode); } catch (e) {} }, [mode]);
   useEC(() => { try { localStorage.setItem("phd-chat-personas", JSON.stringify(active)); } catch (e) {} }, [active]);
   useEC(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // Open the most recent saved chat on first mount.
+  useEC(() => {
+    if (!chats.length) return;
+    const c = [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    setActiveChatId(c.id); setMessages(c.messages || []); setSessionId(c.sessionId || null);
+  }, []);
+  useEC(() => { try { localStorage.setItem(CHATS_KEY, JSON.stringify(chats)); } catch (e) {} }, [chats]);
+  // Save the live conversation into history whenever it changes.
+  useEC(() => {
+    if (!messages.length) return;
+    const id = activeChatId || ("chat-" + Date.now());
+    if (!activeChatId) setActiveChatId(id);
+    const firstUser = messages.find(m => m.type === "user");
+    const title = firstUser ? (firstUser.content.length > 42 ? firstUser.content.slice(0, 42) + "…" : firstUser.content) : "New chat";
+    const entry = { id, title, messages, sessionId, updatedAt: Date.now() };
+    setChats(prev => { const i = prev.findIndex(c => c.id === id); if (i >= 0) { const n = [...prev]; n[i] = entry; return n; } return [entry, ...prev]; });
+  }, [messages]);
   // Arriving from a "Help me with this step" action — prefill the composer so the
   // student just reviews and hits Send (no surprise auto-send to the backend).
   useEC(() => { if (seed) { setInput(seed); onSeedConsumed && onSeedConsumed(); } }, [seed]);
@@ -143,10 +180,21 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [pop]);
+  useEC(() => {
+    if (!histOpen) return;
+    const onDown = (e) => { if (histRef.current && !histRef.current.contains(e.target)) setHistOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [histOpen]);
 
   // switching to single keeps only the first active persona
   const setSingle = () => { setMode("single"); setActive(a => a.slice(0, 1).length ? a.slice(0, 1) : [advisors[0].id]); };
-  const setMulti = () => { setMode("multiple"); setActive(a => a.length ? a : advisors.slice(0, 3).map(x => x.id)); };
+  const setMulti = () => { if (!unlocked.multiple) return; setMode("multiple"); setActive(a => a.length ? a : advisors.slice(0, 3).map(x => x.id)); };
+  // Reconcile saved chat state with what's currently unlocked (e.g. after a drip reset).
+  useEC(() => {
+    if (!unlocked.multiple && mode === "multiple") setMode("single");
+    setActive(a => { const ok = a.filter(id => availableAdvisors.some(x => x.id === id)); return ok.length ? ok : [availableAdvisors[0] && availableAdvisors[0].id].filter(Boolean); });
+  }, [unlocked.multiple, unlocked.personas10]);
 
   const pickPersona = (id) => {
     if (mode === "single") { setActive([id]); return; }
@@ -174,23 +222,27 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
   };
 
   const send = async (txt) => {
-    const t = (txt ?? input).trim(); if (!t || busy) return;
+    const t = (txt ?? input).trim(); if ((!t && attached.length === 0) || busy) return;
     const API = window.CoachAPI;
-    const userMsg = { id: "u" + Date.now(), type: "user", content: t };
+    const docNote = attached.length ? `\n\n📎 Attached: ${attached.join(", ")}` : "";
+    const content = (t || "(see attached documents)") + docNote;
+    const userMsg = { id: "u" + Date.now(), type: "user", content, docs: attached.slice() };
     setMessages(p => [...p, userMsg]);
     setInput("");
+    setAttached([]);
+    onMessage && onMessage(); // count this engagement (drives feature unlocks)
     setBusy(true);
 
     // Ensure a real backend chat-session, then stream the advisors' replies.
     let sid = sessionId;
     try {
-      if (API && !sid) { sid = await API.createSession(t.slice(0, 30)); if (sid) setSessionId(sid); }
+      if (API && !sid) { sid = await API.createSession((t || "Documents").slice(0, 30)); if (sid) setSessionId(sid); }
       if (API && sid) API.saveMessage(sid, { ...userMsg, timestamp: new Date().toISOString() });
 
       let got = false;
       if (API) {
         await API.streamChat({
-          userInput: t, sessionId: sid,
+          userInput: content, sessionId: sid,
           onEvent: ({ type, data }) => {
             if (type === "advisor") {
               got = true;
@@ -239,6 +291,12 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     if (onToast) onToast("Fork undone — your plan is back to how it was.");
   };
 
+  const newChat = () => { setMessages([]); setSessionId(null); setActiveChatId(null); setInput(""); if (window.CoachAPI) window.CoachAPI.newChat().catch(() => {}); };
+  const openChat = (c) => { setActiveChatId(c.id); setMessages(c.messages || []); setSessionId(c.sessionId || null); };
+  const deleteChat = (id, e) => { if (e) e.stopPropagation(); setChats(prev => prev.filter(c => c.id !== id)); if (id === activeChatId) { setMessages([]); setSessionId(null); setActiveChatId(null); } };
+  const timeAgo = (ts) => { if (!ts) return ""; const m = Math.floor((Date.now() - ts) / 60000); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; const d = Math.floor(h / 24); return d + "d ago"; };
+  const sortedChats = [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
   const hasMsgs = messages.length > 0;
   // group consecutive advisor messages into a row
   const groups = [];
@@ -256,7 +314,25 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     <div className="chat-wrap">
       <div className="chat-context" style={{ marginTop: 14 }}>
         <IcoC name="MapPin" size={14} /> Chatting about: <strong>&nbsp;{current.title}</strong>
-        <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => { setMessages([]); setSessionId(null); if (window.CoachAPI) window.CoachAPI.newChat().catch(() => {}); }}><IcoC name="Plus" size={13} /> New chat</button>
+        <div className="chat-hist" ref={histRef} style={{ marginLeft: "auto", position: "relative" }}>
+          <button className={`btn sm ghost ${histOpen ? "on" : ""}`} onClick={() => setHistOpen(o => !o)} title="Chat history" aria-label="Chat history"><IcoC name="History" size={14} /> History</button>
+          {histOpen && (
+            <div className="chat-hist-pop">
+              <div className="chat-hist-h">Recent chats</div>
+              <div className="chat-hist-list">
+                {sortedChats.length === 0 && <div className="chat-hist-empty">No past chats yet.</div>}
+                {sortedChats.map(c => (
+                  <button key={c.id} className={`chat-hist-item ${c.id === activeChatId ? "active" : ""}`} onClick={() => { openChat(c); setHistOpen(false); }}>
+                    <IcoC name="MessageCircle" size={13} />
+                    <span className="chi-main"><span className="chi-title">{c.title}</span><span className="chi-time">{timeAgo(c.updatedAt)}</span></span>
+                    <span className="chi-del" onClick={(e) => deleteChat(c.id, e)} title="Delete" role="button" aria-label="Delete chat"><IcoC name="Trash2" size={12} /></span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <button className="btn sm ghost" onClick={newChat}><IcoC name="Plus" size={13} /> New chat</button>
         <button className="btn sm ghost" onClick={() => onNav("plan")}>Open in plan <IcoC name="ArrowRight" size={13} /></button>
       </div>
 
@@ -331,11 +407,22 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
 
       <div className="chat-input-bar">
         <div className="chat-input">
+          <input ref={fileRef} type="file" multiple style={{ display: "none" }}
+            onChange={e => { const f = [...(e.target.files || [])].map(x => x.name); if (f.length) setAttached(a => [...a, ...f]); e.target.value = ""; }} />
+          {attached.length > 0 && (
+            <div className="chat-attached">
+              {attached.map((name, i) => (
+                <span key={i} className="att-chip"><IcoC name="FileText" size={12} /> {name}
+                  <button onClick={() => setAttached(a => a.filter((_, j) => j !== i))} aria-label="Remove"><IcoC name="X" size={11} /></button>
+                </span>
+              ))}
+            </div>
+          )}
           <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`Ask about ${current.title.toLowerCase()}…`} />
           <div className="ci-row">
             <div className="composer-tools" ref={toolsRef}>
-              {/* attach */}
-              <button className="composer-btn icon-only" title="Attach a file"><IcoC name="Paperclip" size={16} /></button>
+              {/* add documents */}
+              <button className="composer-btn" onClick={() => fileRef.current && fileRef.current.click()} title="Add documents"><IcoC name="Paperclip" size={15} /> Add documents</button>
 
               {/* personas with individual on/off toggles */}
               <div style={{ position: "relative" }}>
@@ -347,7 +434,7 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
                     <div className="composer-pop-h"><IcoC name="Users" size={12} /> Advisor lenses</div>
                     <div className="composer-pop-note">{mode === "single" ? "Single mode: one lens replies — turning one on turns the others off." : "Multiple mode: turn on up to 3 lenses to compare."}</div>
                     <div className="persona-list">
-                      {advisors.map(a => {
+                      {availableAdvisors.map(a => {
                         const on = active.includes(a.id);
                         const lockOff = mode === "multiple" && !on && active.length >= 3;
                         return (
@@ -363,8 +450,8 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
                 )}
               </div>
 
-              {/* skills */}
-              <div style={{ position: "relative" }}>
+              {/* skills (hidden until unlocked) */}
+              {unlocked.skills && <div style={{ position: "relative" }}>
                 <button className={`composer-btn ${pop === "skills" ? "on" : ""}`} onClick={() => setPop(p => p === "skills" ? null : "skills")} title="Attach a skill">
                   <IcoC name="Sparkles" size={15} /> Skill
                 </button>
@@ -386,13 +473,15 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
                     </div>
                   </div>
                 )}
-              </div>
+              </div>}
 
-              {/* single / multiple toggle */}
-              <div className="mode-seg" role="tablist" title="How many advisor lenses reply">
-                <button className={mode === "single" ? "on" : ""} onClick={setSingle}><IcoC name="User" size={13} /> Single</button>
-                <button className={mode === "multiple" ? "on" : ""} onClick={setMulti}><IcoC name="Users" size={13} /> Multiple</button>
-              </div>
+              {/* single / multiple toggle — Multiple appears once unlocked */}
+              {unlocked.multiple ? (
+                <div className="mode-seg" role="tablist" title="How many advisor lenses reply">
+                  <button className={mode === "single" ? "on" : ""} onClick={setSingle}><IcoC name="User" size={13} /> Single</button>
+                  <button className={mode === "multiple" ? "on" : ""} onClick={setMulti}><IcoC name="Users" size={13} /> Multiple</button>
+                </div>
+              ) : null}
             </div>
 
             <button className="btn primary sm" disabled={!input.trim() || busy} onClick={() => send()}><IcoC name="Send" size={14} color="#fff" /> Send</button>

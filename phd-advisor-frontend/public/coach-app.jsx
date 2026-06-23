@@ -54,6 +54,8 @@ function Onboarding({ onComplete }) {
   const [startPosition, setStartPosition] = useState("coursework");
   const [writeStyle, setWriteStyle] = useState("unsure");
   const [publish, setPublish] = useState("unsure");
+  const [densityChoice, setDensityChoice] = useState("balanced"); // everything | balanced | minimal
+  const [modelMode, setModelMode] = useState("cloud");            // cloud | private
 
   const search = () => {
     setSearching(true); setFound(null);
@@ -83,7 +85,13 @@ function Onboarding({ onComplete }) {
       workflow: { writeStyle, publish: publish === "yes" }
     });
     rm.materials = materials;
-    onComplete(rm);
+    // Map the density choice → {density, revealAll}; pass prefs up to CoachRoot.
+    const prefs = {
+      density: densityChoice === "minimal" ? "focused" : "full",
+      revealAll: densityChoice === "everything",
+      modelMode
+    };
+    onComplete(rm, prefs);
   };
 
   const confirmItem = (i) => setItems(p => p.map((d, j) => j === i ? { ...d, confirmed: !d.confirmed } : d));
@@ -95,7 +103,7 @@ function Onboarding({ onComplete }) {
     <div className="onb">
       <div className="onb-card">
         <div className="onb-logo"><Icon name="Compass" size={24} color="#fff" /></div>
-        <div className="onb-dots">{[0,1,2,3].map(i => <span key={i} className={i <= step ? "on" : ""} />)}</div>
+        <div className="onb-dots">{[0,1,2,3,4,5].map(i => <span key={i} className={i <= step ? "on" : ""} />)}</div>
 
         {step === 0 && (
           <>
@@ -251,6 +259,60 @@ function Onboarding({ onComplete }) {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
               <button className="btn ghost" onClick={() => setStep(2)}><Icon name="ArrowLeft" size={14} /> Back</button>
+              <button className="btn primary lg" onClick={() => setStep(4)}>Continue <Icon name="ArrowRight" size={15} color="#fff" /></button>
+            </div>
+          </>
+        )}
+
+        {step === 4 && (
+          <>
+            <h1 className="display">How much do you want to see?</h1>
+            <p className="lead">PhD Navigator has a lot under the hood. Choose how much shows up at once — you can change this anytime in Settings.</p>
+            <div className="onb-choice">
+              <button className={`onb-choice-card ${densityChoice === "everything" ? "sel" : ""}`} onClick={() => setDensityChoice("everything")}>
+                <span className="occ-ico"><Icon name="LayoutDashboard" size={18} /></span>
+                <span className="occ-t">Show me everything</span>
+                <span className="occ-d">Full dashboard and every tool, advisor, and skill available right away.</span>
+              </button>
+              <button className={`onb-choice-card ${densityChoice === "balanced" ? "sel" : ""}`} onClick={() => setDensityChoice("balanced")}>
+                <span className="occ-ico"><Icon name="Scale" size={18} /></span>
+                <span className="occ-t">Balanced <span className="occ-rec">recommended</span></span>
+                <span className="occ-d">Full layout, but advanced features unlock gradually as you use the app.</span>
+              </button>
+              <button className={`onb-choice-card ${densityChoice === "minimal" ? "sel" : ""}`} onClick={() => setDensityChoice("minimal")}>
+                <span className="occ-ico"><Icon name="Minimize2" size={18} /></span>
+                <span className="occ-t">Just what I need</span>
+                <span className="occ-d">A calm home with one clear next action; features unlock as you go.</span>
+              </button>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
+              <button className="btn ghost" onClick={() => setStep(3)}><Icon name="ArrowLeft" size={14} /> Back</button>
+              <button className="btn primary lg" onClick={() => setStep(5)}>Continue <Icon name="ArrowRight" size={15} color="#fff" /></button>
+            </div>
+          </>
+        )}
+
+        {step === 5 && (
+          <>
+            <h1 className="display">Cloud or private models?</h1>
+            <p className="lead">Your advisors are powered by AI. Choose where that runs — you can switch later in Settings.</p>
+            <div className="onb-choice">
+              <button className={`onb-choice-card ${modelMode === "cloud" ? "sel" : ""}`} onClick={() => setModelMode("cloud")}>
+                <span className="occ-ico"><Icon name="Cloud" size={18} /></span>
+                <span className="occ-t">Cloud models</span>
+                <span className="occ-d">Best accuracy and the fullest capabilities. Your inputs are processed in the cloud.</span>
+              </button>
+              <button className={`onb-choice-card ${modelMode === "private" ? "sel" : ""}`} onClick={() => setModelMode("private")}>
+                <span className="occ-ico"><Icon name="ShieldCheck" size={18} /></span>
+                <span className="occ-t">On-device &amp; private</span>
+                <span className="occ-d">Runs locally on your machine — fully private, with slightly lower accuracy.</span>
+              </button>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 10, display: "flex", gap: 6, alignItems: "center" }}>
+              <Icon name="Info" size={12} /> You can change models, density, and more anytime in Settings.
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
+              <button className="btn ghost" onClick={() => setStep(4)}><Icon name="ArrowLeft" size={14} /> Back</button>
               <button className="btn primary lg" onClick={finish}><Icon name="Sparkles" size={15} color="#fff" /> Build my plan</button>
             </div>
           </>
@@ -263,7 +325,7 @@ function Onboarding({ onComplete }) {
 // ============================================================================
 // RAIL (sidebar nav)
 // ============================================================================
-function Rail({ view, onNav, user }) {
+function Rail({ view, onNav, user, skillsUnlocked = true, onSignOut }) {
   const items = [
     { id: "home", label: "Home", icon: "Home" },
     { id: "plan", label: "My Plan", icon: "Map", badge: "live" },
@@ -273,7 +335,7 @@ function Rail({ view, onNav, user }) {
     { id: "workspace", label: "Workspace", icon: "LayoutDashboard" },
     { id: "documents", label: "Documents", icon: "FileText" },
     { id: "settings", label: "Settings", icon: "Settings" }
-  ];
+  ].filter(it => it.id !== "skills" || skillsUnlocked); // Skills stays hidden until unlocked in chat
   return (
     <aside className="rail">
       <div className="rail-brand">
@@ -288,9 +350,10 @@ function Rail({ view, onNav, user }) {
         </button>
       ))}
       <div className="rail-spacer" />
-      <div className="rail-user" onClick={() => onNav("settings")}>
-        <div className="av">{user.initials}</div>
-        <div><div className="nm">{user.name}</div><div className="em">{user.email}</div></div>
+      <div className="rail-user">
+        <div className="av" onClick={() => onNav("settings")}>{user.initials}</div>
+        <div className="rail-user-id" onClick={() => onNav("settings")}><div className="nm">{user.name}</div><div className="em">{user.email}</div></div>
+        {onSignOut && <button className="rail-signout" title="Sign out" aria-label="Sign out" onClick={(e) => { e.stopPropagation(); onSignOut(); }}><Icon name="LogOut" size={16} /></button>}
       </div>
     </aside>
   );
@@ -327,8 +390,10 @@ function greetWord() {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
-function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activity, onOpenStep }) {
+function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activity, onOpenStep, focused }) {
   const steps = roadmap.steps;
+  // Focused/minimal mode: trim the timeline to completed + current(+recovery).
+  const tlSteps = focused ? steps.filter(s => ["done", "current", "redo"].includes(s.status) || s.recovery) : steps;
   const doneCount = steps.filter(s => s.status === "done").length;
   const pct = Math.round((doneCount / steps.length) * 100);
   const current = steps.find(s => s.status === "current") || steps.find(s => s.status === "redo") || steps[0];
@@ -382,10 +447,10 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
         </button>
       </div>
 
-      <Timeline steps={steps} onSelect={(s) => onOpenStep ? onOpenStep(s.id) : onNav("plan")} />
+      <Timeline steps={tlSteps} onSelect={(s) => onOpenStep ? onOpenStep(s.id) : onNav("plan")} />
 
       {/* Gentle accountability nudge — one, not a guilt machine */}
-      {nudge && (
+      {!focused && nudge && (
         <button className="nudge" onClick={() => onNav("plan")}>
           <span className="nudge-ico"><Icon name="Hand" size={15} /></span>
           <span className="nudge-body"><b>Picking up where you left off.</b> You set out to <b>{nudge.toLowerCase()}</b> — want to knock that out today?</span>
@@ -393,7 +458,7 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
         </button>
       )}
 
-      <div className="dash">
+      {!focused && <div className="dash">
         <div className="dash-col">
           <div className="where">
             <span className="phase-tag"><Icon name="MapPin" size={12} /> You are here · {current.phase}</span>
@@ -448,9 +513,9 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
             <div className="tip-body"><b>Tip.</b> {tip}</div>
           </div>
         </div>
-      </div>
+      </div>}
 
-      <button className="sos" onClick={onOpenSos}><Icon name="LifeBuoy" size={15} /> Something came up?</button>
+      {!focused && <button className="sos" onClick={onOpenSos}><Icon name="LifeBuoy" size={15} /> Something came up?</button>}
     </div>
   );
 }
@@ -460,6 +525,10 @@ window.CoachRail = Rail;
 window.CoachDashboard = Dashboard;
 // Activity timestamps per milestone → power stall / at-risk detection.
 const ACT_KEY = "phd-coach-activity-v1";
+// Progressive-disclosure storage keys (shared so every module agrees).
+const PREFS_KEY = "phd-coach-prefs-v1";       // { density, revealAll, modelMode }
+const ENGAGE_KEY = "phd-coach-engagement-v1"; // { messages, visits }
+const UNLOCKS_KEY = "phd-coach-unlocks-v1";   // string[] of unlock ids already shown
 const STALL_DAYS = 14; // a current step untouched this long is flagged "at risk"
 // Days the current step has gone untouched (falls back to roadmap creation date).
 function stallDays(roadmap, activity) {
@@ -470,4 +539,4 @@ function stallDays(roadmap, activity) {
   return Math.max(0, Math.floor((Date.now() - last) / 86400000));
 }
 
-window.coachHelpers = { RM_KEY, TASK_KEY, THEME_KEY, ACT_KEY, STALL_DAYS, loadJSON, saveJSON, boldMd, PHASE_TIPS, advisorById, greetWord, stallDays };
+window.coachHelpers = { RM_KEY, TASK_KEY, THEME_KEY, ACT_KEY, PREFS_KEY, ENGAGE_KEY, UNLOCKS_KEY, STALL_DAYS, loadJSON, saveJSON, boldMd, PHASE_TIPS, advisorById, greetWord, stallDays };

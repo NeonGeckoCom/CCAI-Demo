@@ -297,8 +297,45 @@ function FundingTool({ storeKey = FUNDING_KEY, title = "Funding" }) {
   );
 }
 
+// 8. TRACKER (a count-anything primitive) ------------------------------------
+function TrackerTool({ storeKey, title = "Tracker" }) {
+  const [items, setItems] = useStored(storeKey, []);
+  const [label, setLabel] = useStateT("");
+  const add = () => { if (!label.trim()) return; setItems([...items, { id: uid("k-"), label: label.trim(), value: 0 }]); setLabel(""); };
+  const bump = (id, d) => setItems(items.map(i => i.id === id ? { ...i, value: Math.max(0, (i.value || 0) + d) } : i));
+  return (
+    <ToolCard icon="Activity" title={title} foot={<span className="tool-count">{items.length}</span>}>
+      <div className="tool-input-row">
+        <input value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") add(); }} placeholder="What to track + Enter" />
+        <button className="tool-add" onClick={add} aria-label="Add"><IconT name="Plus" size={14} /></button>
+      </div>
+      <div className="tool-list">
+        {items.length === 0 && <div className="tool-empty">Nothing tracked yet.</div>}
+        {items.map(i => (
+          <div key={i.id} className="tool-row">
+            <span className="tool-row-text">{i.label}</span>
+            <button className="tool-del" onClick={() => bump(i.id, -1)} aria-label="Decrease"><IconT name="Minus" size={12} /></button>
+            <b style={{ minWidth: 22, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{i.value || 0}</b>
+            <button className="tool-del" onClick={() => bump(i.id, 1)} aria-label="Increase"><IconT name="Plus" size={12} /></button>
+            <button className="tool-del" onClick={() => setItems(items.filter(x => x.id !== i.id))} aria-label="Remove"><IconT name="X" size={12} /></button>
+          </div>
+        ))}
+      </div>
+    </ToolCard>
+  );
+}
+
+// 9. CUSTOM TOOL — renders a Navigator-crafted instance from its primitive ----
+function CustomTool({ inst }) {
+  if (!inst) return null;
+  const t = inst.title || "Custom tool";
+  if (inst.kind === "notes") return <NotesTool storeKey={inst.key} title={t} />;
+  if (inst.kind === "tracker") return <TrackerTool storeKey={inst.key} title={t} />;
+  return <TasksTool storeKey={inst.key} title={t} />; // "checklist" (default)
+}
+
 Object.assign(window, {
-  ToolCard, NotesTool, TasksTool, ReadingTool, BibTool, PomodoroTool, DeadlinesTool, FundingTool,
+  ToolCard, NotesTool, TasksTool, ReadingTool, BibTool, PomodoroTool, DeadlinesTool, FundingTool, TrackerTool, CustomTool,
   DEADLINES_KEY, FUNDING_KEY,
   hasTool, renderTool, TOOL_REGISTRY
 });

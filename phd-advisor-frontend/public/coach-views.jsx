@@ -185,17 +185,20 @@ function CoachWorkspace({ roadmap }) {
 
       <div className="ws-grid">
         {layout.map(w => {
-          const def = (window.WIDGET_CATALOG || []).find(d => d.type === w.type);
+          const isCustom = w.type === "custom";
+          const def = isCustom
+            ? { type: "custom", name: w.custom?.title || "Custom tool", icon: "Wand2" }
+            : (window.WIDGET_CATALOG || []).find(d => d.type === w.type);
           if (!def) return null;
           return (
             <div key={w.id} className={`ws-widget size-${w.size} ${def.critic ? "critic" : ""}`}>
               <div className="ws-w-head">
                 <span className="ws-w-ico"><IcoV name={def.icon} size={14} /></span>
-                <span className="ws-w-title">{def.name}</span>
+                <span className="ws-w-title">{def.name}{isCustom && <span className="ws-custom-tag">custom</span>}</span>
                 <button className="ws-size" onClick={() => cycle(w.id)}>{w.size}</button>
                 <button className="ws-w-del" onClick={() => remove(w.id)}><IcoV name="Trash2" size={13} /></button>
               </div>
-              <div className="ws-w-body"><WidgetBody def={def} seed={w.seed} /></div>
+              <div className="ws-w-body">{isCustom ? (window.CustomTool ? <window.CustomTool inst={w.custom} /> : null) : <WidgetBody def={def} seed={w.seed} />}</div>
             </div>
           );
         })}
@@ -311,7 +314,7 @@ function sectionsFor(id) {
   return Array.from({ length: n }, (_, i) => ({ id: `s-${i}`, name: `Section ${i + 1}`, target: 300 }));
 }
 
-function CoachDocuments() {
+function CoachDocuments({ roadmap }) {
   const [store, setStore] = useSV(() => HV.loadJSON(DOC_KEY, { projects: {}, activeId: null }));
   useEV(() => HV.saveJSON(DOC_KEY, store), [store]);
   const projects = Object.values(store.projects || {});
@@ -467,7 +470,7 @@ function CoachDocuments() {
       <div className="greeting" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h1 className="display" style={{ fontSize: 26 }}>Documents</h1>
-          <div className="sub">{projects.length > 0 ? `${projects.length} document${projects.length === 1 ? "" : "s"} stored.` : "Upload what your program sent you, or start from a template."}</div>
+          <div className="sub">{projects.length > 0 ? `${projects.length} document${projects.length === 1 ? "" : "s"} stored.` : "Upload what your program sent you — or let a Skill draft one for you."}</div>
         </div>
         <button className="btn primary" onClick={triggerUpload}><IcoV name="Upload" size={15} color="#fff" /> Upload document</button>
       </div>
@@ -522,15 +525,6 @@ function CoachDocuments() {
         </>
       )}
 
-      <div className="section-label"><span className="ic"><IcoV name="FilePlus2" size={13} /></span> {templateDrafts.length > 0 ? "Start a new draft" : "Or start from a template"}</div>
-      <div className="doc-grid">
-        {(window.DOC_TEMPLATES || []).map(t => (
-          <button key={t.id} className="doc-card" onClick={() => create(t.id)}>
-            <span className="doc-card-i"><IcoV name={t.icon} size={18} /></span>
-            <div style={{ flex: 1, minWidth: 0 }}><div className="doc-card-n">{t.name}</div><div className="doc-card-d">{t.desc}</div><div className="doc-card-meta">{t.sections} sections · {t.mode}</div></div>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }

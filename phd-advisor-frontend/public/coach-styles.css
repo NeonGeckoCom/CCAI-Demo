@@ -1153,3 +1153,94 @@ button, input, textarea, select { font-family: inherit; }
 .stepws-sec { margin-top: 18px; }
 .stepws-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 18px; background: var(--surface); border-top: 1px solid var(--border); }
 .stepws-foot-note { font-size: 12.5px; color: var(--text-2); }
+
+/* --- Step Workspace: add-a-tool panel + custom tool --- */
+.stepws-tools { margin-top: 12px; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; }
+.stepws-craft { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; padding: 12px 14px; margin-bottom: 12px; border-radius: 12px; border: 1px dashed var(--primary); background: var(--primary-soft); color: var(--text); }
+.stepws-craft:hover { background: var(--primary-ring); }
+.stepws-craft-i { width: 32px; height: 32px; border-radius: 9px; background: var(--grad); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+.stepws-craft-i svg { color: #fff; }
+.stepws-craft b { display: block; font-size: 13.5px; }
+.stepws-craft-d { display: block; font-size: 11.5px; color: var(--text-2); margin-top: 1px; }
+.stepws-craft > span:nth-child(2) { flex: 1; min-width: 0; }
+.ws-custom-tag { margin-left: 6px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--primary-deep); background: var(--primary-soft); border-radius: 999px; padding: 1px 6px; }
+
+/* ============================================================================
+   Progressive disclosure: onboarding choices, settings segments, private pill,
+   rail sign-out, help center.
+   ============================================================================ */
+
+/* Onboarding choice cards (density + model steps) */
+.onb-choice { display: flex; flex-direction: column; gap: 10px; }
+.onb-choice-card { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; text-align: left; cursor: pointer;
+  padding: 14px 16px; border-radius: var(--r); border: 1.5px solid var(--border); background: var(--surface); transition: border-color .14s ease, background .14s ease; }
+.onb-choice-card:hover { border-color: var(--border-2); }
+.onb-choice-card.sel { border-color: var(--primary); background: var(--primary-soft); }
+.onb-choice-card .occ-ico { grid-row: 1 / 3; width: 38px; height: 38px; border-radius: 11px; background: var(--surface-2); color: var(--primary-deep); display: grid; place-items: center; }
+.onb-choice-card.sel .occ-ico { background: var(--grad); color: #fff; }
+.onb-choice-card.sel .occ-ico svg { color: #fff; }
+.onb-choice-card .occ-t { font-size: 14.5px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.onb-choice-card .occ-rec { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--primary-deep); background: var(--primary-soft); border: 1px solid var(--primary); border-radius: 999px; padding: 1px 7px; }
+.onb-choice-card .occ-d { font-size: 12.5px; color: var(--text-2); line-height: 1.45; margin-top: 2px; }
+
+/* Settings 3-way segment */
+.seg3 { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 4px; }
+.seg3 button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: none; background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 6px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+.seg3 button.on { background: var(--surface); color: var(--primary-deep); box-shadow: var(--shadow-sm); }
+
+/* "Private" model pill in the top bar */
+.private-pill { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--sage); background: var(--sage-soft); border-radius: 999px; padding: 2px 8px; }
+.private-pill svg { color: var(--sage); }
+
+/* Rail sign-out + clickable id block */
+.rail-user { display: flex; align-items: center; gap: 10px; }
+.rail-user .av, .rail-user-id { cursor: pointer; }
+.rail-user-id { flex: 1; min-width: 0; }
+.rail-signout { flex-shrink: 0; width: 30px; height: 30px; border-radius: 9px; border: none; background: transparent; color: var(--text-3); cursor: pointer; display: grid; place-items: center; }
+.rail-signout:hover { background: var(--surface-2); color: var(--rose); }
+
+/* Help center list (Settings → Help) */
+.help-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.help-row { display: flex; gap: 10px; align-items: flex-start; }
+.help-row .help-ico { width: 26px; height: 26px; border-radius: 8px; background: var(--surface-2); color: var(--text-2); display: grid; place-items: center; flex-shrink: 0; }
+.help-row b { display: block; font-size: 13px; color: var(--text); }
+.help-row span { display: block; font-size: 12.5px; color: var(--text-2); line-height: 1.45; margin-top: 1px; }
+
+/* ============================================================================
+   Chat history dropdown (History icon in the chat bar)
+   ============================================================================ */
+.chat-hist-pop { position: absolute; top: calc(100% + 6px); right: 0; width: 290px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 8px; z-index: 60; animation: pop .14s cubic-bezier(.16,1,.3,1); }
+.chat-hist-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); padding: 4px 6px 6px; }
+.chat-hist-list { display: flex; flex-direction: column; gap: 2px; max-height: 264px; overflow-y: auto; }
+.chat-hist-empty { font-size: 12.5px; color: var(--text-3); padding: 8px 6px; line-height: 1.5; }
+.chat-hist-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: none; background: transparent; color: var(--text-2); cursor: pointer; padding: 8px 9px; border-radius: 9px; }
+.chat-hist-item:hover { background: var(--surface-2); }
+.chat-hist-item.active { background: var(--primary-soft); color: var(--text); }
+.chat-hist-item > svg { flex-shrink: 0; }
+.chat-hist-item .chi-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.chat-hist-item .chi-title { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-hist-item .chi-time { font-size: 10.5px; color: var(--text-3); }
+.chat-hist-item .chi-del { flex-shrink: 0; opacity: 0; color: var(--text-3); display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; }
+.chat-hist-item:hover .chi-del { opacity: 1; }
+.chat-hist-item .chi-del:hover { background: var(--surface-3); color: var(--rose); }
+
+/* Chat composer: attached-document chips */
+.chat-attached { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 8px; }
+.chat-attached .att-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 6px 3px 9px; }
+.chat-attached .att-chip button { border: none; background: transparent; color: var(--text-3); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.chat-attached .att-chip button:hover { color: var(--rose); }
+
+/* ============================================================================
+   Editable / reorderable plan spine (My Plan → "Edit plan")
+   ============================================================================ */
+.spine-item.editing { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 9px 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); cursor: grab; }
+.spine-item.editing.sel { border-color: var(--primary); }
+.spine-item.editing.dragging { opacity: .5; }
+.spine-item.editing .spine-drag { color: var(--text-3); display: grid; place-items: center; cursor: grab; flex-shrink: 0; }
+.spine-item.editing .spine-t1 { display: inline-flex; align-items: center; gap: 5px; cursor: text; }
+.spine-item.editing .spine-t1 svg { color: var(--text-3); }
+.spine-rename { width: 100%; font: inherit; font-size: 13px; font-weight: 600; color: var(--text); border: 1px solid var(--primary); border-radius: 7px; padding: 3px 7px; outline: none; background: var(--surface); }
+.spine-move { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.spine-move button { width: 22px; height: 18px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); border-radius: 6px; cursor: pointer; display: grid; place-items: center; padding: 0; }
+.spine-move button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary-deep); }
+.spine-move button:disabled { opacity: .35; cursor: default; }

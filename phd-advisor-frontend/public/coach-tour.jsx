@@ -29,13 +29,15 @@ const TOUR_STEPS = [
     body: "One last thing: if something goes wrong — rejected data, a committee change — just say so in Chat and the plan re-routes around it. You can replay this tour anytime from Settings." }
 ];
 
-function CoachTour({ onNav, onClose }) {
+function CoachTour({ onNav, onClose, skillsUnlocked = true }) {
   const [i, setI] = useST(0);
   const [rect, setRect] = useST(null);
   const cardRef = useRT(null);
-  const step = TOUR_STEPS[i];
+  // Drop the Skills step from the tour while Skills is still locked.
+  const steps = skillsUnlocked ? TOUR_STEPS : TOUR_STEPS.filter(s => s.view !== "skills");
+  const step = steps[i];
   const isFirst = i === 0;
-  const isLast = i === TOUR_STEPS.length - 1;
+  const isLast = i === steps.length - 1;
 
   // navigate to the step's page so it's shown live behind the tour
   useET(() => { if (step.view) onNav(step.view); }, [i]);
@@ -79,13 +81,13 @@ function CoachTour({ onNav, onClose }) {
         {rect && <span className="tour-arrow" />}
         <div className="tour-card-top">
           <span className="tour-ico"><IcoT name={step.icon} size={17} /></span>
-          <span className="tour-step-count">{i === 0 ? "Welcome" : isLast ? "Done" : `${i} of ${TOUR_STEPS.length - 2}`}</span>
+          <span className="tour-step-count">{i === 0 ? "Welcome" : isLast ? "Done" : `${i} of ${steps.length - 2}`}</span>
           <button className="tour-skip" onClick={finish} title="Skip tour"><IcoT name="X" size={15} /></button>
         </div>
         <h3 className="tour-title display">{step.title}</h3>
         <p className="tour-body">{step.body}</p>
         <div className="tour-dots">
-          {TOUR_STEPS.map((_, k) => <span key={k} className={k === i ? "on" : ""} onClick={() => setI(k)} />)}
+          {steps.map((_, k) => <span key={k} className={k === i ? "on" : ""} onClick={() => setI(k)} />)}
         </div>
         <div className="tour-actions">
           <button className="btn ghost sm" onClick={finish}>Skip</button>
@@ -103,3 +105,4 @@ function CoachTour({ onNav, onClose }) {
 
 window.CoachTour = CoachTour;
 window.COACH_TOUR_KEY = TOUR_KEY;
+window.COACH_TOUR_STEPS = TOUR_STEPS; // reused by the Settings Help center

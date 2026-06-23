@@ -784,3 +784,24 @@ window.MOCK_USER = {
   stage: "Coursework → Candidacy",
   program: "PhD, Information Science"
 };
+
+// Step → starter document template (used by the Step Workspace + Documents relevance).
+window.STEP_DOC = {
+  proposal: "thesis-chapter", writing: "thesis-chapter", defense: "defense-slides",
+  irb: "irb-protocol", submission: "dissertation-format", literature: "research-statement",
+  committee: "faculty-hunt", analysis: "research-paper", "early-writing": "thesis-chapter", "first-paper": "conference-abstract"
+};
+
+// Phase → a handful of relevant document templates (Documents "Recommended for your stage").
+window.PHASE_TEMPLATES = {
+  Start:        ["idp", "advisor-compact", "meeting-prep"],
+  Topic:        ["research-statement", "faculty-hunt", "meeting-prep", "idp"],
+  Literature:   ["research-statement", "research-paper", "progress-report"],
+  Proposal:     ["research-statement", "thesis-chapter", "progress-report", "meeting-prep"],
+  Methods:      ["irb-protocol", "meeting-prep", "progress-report"],
+  Data:         ["progress-report", "meeting-prep", "research-paper"],
+  Writing:      ["thesis-chapter", "research-paper", "conference-abstract"],
+  Defense:      ["defense-slides", "poster", "cv"],
+  Submission:   ["dissertation-format", "cv", "cover-letter"],
+  Recovery:     ["meeting-prep", "progress-report"]
+};

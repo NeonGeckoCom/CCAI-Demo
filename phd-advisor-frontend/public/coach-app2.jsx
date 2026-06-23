@@ -9,12 +9,26 @@ const H = window.coachHelpers;
 // ============================================================================
 // PLAN / STEP VIEW  (spine + focused current step + live tools)
 // ============================================================================
-function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touchStep, onCelebrate, onOpenSos, onAsk, onNav, onOpenStep }) {
+function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touchStep, onCelebrate, onOpenSos, onAsk, onNav, onOpenStep, skillsUnlocked = true }) {
   const [selected, setSelected] = useS2(() => {
     const c = roadmap.steps.findIndex(s => s.status === "current");
     return c >= 0 ? c : 0;
   });
   const [openTask, setOpenTask] = useS2(-1); // which sub-task's "how to" drawer is open
+  const [editPlan, setEditPlan] = useS2(false); // reorder / rename milestones
+  const [dragIdx, setDragIdx] = useS2(null);
+  const [renameId, setRenameId] = useS2(null);
+
+  // Move a milestone from index `from` to index `to`, keeping the selection on it.
+  const moveStep = (from, to) => {
+    if (to < 0 || to >= roadmap.steps.length || from === to) return;
+    const steps = roadmap.steps.slice();
+    const [moved] = steps.splice(from, 1);
+    steps.splice(to, 0, moved);
+    setRoadmap({ ...roadmap, steps });
+    setSelected(steps.findIndex(s => s.id === moved.id));
+  };
+  const renameStep = (id, title) => setRoadmap({ ...roadmap, steps: roadmap.steps.map(s => s.id === id ? { ...s, title } : s) });
 
   const step = roadmap.steps[selected];
   const fs = RE2.computeFeatureState(roadmap, selected);
@@ -56,9 +70,14 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
 
   return (
     <div className="page">
-      <div className="greeting" style={{ marginBottom: 16 }}>
-        <h1 className="display" style={{ fontSize: 24 }}>{roadmap.program?.name || "Your plan"}</h1>
-        <div className="sub">{doneCount} of {roadmap.steps.length} milestones complete · {pct}%</div>
+      <div className="greeting" style={{ marginBottom: 16, display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 className="display" style={{ fontSize: 24 }}>{roadmap.program?.name || "Your plan"}</h1>
+          <div className="sub">{doneCount} of {roadmap.steps.length} milestones complete · {pct}%</div>
+        </div>
+        <button className={`btn sm ${editPlan ? "primary" : ""}`} onClick={() => { setEditPlan(e => !e); setRenameId(null); }}>
+          <Ico name={editPlan ? "Check" : "Pencil"} size={14} color={editPlan ? "#fff" : undefined} /> {editPlan ? "Done editing" : "Edit plan"}
+        </button>
       </div>
 
       <div className="step-wrap">
@@ -71,16 +90,39 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
             return (
               <React.Fragment key={s.id}>
                 {showPhase && <div className="spine-phase">{s.phase}</div>}
-                <button className={`spine-item ${i === selected ? "sel" : ""}`} onClick={() => { setSelected(i); onOpenStep && onOpenStep(s.id); }}>
-                  <span className={`spine-dot ${dotClass} ${s.gate ? "gate" : ""}`}>
-                    {s.status === "done" ? <Ico name="Check" size={14} color="#fff" />
-                      : s.recovery ? <Ico name="AlertTriangle" size={13} color="#fff" /> : i + 1}
-                  </span>
-                  <span>
-                    <span className="spine-t1">{s.title} {s.gate && <span className="spine-flag">gate</span>}{s.status === "redo" && <span className="spine-flag">redo</span>}</span>
-                    <span className="spine-t2">{s.estimate}</span>
-                  </span>
-                </button>
+                {editPlan ? (
+                  <div className={`spine-item editing ${i === selected ? "sel" : ""} ${dragIdx === i ? "dragging" : ""}`}
+                    draggable onDragStart={() => setDragIdx(i)} onDragOver={e => e.preventDefault()}
+                    onDrop={() => { if (dragIdx != null) moveStep(dragIdx, i); setDragIdx(null); }} onDragEnd={() => setDragIdx(null)}>
+                    <span className="spine-drag" title="Drag to reorder"><Ico name="GripVertical" size={15} /></span>
+                    <span className={`spine-dot ${dotClass} ${s.gate ? "gate" : ""}`}>{i + 1}</span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      {renameId === s.id ? (
+                        <input className="spine-rename" autoFocus defaultValue={s.title}
+                          onBlur={e => { renameStep(s.id, e.target.value.trim() || s.title); setRenameId(null); }}
+                          onKeyDown={e => { if (e.key === "Enter") { renameStep(s.id, e.target.value.trim() || s.title); setRenameId(null); } }} />
+                      ) : (
+                        <span className="spine-t1" onClick={() => setRenameId(s.id)} title="Rename">{s.title} <Ico name="Pencil" size={11} /></span>
+                      )}
+                      <span className="spine-t2">{s.estimate}</span>
+                    </span>
+                    <span className="spine-move">
+                      <button disabled={i === 0} onClick={() => moveStep(i, i - 1)} aria-label="Move up"><Ico name="ChevronUp" size={14} /></button>
+                      <button disabled={i === roadmap.steps.length - 1} onClick={() => moveStep(i, i + 1)} aria-label="Move down"><Ico name="ChevronDown" size={14} /></button>
+                    </span>
+                  </div>
+                ) : (
+                  <button className={`spine-item ${i === selected ? "sel" : ""}`} onClick={() => { setSelected(i); onOpenStep && onOpenStep(s.id); }}>
+                    <span className={`spine-dot ${dotClass} ${s.gate ? "gate" : ""}`}>
+                      {s.status === "done" ? <Ico name="Check" size={14} color="#fff" />
+                        : s.recovery ? <Ico name="AlertTriangle" size={13} color="#fff" /> : i + 1}
+                    </span>
+                    <span>
+                      <span className="spine-t1">{s.title} {s.gate && <span className="spine-flag">gate</span>}{s.status === "redo" && <span className="spine-flag">redo</span>}</span>
+                      <span className="spine-t2">{s.estimate}</span>
+                    </span>
+                  </button>
+                )}
               </React.Fragment>
             );
           })}
@@ -164,9 +206,11 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
                       <button className="btn sm primary" onClick={() => onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${t} Assume I'm new to this and give concrete first actions.`)}>
                         <Ico name="MessageCircle" size={13} color="#fff" /> Ask your advisors how
                       </button>
-                      <button className="btn sm" onClick={() => onNav && onNav("skills")}>
-                        <Ico name="Sparkles" size={13} /> Find a tool for this
-                      </button>
+                      {skillsUnlocked && (
+                        <button className="btn sm" onClick={() => onNav && onNav("skills")}>
+                          <Ico name="Sparkles" size={13} /> Find a tool for this
+                        </button>
+                      )}
                       {!d && <button className="btn sm ghost" onClick={() => { toggleTask(t); setOpenTask(-1); }}><Ico name="Check" size={13} /> Mark done</button>}
                     </div>
                   )}
@@ -405,10 +449,135 @@ function ChatView({ roadmap, onNav }) {
 // ============================================================================
 // SETTINGS (light)
 // ============================================================================
-function SettingsView({ theme, onToggleTheme, onRebuild, onReplayOnboarding, onSignOut }) {
+// Mini help center — static content for anyone who gets lost.
+const HELP_GLOSSARY = [
+  ["Milestone / step", "One stage of the PhD journey — each has its own objective, tools, and checklist."],
+  ["Gate", "A major checkpoint (prelim, proposal defense, candidacy). Clearing one unlocks the next phase."],
+  ["Persona / lens", "An advisor's point of view (methods, theory, writing, wellbeing…). Pick who answers in Chat."],
+  ["Skill", "A specialized assistant that does a task and drops the result into your Workspace or Documents."],
+  ["Deliverable", "Something your program requires you to produce — a form, an exam, a document."],
+  ["Recovery / re-plan", "When something goes wrong, describe it and your plan re-routes with concrete steps."],
+  ["ABD", "“All But Dissertation” — everything's done except writing and defending."],
+  ["IRB", "Institutional Review Board — approval needed before research involving human participants."],
+  ["Prelim / Comprehensive exam", "Early exams proving you've absorbed your field before advancing."],
+  ["Candidacy", "Officially cleared to do dissertation research (the paperwork after prelims)."]
+];
+const HELP_FAQ = [
+  ["Why don't I see Skills yet?", "Skills unlock after 5 chat messages — or turn on “Reveal everything now” in Settings → Feature unlocks."],
+  ["How do I simplify my home screen?", "Set Display density to “Just what I need” in Settings."],
+  ["Something went wrong with my research", "Use “Something came up?” on Home or My Plan — describe it in plain words and your plan re-routes around it."],
+  ["Are my conversations private?", "Choose on-device / private models in Settings to keep processing local (slightly lower accuracy)."],
+  ["How do I get every feature right now?", "Settings → Feature unlocks → Reveal everything now."]
+];
+function HelpCenter({ onClose, onReplayTour }) {
+  const sections = (window.COACH_TOUR_STEPS || []).filter(s => s.view);
+  useE2(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }} role="dialog" aria-modal="true" aria-label="Help center">
+        <div className="modal-h">
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--primary-soft)", color: "var(--primary-deep)", display: "grid", placeItems: "center", flexShrink: 0 }}><Ico name="LifeBuoy" size={18} /></div>
+            <div><h2 className="display">Help center</h2><p>Lost? Here's how PhD Navigator works.</p></div>
+          </div>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><Ico name="X" size={14} /></button>
+        </div>
+        <div className="modal-b">
+          {sections.length > 0 && <>
+            <div className="section-label" style={{ marginTop: 0 }}><span className="ic"><Ico name="Compass" size={13} /></span> What each section does</div>
+            <div className="help-list">{sections.map((s, i) => <div key={i} className="help-row"><span className="help-ico"><Ico name={s.icon} size={14} /></span><div><b>{s.title}</b><span>{s.body}</span></div></div>)}</div>
+          </>}
+          <div className="section-label"><span className="ic"><Ico name="BookOpen" size={13} /></span> Glossary</div>
+          <div className="help-list">{HELP_GLOSSARY.map(([t, d], i) => <div key={i} className="help-row"><div><b>{t}</b><span>{d}</span></div></div>)}</div>
+          <div className="section-label"><span className="ic"><Ico name="HelpCircle" size={13} /></span> FAQ</div>
+          <div className="help-list">{HELP_FAQ.map(([q, a], i) => <div key={i} className="help-row"><div><b>{q}</b><span>{a}</span></div></div>)}</div>
+        </div>
+        <div className="modal-f">
+          <span style={{ fontSize: 12, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}><Ico name="Info" size={12} /> You won't break anything by exploring.</span>
+          <button className="btn primary" onClick={() => { onClose(); onReplayTour(); }}><Ico name="Rocket" size={14} color="#fff" /> Replay the tour</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({ theme, onToggleTheme, prefs = {}, setPrefs, engagement = {}, unlocked = {}, onRevealAll, onResetDrip, onToggleHidden, onRebuild, onReplayOnboarding, onSignOut }) {
+  const [help, setHelp] = useS2(false);
+  const densityChoice = prefs.revealAll ? "everything" : (prefs.density === "focused" ? "minimal" : "balanced");
+  const chooseDensity = (c) => {
+    if (c === "everything") { setPrefs && setPrefs(p => ({ ...p, density: "full" })); onRevealAll && onRevealAll(); }
+    else if (c === "balanced") { setPrefs && setPrefs(p => ({ ...p, density: "full", revealAll: false })); }
+    else { setPrefs && setPrefs(p => ({ ...p, density: "focused", revealAll: false })); }
+  };
+  const setModel = (m) => setPrefs && setPrefs(p => ({ ...p, modelMode: m }));
+  const unlockRows = [["multiple", "Compare advisors (Multiple mode)", "after 1 message", 1], ["skills", "Skills library", "after 5 messages", 5], ["personas10", "All 10 advisors", "after 15 messages", 15]];
+
   return (
     <div className="page page-narrow">
       <div className="greeting"><h1 className="display" style={{ fontSize: 26 }}>Settings</h1><div className="sub">Make it yours.</div></div>
+
+      {/* Display density */}
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div className="card-h"><span className="ico"><Ico name="LayoutDashboard" size={14} /></span> Display density</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-2)", margin: "2px 0 10px" }}>How much shows up at once.</div>
+        <div className="seg3">
+          <button className={densityChoice === "everything" ? "on" : ""} onClick={() => chooseDensity("everything")}><Ico name="LayoutDashboard" size={13} /> Everything</button>
+          <button className={densityChoice === "balanced" ? "on" : ""} onClick={() => chooseDensity("balanced")}><Ico name="Scale" size={13} /> Balanced</button>
+          <button className={densityChoice === "minimal" ? "on" : ""} onClick={() => chooseDensity("minimal")}><Ico name="Minimize2" size={13} /> Just what I need</button>
+        </div>
+      </div>
+
+      {/* Models / privacy */}
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div className="card-h"><span className="ico"><Ico name="Cpu" size={14} /></span> Models &amp; privacy</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
+          <div><div style={{ fontWeight: 600, fontSize: 14 }}>Where AI runs</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>On-device is fully private, with slightly lower accuracy.</div></div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className={`btn sm ${prefs.modelMode !== "private" ? "primary" : ""}`} onClick={() => setModel("cloud")}><Ico name="Cloud" size={14} color={prefs.modelMode !== "private" ? "#fff" : undefined} /> Cloud</button>
+            <button className={`btn sm ${prefs.modelMode === "private" ? "primary" : ""}`} onClick={() => setModel("private")}><Ico name="ShieldCheck" size={14} color={prefs.modelMode === "private" ? "#fff" : undefined} /> On-device</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Feature unlocks */}
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div className="card-h"><span className="ico"><Ico name="Sparkles" size={14} /></span> Feature unlocks</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-2)", margin: "2px 0 10px" }}>Advanced features open up as you use Chat ({engagement.messages || 0} messages so far).</div>
+        {unlockRows.map(([id, label, when, thr]) => {
+          const hidden = (prefs.hidden || []).includes(id);
+          const reached = prefs.revealAll || (engagement.messages || 0) >= thr;
+          const icon = hidden ? "EyeOff" : (unlocked[id] ? "CheckCircle2" : "Lock");
+          const color = hidden ? "var(--amber)" : (unlocked[id] ? "var(--sage)" : "var(--text-3)");
+          return (
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13 }}>
+              <Ico name={icon} size={14} color={color} />
+              <span style={{ flex: 1 }}>{label}</span>
+              {reached
+                ? <button className="btn sm ghost" onClick={() => onToggleHidden && onToggleHidden(id)}>{hidden ? <><Ico name="Eye" size={13} /> Activate</> : <><Ico name="EyeOff" size={13} /> Hide</>}</button>
+                : <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>{when}</span>}
+            </div>
+          );
+        })}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          {!prefs.revealAll && <button className="btn sm primary" onClick={onRevealAll}><Ico name="Unlock" size={14} color="#fff" /> Reveal everything now</button>}
+          <button className="btn sm" onClick={onResetDrip}><Ico name="RefreshCw" size={14} /> Reset the drip</button>
+        </div>
+      </div>
+
+      {/* Help */}
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div className="card-h"><span className="ico"><Ico name="LifeBuoy" size={14} /></span> Help &amp; learning</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
+          <div><div style={{ fontWeight: 600, fontSize: 14 }}>Help center</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>Glossary, what each section does, and FAQs</div></div>
+          <button className="btn sm" onClick={() => setHelp(true)}><Ico name="HelpCircle" size={14} /> Open</button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+          <div><div style={{ fontWeight: 600, fontSize: 14 }}>Replay welcome tour</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>Walk through what each page does again</div></div>
+          <button className="btn sm" onClick={onReplayOnboarding}><Ico name="Rocket" size={14} /> Take the tour</button>
+        </div>
+      </div>
+
+      {/* Appearance */}
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <div className="card-h"><span className="ico"><Ico name="Palette" size={14} /></span> Appearance</div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
@@ -419,17 +588,17 @@ function SettingsView({ theme, onToggleTheme, onRebuild, onReplayOnboarding, onS
           </div>
         </div>
       </div>
+
+      {/* Your plan */}
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <div className="card-h"><span className="ico"><Ico name="Map" size={14} /></span> Your plan</div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
           <div><div style={{ fontWeight: 600, fontSize: 14 }}>Rebuild plan</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>Start the setup over from scratch</div></div>
           <button className="btn sm" onClick={onRebuild}><Ico name="RefreshCw" size={14} /> Rebuild</button>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)" }}>
-          <div><div style={{ fontWeight: 600, fontSize: 14 }}>Replay welcome tour</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>Walk through what each page does again</div></div>
-          <button className="btn sm" onClick={onReplayOnboarding}><Ico name="Rocket" size={14} /> Take the tour</button>
-        </div>
       </div>
+
+      {/* Account */}
       <div className="card card-pad">
         <div className="card-h"><span className="ico"><Ico name="User" size={14} /></span> Account</div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
@@ -437,6 +606,8 @@ function SettingsView({ theme, onToggleTheme, onRebuild, onReplayOnboarding, onS
           <button className="btn sm" onClick={onSignOut}><Ico name="LogOut" size={14} /> Sign out</button>
         </div>
       </div>
+
+      {help && <HelpCenter onClose={() => setHelp(false)} onReplayTour={onReplayOnboarding} />}
     </div>
   );
 }
@@ -447,14 +618,12 @@ function SettingsView({ theme, onToggleTheme, onRebuild, onReplayOnboarding, onS
 // The tools come from the roadmap engine's per-step feature lifecycle, so each
 // step shows different contents. (Backend can later enrich each section.)
 // ============================================================================
-// Per-step starter document (frontend default; backend can personalize).
-const STEP_DOC = {
-  proposal: "thesis-chapter", writing: "thesis-chapter", defense: "defense-slides",
-  irb: "irb-protocol", submission: "dissertation-format", literature: "research-statement",
-  committee: "faculty-hunt", analysis: "research-paper", "early-writing": "thesis-chapter", "first-paper": "conference-abstract"
-};
-function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, onAsk, onNav, onClose, onToast }) {
+// Per-step starter document — single source lives in canvas-data.js (window.STEP_DOC).
+const STEP_DOC = window.STEP_DOC || {};
+function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, onAsk, onNav, onClose, onToast, skillsUnlocked = true }) {
   const [openTask, setOpenTask] = useS2(-1);
+  const [addOpen, setAddOpen] = useS2(false);
+  const [craft, setCraft] = useS2(false);
   useE2(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -476,6 +645,9 @@ function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, o
   const askHow = (what) => { onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${what} I'm new to this — give concrete first actions.`); onClose(); };
   const makeBoard = () => { if (window.CoachActions) { window.CoachActions.addWidget("kanban", step.subtasks.slice(0, 6)); onToast && onToast("Task board added to Workspace"); } };
   const startDoc = () => { if (window.CoachActions && tpl) { window.CoachActions.createDoc(tpl.id, `${step.title} — ${tpl.name}`, {}); onClose(); onNav && onNav("documents"); } };
+  const addTool = (type) => { if (window.CoachActions) { window.CoachActions.addWidget(type); onToast && onToast("Added to your Workspace"); setAddOpen(false); } };
+  // Tools you can add to this step (real widgets; non-stub only).
+  const availableTools = (window.WIDGET_CATALOG || []).filter(w => !w.stub);
 
   return (
     <div className="backdrop" onClick={onClose}>
@@ -497,8 +669,28 @@ function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, o
             <button className="btn primary" onClick={() => askHow(step.title.toLowerCase())}><Ico name="MessageCircle" size={15} color="#fff" /> Ask your advisors</button>
             {tpl && <button className="btn" onClick={startDoc}><Ico name={tpl.icon} size={15} /> Start: {tpl.name}</button>}
             <button className="btn" onClick={makeBoard}><Ico name="Columns3" size={15} /> Make a task board</button>
-            <button className="btn ghost" onClick={() => { onNav && onNav("skills"); onClose(); }}><Ico name="Sparkles" size={15} /> Browse skills</button>
+            <button className={`btn ${addOpen ? "" : "ghost"}`} onClick={() => setAddOpen(o => !o)}><Ico name="Plus" size={15} /> Add a tool</button>
           </div>
+
+          {/* Available tools to add to this step + craft a custom one */}
+          {addOpen && (
+            <div className="stepws-tools">
+              <button className="stepws-craft" onClick={() => setCraft(true)}>
+                <span className="stepws-craft-i"><Ico name="Wand2" size={16} /></span>
+                <span><b>Craft a custom tool</b><span className="stepws-craft-d">Describe what you need — the Navigator builds it.</span></span>
+                <Ico name="ArrowRight" size={15} />
+              </button>
+              <div className="pal-grid">
+                {availableTools.map(w => (
+                  <button key={w.type} className="pal-tile" onClick={() => addTool(w.type)}>
+                    <span className="pal-i"><Ico name={w.icon} size={17} /></span>
+                    <span style={{ flex: 1 }}><span className="pal-n">{w.name}</span><span className="pal-d">{w.desc}</span></span>
+                    <Ico name="Plus" size={14} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Committee builder — special interactive tool for that step */}
           {step.id === "committee" && window.CommitteeBuilder && (
@@ -557,6 +749,62 @@ function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, o
             <Ico name="Flag" size={15} color="#fff" /> Complete milestone
           </button>
         </div>
+
+        {craft && <CraftToolModal stepTitle={step.title}
+          onClose={() => setCraft(false)}
+          onCreated={() => { setCraft(false); setAddOpen(false); onToast && onToast("Custom tool built — it's in your Workspace"); }} />}
+      </div>
+    </div>
+  );
+}
+
+// Craft a custom tool: describe it → the Navigator builds it from a primitive
+// (checklist | notes | tracker) and saves it to the Workspace.
+function CraftToolModal({ stepTitle, onClose, onCreated }) {
+  const [name, setName] = useS2("");
+  const [purpose, setPurpose] = useS2("");
+  const [kind, setKind] = useS2("checklist");
+  const [touched, setTouched] = useS2(false);
+  // Suggest the primitive from the description until the user overrides it.
+  useE2(() => {
+    if (touched) return;
+    const p = (purpose + " " + name).toLowerCase();
+    if (/note|journal|idea|log|draft|writ/.test(p)) setKind("notes");
+    else if (/count|track|number|streak|hour|word|page|day|metric|score/.test(p)) setKind("tracker");
+    else setKind("checklist");
+  }, [purpose, name, touched]);
+  const KINDS = [["checklist", "Checklist", "ListChecks"], ["notes", "Notes", "StickyNote"], ["tracker", "Tracker", "Activity"]];
+  const can = name.trim().length > 0;
+  const create = () => { if (window.CoachActions) window.CoachActions.addCustomTool({ title: name.trim(), kind, purpose: purpose.trim() }); onCreated && onCreated(); };
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-h">
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--primary-soft)", color: "var(--primary-deep)", display: "grid", placeItems: "center", flexShrink: 0 }}><Ico name="Wand2" size={18} /></div>
+            <div><h2 className="display">Craft a custom tool</h2><p>Tell the Navigator what you need for “{stepTitle}.” It builds a real, saved tool.</p></div>
+          </div>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><Ico name="X" size={14} /></button>
+        </div>
+        <div className="modal-b">
+          <div className="field"><label>Tool name</label><div className="wrap" style={{ paddingLeft: 0 }}>
+            <input style={{ paddingLeft: 14 }} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Participant recruitment tracker" autoFocus /></div></div>
+          <div className="field"><label>What should it help you do?</label>
+            <textarea className="modal-textarea" style={{ minHeight: 70 }} value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="e.g. Keep a checklist of people I've recruited and who has consented." /></div>
+          <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-2)", display: "block", marginBottom: 8 }}>Type <span style={{ color: "var(--text-3)", fontWeight: 400 }}>· suggested from your description</span></label>
+          <div className="opt-grid three">
+            {KINDS.map(([id, label, icon]) => (
+              <button key={id} className={`opt ${kind === id ? "sel" : ""}`} onClick={() => { setKind(id); setTouched(true); }}><Ico name={icon} size={14} /> {label}</button>
+            ))}
+          </div>
+        </div>
+        <div className="modal-f">
+          <span style={{ fontSize: 12, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}><Ico name="Sparkles" size={12} /> Built by your Navigator</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn ghost" onClick={onClose}>Cancel</button>
+            <button className="btn primary" disabled={!can} onClick={create}><Ico name="Wand2" size={14} color="#fff" /> Build it</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -565,7 +813,7 @@ function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, o
 // ============================================================================
 // COMMAND PALETTE (⌘K) — jump anywhere, or type to capture a note/deadline.
 // ============================================================================
-function CommandPalette({ onClose, onNav, onSos, onToggleTheme, onReplayTour, onToast }) {
+function CommandPalette({ onClose, onNav, onSos, onToggleTheme, onReplayTour, onToast, skillsUnlocked = true }) {
   const [q, setQ] = useS2("");
   const inputRef = useR2(null);
   useE2(() => { inputRef.current && inputRef.current.focus(); }, []);
@@ -574,9 +822,11 @@ function CommandPalette({ onClose, onNav, onSos, onToggleTheme, onReplayTour, on
     ["home", "Home", "Home"], ["plan", "My Plan", "Map"], ["chat", "Chat", "MessageCircle"],
     ["skills", "Skills", "Sparkles"], ["insights", "Insights", "Lightbulb"],
     ["workspace", "Workspace", "LayoutDashboard"], ["documents", "Documents", "FileText"], ["settings", "Settings", "Settings"]
-  ].map(([id, label, icon]) => ({ id: "nav-" + id, label: "Go to " + label, icon, run: () => { onNav(id); onClose(); } }));
+  ].filter(([id]) => id !== "skills" || skillsUnlocked)
+   .map(([id, label, icon]) => ({ id: "nav-" + id, label: "Go to " + label, icon, run: () => { onNav(id); onClose(); } }));
   const ACTIONS = [
     { id: "act-newchat", label: "Start a new chat", icon: "Plus", run: () => { onNav("chat"); onClose(); } },
+    { id: "act-help", label: "Help / get unstuck", icon: "LifeBuoy", run: () => { onNav("settings"); onClose(); } },
     { id: "act-sos", label: "Something came up (re-plan)", icon: "LifeBuoy", run: () => { onSos(); onClose(); } },
     { id: "act-theme", label: "Toggle light / dark theme", icon: "Moon", run: () => { onToggleTheme(); onClose(); } },
     { id: "act-tour", label: "Replay the welcome tour", icon: "Rocket", run: () => { onReplayTour(); onClose(); } }
@@ -606,6 +856,43 @@ function CommandPalette({ onClose, onNav, onSos, onToggleTheme, onReplayTour, on
               <span className="cmd-i"><Ico name={c.icon} size={15} /></span> {c.label}
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// UNLOCK POPUP — one reusable modal for each engagement milestone.
+// ============================================================================
+const UNLOCK_CONTENT = {
+  multiple: { icon: "Users", title: "Want more than one perspective?", to: "chat", cta: "Try Multiple mode",
+    body: "You can now switch Chat to Multiple mode and hear up to three advisor lenses on the same question — or keep it to one. Your call." },
+  skills: { icon: "Sparkles", title: "Skills are unlocked", to: "skills", cta: "Explore Skills",
+    body: "Skills are specialized assistants that do the work — find a literature gap, outline a chapter, critique your methods. They drop results into your Workspace or Documents." },
+  personas10: { icon: "Users", title: "All 10 advisors are available", to: "chat", cta: "Open Chat",
+    body: "Your full panel of advisor lenses is unlocked — methods, theory, writing, wellbeing, career, and more. Mix and match whoever fits the question." }
+};
+function UnlockPopup({ id, onDismiss, onAct, onKeepHidden }) {
+  const c = UNLOCK_CONTENT[id]; if (!c) return null;
+  useE2(() => { const onKey = (e) => { if (e.key === "Escape") onDismiss(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
+  return (
+    <div className="backdrop" onClick={onDismiss}>
+      <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={c.title} style={{ maxWidth: 460 }}>
+        <div className="modal-h">
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--grad)", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}><Ico name={c.icon} size={18} color="#fff" /></div>
+            <div><h2 className="display">New feature unlocked</h2><p>Hey — {c.title.toLowerCase()}</p></div>
+          </div>
+          <button className="modal-x" onClick={onDismiss} aria-label="Dismiss"><Ico name="X" size={14} /></button>
+        </div>
+        <div className="modal-b">
+          <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)", lineHeight: 1.55 }}>{c.body}</p>
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--text-3)", display: "flex", gap: 6, alignItems: "center" }}><Ico name="Info" size={12} /> Prefer fewer things on screen? Keep it hidden — you can switch it back on anytime in Settings.</p>
+        </div>
+        <div className="modal-f">
+          <button className="btn ghost" onClick={() => onKeepHidden && onKeepHidden(id)}><Ico name="EyeOff" size={14} /> Keep hidden</button>
+          <button className="btn primary" onClick={onAct}><Ico name="ArrowRight" size={14} color="#fff" /> {c.cta}</button>
         </div>
       </div>
     </div>
@@ -651,10 +938,52 @@ function CoachRoot() {
     if (ni >= 0) touchStep(res.roadmap.steps[ni].id);
   };
 
+  // --- Progressive disclosure: density preference + engagement-driven unlocks ---
+  // Existing users (no saved prefs) default to full/revealAll so they never lose UI.
+  const [prefs, setPrefs] = useS2(() => H.loadJSON(H.PREFS_KEY, { density: "full", revealAll: true, modelMode: "cloud", hidden: [] }));
+  const [engagement, setEngagement] = useS2(() => H.loadJSON(H.ENGAGE_KEY, { messages: 0, visits: 0 }));
+  const [seenUnlocks, setSeenUnlocks] = useS2(() => H.loadJSON(H.UNLOCKS_KEY, []));
+  const [unlockPopup, setUnlockPopup] = useS2(null);
+  // A feature is "on" once its message threshold is reached (or reveal-all) AND
+  // the user hasn't chosen to keep it hidden.
+  const isHidden = (id) => (prefs.hidden || []).includes(id);
+  const reached = (thr) => prefs.revealAll || engagement.messages >= thr;
+  const unlocked = useM2(() => ({
+    multiple:   reached(1)  && !isHidden("multiple"),
+    skills:     reached(5)  && !isHidden("skills"),
+    personas10: reached(15) && !isHidden("personas10")
+  }), [prefs.revealAll, prefs.hidden, engagement.messages]);
+  const focused = prefs.density === "focused";
+  const bumpMessages = () => setEngagement(e => ({ ...e, messages: (e.messages || 0) + 1 }));
+  const dismissUnlock = (id) => { setSeenUnlocks(s => s.includes(id) ? s : [...s, id]); setUnlockPopup(null); };
+  // "Keep hidden" from the reveal popup: stash the feature away, remember we showed it.
+  const keepHidden = (id) => {
+    setPrefs(p => ({ ...p, hidden: [...new Set([...(p.hidden || []), id])] }));
+    setSeenUnlocks(s => s.includes(id) ? s : [...s, id]);
+    setUnlockPopup(null);
+    setToast("Hidden for now — turn it back on anytime in Settings → Feature unlocks.");
+  };
+  const toggleHidden = (id) => setPrefs(p => { const h = new Set(p.hidden || []); h.has(id) ? h.delete(id) : h.add(id); return { ...p, hidden: [...h] }; });
+  const revealAllNow = () => { setPrefs(p => ({ ...p, revealAll: true, hidden: [] })); setSeenUnlocks(["multiple", "skills", "personas10"]); setUnlockPopup(null); };
+  const resetDrip = () => { setEngagement(e => ({ messages: 0, visits: e.visits || 0 })); setSeenUnlocks([]); setPrefs(p => ({ ...p, revealAll: false, hidden: [] })); setUnlockPopup(null); };
+
   useE2(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem(H.THEME_KEY, theme); } catch (e) {} }, [theme]);
   useE2(() => { H.saveJSON(H.RM_KEY, roadmap); }, [roadmap]);
   useE2(() => { H.saveJSON(H.TASK_KEY, [...doneTasks]); }, [doneTasks]);
   useE2(() => { H.saveJSON(H.ACT_KEY, activity); }, [activity]);
+  useE2(() => { H.saveJSON(H.PREFS_KEY, prefs); }, [prefs]);
+  useE2(() => { H.saveJSON(H.ENGAGE_KEY, engagement); }, [engagement]);
+  useE2(() => { H.saveJSON(H.UNLOCKS_KEY, seenUnlocks); }, [seenUnlocks]);
+  useE2(() => { setEngagement(e => ({ ...e, visits: (e.visits || 0) + 1 })); }, []); // count one visit per app load
+  // Fire one unlock popup when a message threshold is first crossed (drip users only).
+  useE2(() => {
+    if (prefs.revealAll || unlockPopup) return;
+    const order = ["multiple", "skills", "personas10"];
+    const next = order.find(id => unlocked[id] && !seenUnlocks.includes(id));
+    if (next) setUnlockPopup(next);
+  }, [engagement.messages, prefs.revealAll]);
+  // If Skills gets re-locked (reset drip) while viewing it, bounce home.
+  useE2(() => { if (view === "skills" && !unlocked.skills) setView("home"); }, [view, unlocked.skills]);
   // ⌘K / Ctrl+K opens the command palette anywhere in the app.
   useE2(() => {
     const onKey = (e) => {
@@ -702,31 +1031,38 @@ function CoachRoot() {
       onSignIn={() => { setAuthMode("login"); setGate("login"); }} />;
   }
 
-  // 2) Signed in, no plan yet → onboarding
+  // 2) Signed in, no plan yet → onboarding (onboarding hands up density/model prefs)
   if (!roadmap) {
-    return <window.CoachOnboarding onComplete={(rm) => { setRoadmap(rm); setView("home"); }} />;
+    return <window.CoachOnboarding onComplete={(rm, p) => { setRoadmap(rm); if (p) setPrefs(prev => ({ ...prev, ...p })); setView("home"); }} />;
   }
 
+  const signOut = () => { if (window.CoachAPI) window.CoachAPI.clearAuth(); setAuthed(false); setGate("landing"); setView("home"); };
+  // Sanitize view: Skills isn't reachable until unlocked.
+  const v = (view === "skills" && !unlocked.skills) ? "home" : view;
+
   let body;
-  if (view === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} onNav={setView} onOpenSos={() => setSosOpen(true)} onOpenStep={openWorkspace} theme={theme} />;
-  else if (view === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} />;
-  else if (view === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} />;
-  else if (view === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
-  else if (view === "insights") body = <window.CoachInsights onNav={setView} />;
-  else if (view === "workspace") body = <window.CoachWorkspace roadmap={roadmap} />;
-  else if (view === "documents") body = <window.CoachDocuments />;
+  if (v === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} onNav={setView} onOpenSos={() => setSosOpen(true)} onOpenStep={openWorkspace} focused={focused} theme={theme} />;
+  else if (v === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
+  else if (v === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} unlocked={unlocked} onMessage={bumpMessages} />;
+  else if (v === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
+  else if (v === "insights") body = <window.CoachInsights onNav={setView} />;
+  else if (v === "workspace") body = <window.CoachWorkspace roadmap={roadmap} />;
+  else if (v === "documents") body = <window.CoachDocuments roadmap={roadmap} />;
   else body = <SettingsView theme={theme} onToggleTheme={toggleTheme}
+    prefs={prefs} setPrefs={setPrefs} engagement={engagement} unlocked={unlocked}
+    onRevealAll={revealAllNow} onResetDrip={resetDrip} onToggleHidden={toggleHidden}
     onRebuild={() => { if (confirm("Rebuild your plan from scratch? Progress clears.")) { setRoadmap(null); setDoneTasks(new Set()); } }}
     onReplayOnboarding={() => { setView("home"); setShowTour(true); }}
-    onSignOut={() => { if (window.CoachAPI) window.CoachAPI.clearAuth(); setAuthed(false); setGate("landing"); setView("home"); }} />;
+    onSignOut={signOut} />;
 
   return (
     <div className="shell">
-      <window.CoachRail view={view} onNav={setView} user={window.MOCK_USER} />
+      <window.CoachRail view={view} onNav={setView} user={window.MOCK_USER} skillsUnlocked={unlocked.skills} onSignOut={signOut} />
       <div className="main">
         <div className="topbar">
           <div style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
             <Ico name="Compass" size={15} /> {roadmap.program?.name || "PhD Navigator"}
+            {prefs.modelMode === "private" && <span className="private-pill" title="On-device / private models"><Ico name="ShieldCheck" size={12} /> Private</span>}
           </div>
           <div className="tb-r">
             <button className="btn sm" onClick={() => setPalette(true)} title="Command palette" aria-label="Open command palette"><Ico name="Search" size={15} /> <kbd className="kbd-inline">⌘K</kbd></button>
@@ -738,7 +1074,7 @@ function CoachRoot() {
       </div>
 
       <Celebration data={celebrate} onClose={() => setCelebrate(null)} />
-      {showTour && <window.CoachTour onNav={setView} onClose={() => setShowTour(false)} />}
+      {showTour && <window.CoachTour onNav={setView} onClose={() => setShowTour(false)} skillsUnlocked={unlocked.skills} />}
       <RecoveryModal open={sosOpen} onClose={() => setSosOpen(false)} onReplan={handleReplan} />
       {recovered && (
         <div className="backdrop" onClick={() => { setRecovered(null); setView("plan"); }}>
@@ -784,6 +1120,7 @@ function CoachRoot() {
         onAsk={askInChat}
         onNav={setView}
         onToast={setToast}
+        skillsUnlocked={unlocked.skills}
         onClose={() => setWsStep(null)} />}
       {palette && <CommandPalette
         onClose={() => setPalette(false)}
@@ -791,7 +1128,12 @@ function CoachRoot() {
         onSos={() => setSosOpen(true)}
         onToggleTheme={toggleTheme}
         onReplayTour={() => { setView("home"); setShowTour(true); }}
+        skillsUnlocked={unlocked.skills}
         onToast={setToast} />}
+      {unlockPopup && <UnlockPopup id={unlockPopup}
+        onDismiss={() => dismissUnlock(unlockPopup)}
+        onKeepHidden={keepHidden}
+        onAct={() => { const to = UNLOCK_CONTENT[unlockPopup].to; dismissUnlock(unlockPopup); setView(to); }} />}
       {toast && <div className="toast"><Ico name="CheckCircle2" size={15} /> {toast}</div>}
     </div>
   );
