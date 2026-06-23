@@ -2,13 +2,11 @@ from io import BytesIO
 from typing import List, Tuple, Union
 from docx import Document
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
 from fastapi.responses import StreamingResponse
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.units import inch
-from io import BytesIO
 import re
 
 def format_messages_for_export(messages: List[dict]) -> str:

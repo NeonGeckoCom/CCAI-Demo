@@ -428,7 +428,7 @@ mongodb:
 
 llm:
   gemini:
-    model: "gemini-2.5-flash"
+    model: "gemini-3-flash-preview"
   ollama:
     model: "llama3.2:1b"
   vllm:

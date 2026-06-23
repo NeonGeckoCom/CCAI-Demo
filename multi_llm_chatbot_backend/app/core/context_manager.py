@@ -1,7 +1,5 @@
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from dataclasses import dataclass
-import re
-from datetime import datetime
 
 @dataclass
 class ContextWindow:

@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Request, Query
 from app.core.session_manager import get_session_manager
-from app.core.rag_manager import get_rag_manager
+from app.rag.manager import get_rag_manager
 from app.core.bootstrap import chat_orchestrator
 import logging
 
-from app.api.old_routes import get_or_create_session_for_request
+from app.api.utils import get_or_create_session_for_request_async
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ session_manager = get_session_manager()
 @router.get("/debug/personas")
 async def debug_personas(request: Request):
     try:
-        session_id = get_or_create_session_for_request(request)
+        session_id = await get_or_create_session_for_request_async(request)
         session = session_manager.get_session(session_id)
         rag_manager = get_rag_manager()
         rag_stats = rag_manager.get_document_stats(session_id)
@@ -25,7 +25,6 @@ async def debug_personas(request: Request):
                 pid: {
                     "name": persona.name,
                     "prompt": persona.system_prompt[:100] + "...",
-                    "retrieval_keywords": chat_orchestrator._get_persona_context_keywords(pid)
                 } for pid, persona in chat_orchestrator.personas.items()
             },
             "session_info": {
@@ -45,7 +44,7 @@ async def debug_personas(request: Request):
 @router.get("/debug/ranked-personas")
 async def get_ranked_personas(request: Request, k: int = Query(3, ge=1, le=10)):
     try:
-        session_id = get_or_create_session_for_request(request)
+        session_id = await get_or_create_session_for_request_async(request)
         top_personas = await chat_orchestrator.get_top_personas(session_id=session_id, k=k)
         return {
             "ranked_personas": top_personas,
@@ -62,14 +61,13 @@ async def get_ranked_personas(request: Request, k: int = Query(3, ge=1, le=10)):
 @router.get("/debug/rag-status")
 async def debug_rag_status(request: Request):
     try:
-        session_id = get_or_create_session_for_request(request)
+        session_id = await get_or_create_session_for_request_async(request)
         rag_manager = get_rag_manager()
         session_stats = session_manager.get_session_stats(session_id)
 
-        test_search = rag_manager.search_documents(
+        test_search = rag_manager.search_documents_with_context(
             query="test methodology research",
             session_id=session_id,
-            persona_context="",
             n_results=3
         )
 
@@ -87,10 +85,6 @@ async def debug_rag_status(request: Request):
                 }
                 for chunk in test_search[:3]
             ],
-            "persona_keywords": {
-                pid: chat_orchestrator._get_persona_context_keywords(pid)
-                for pid in chat_orchestrator.personas.keys()
-            }
         }
 
     except Exception as e:

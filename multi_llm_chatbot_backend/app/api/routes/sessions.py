@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, Depends
 from app.core.session_manager import get_session_manager
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
 from app.models.user import User
-from pydantic import BaseModel
+from app.models.sessions import ResetSessionRequest
 from typing import Optional
 import logging
 
@@ -12,9 +12,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 session_manager = get_session_manager()
 
-class ResetSessionRequest(BaseModel):
-    chat_session_id: Optional[str] = None
-    force_new: bool = False
 
 @router.get("/context")
 async def get_context(

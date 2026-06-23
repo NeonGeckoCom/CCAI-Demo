@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 
-from app.llm.llm_client import LLMClient, ToolCallInfo, ToolCallResult
+from app.llm.clients.llm_client import LLMClient, ToolCallInfo, ToolCallResult
 from app.core.context_manager import get_context_manager
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,17 @@ class ImprovedVllmClient(LLMClient):
 
             response = await self.client.chat.completions.create(**create_kwargs)
 
-            text = response.choices[0].message.content.strip()
+            choice = response.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason and finish_reason not in {"stop", "eos_token"}:
+                logger.warning(
+                    "vLLM response finished with finish_reason=%s (model=%s, max_tokens=%s)",
+                    finish_reason,
+                    self.model_name,
+                    max_tokens,
+                )
+
+            text = choice.message.content.strip()
             return self._clean_response(text)
 
         except APIConnectionError:
@@ -94,8 +104,8 @@ class ImprovedVllmClient(LLMClient):
         tool registry).  Loops through the standard tool-call protocol
         until the model produces a plain text response:
 
-            request → detect tool_calls → execute all → feed results
-            back → repeat (up to ``_MAX_TOOL_ROUNDS`` rounds).
+            request 鈫?detect tool_calls 鈫?execute all 鈫?feed results
+            back 鈫?repeat (up to ``_MAX_TOOL_ROUNDS`` rounds).
 
         All tool calls in a single response are executed before the next
         round, so multi-tool queries (e.g. "compare professor A vs B")
@@ -186,5 +196,3 @@ class ImprovedVllmClient(LLMClient):
                 text="I encountered an unexpected error. Please try again.",
                 used_tool=False,
             )
-
-

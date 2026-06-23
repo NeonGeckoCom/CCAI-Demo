@@ -1,7 +1,7 @@
 import httpx
 from typing import List
 import re
-from app.llm.llm_client import LLMClient
+from app.llm.clients.llm_client import LLMClient
 from app.core.context_manager import get_context_manager
 import logging
 
@@ -12,7 +12,7 @@ class ImprovedOllamaClient(LLMClient):
         self.model_name = model_name
         self.base_url = base_url
         self.context_manager = get_context_manager()
-    
+
     # response_mime_type is not currently supported for Ollama but need it to match the abstract base class
     async def generate(self, system_prompt: str, context: List[dict], temperature: float, max_tokens: int, response_mime_type: str = None) -> str:
         """
@@ -25,13 +25,13 @@ class ImprovedOllamaClient(LLMClient):
                 system_prompt=system_prompt,
                 llm_provider="ollama"
             )
-            
+
             logger.debug(f"Context prepared: ~{context_window.total_tokens} tokens, "
                         f"truncated={context_window.truncated}")
-            
+
             # For Ollama, context_window.messages is a formatted prompt string
             formatted_prompt = context_window.messages
-            
+
             payload = {
                 "model": self.model_name,
                 "prompt": formatted_prompt,
@@ -42,19 +42,26 @@ class ImprovedOllamaClient(LLMClient):
                     "top_k": 40,
                     "num_predict": max_tokens,
                     "repeat_penalty": 1.1,
-                    "stop": ["</END>", "\n\nStudent:", "\n\nUser:", "Question:", "Student:"]
                 }
             }
-            
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(f"{self.base_url}/api/generate", json=payload)
                 response.raise_for_status()
-                
+
                 result = response.json()
+                done_reason = result.get("done_reason")
+                if done_reason and done_reason not in {"stop", "done"}:
+                    logger.warning(
+                        "Ollama response finished with done_reason=%s (model=%s, max_tokens=%s)",
+                        done_reason,
+                        self.model_name,
+                        max_tokens,
+                    )
                 text = result.get("response", "").strip()
-                
+
                 return self._clean_response(text)
-                
+
         except httpx.ConnectError:
             logger.error(f"Cannot connect to Ollama at {self.base_url}")
             return "I'm unable to connect to the local AI service. Please ensure Ollama is running."
@@ -67,7 +74,7 @@ class ImprovedOllamaClient(LLMClient):
         except Exception as e:
             logger.error(f"Unexpected error in Ollama client: {str(e)}")
             return "I encountered an unexpected error. Please try again."
-    
+
     def _clean_response(self, response: str) -> str:
         """Clean up common response issues"""
         # Remove common prefixes that indicate AI confusion
@@ -76,25 +83,25 @@ class ImprovedOllamaClient(LLMClient):
             "Dr. Methodologist:", "Dr. Theorist:", "Dr. Pragmatist:",
             "Methodologist Advisor:", "Theorist Advisor:", "Pragmatist Advisor:",
         ]
-        
+
         for prefix in prefixes_to_remove:
             if response.startswith(prefix):
                 response = response[len(prefix):].strip()
-        
+
         # Remove trailing incomplete sentences
         sentences = response.split('.')
         if len(sentences) > 1 and len(sentences[-1].strip()) < 10:
             response = '.'.join(sentences[:-1]) + '.'
-        
+
         # Remove excessive academic fluff
         fluff_patterns = [
             "conceptual insights:", "actionable advice:", "my inquisitive student",
             "excellent question", "thank you for", "assistant!"
         ]
-        
+
         for pattern in fluff_patterns:
             response = response.replace(pattern, "").strip()
-        
+
         response = response.replace("\r\n", "\n").replace("\r", "\n")
         lines = [ln.rstrip() for ln in response.split("\n")]
 

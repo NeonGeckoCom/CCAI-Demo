@@ -3,9 +3,8 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
 import asyncio
-import hashlib
 
-from app.models.phd_canvas import PhdCanvas, CanvasInsight, UpdateCanvasRequest
+from app.models.phd_canvas import PhdCanvas, UpdateCanvasRequest
 from app.core.canvas_analysis import CanvasAnalysisService
 from app.core.bootstrap import llm
 

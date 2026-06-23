@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 import re
 
 
@@ -21,6 +21,14 @@ class ToolCallResult:
     tool_name: Optional[str] = None
     tool_args: dict = field(default_factory=dict)
     tool_calls_made: List["ToolCallInfo"] = field(default_factory=list)
+
+
+@dataclass
+class LLMStreamChunk:
+    """One incremental chunk from a streaming LLM response."""
+
+    text: str
+    kind: str = "text"
 
 
 class LLMClient(ABC):
@@ -66,6 +74,31 @@ class LLMClient(ABC):
             max_tokens=max_tokens,
         )
         return ToolCallResult(text=text, used_tool=False)
+
+    async def stream_generate(
+        self,
+        system_prompt: str,
+        context: List[dict],
+        temperature: float,
+        max_tokens: Optional[int],
+        response_mime_type: str = None,
+        include_thoughts: bool = False,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Stream a response, falling back to non-streaming generation.
+
+        Providers without native streaming still satisfy the same contract,
+        but they yield one full text chunk after generation completes.
+        """
+        fallback_max_tokens = max_tokens if max_tokens is not None else 4096
+        text = await self.generate(
+            system_prompt=system_prompt,
+            context=context,
+            temperature=temperature,
+            max_tokens=fallback_max_tokens,
+            response_mime_type=response_mime_type,
+        )
+        if text:
+            yield LLMStreamChunk(text=text, kind="text")
 
     def _clean_response(self, response: str) -> str:
         """Clean up response text, preserving Markdown formatting."""

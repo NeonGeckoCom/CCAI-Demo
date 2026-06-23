@@ -65,25 +65,35 @@ async def load_chat_session_into_context(chat_session_id: str, user_id: str) -> 
         session_manager = get_session_manager()
         memory_session = session_manager.get_session(memory_session_id)
         
-        # Clear any existing data
-        memory_session.clear_all_data()
+        # Reload the conversation without deleting vector-store documents for
+        # this chat. Document chunks are keyed by the same memory_session_id.
+        memory_session.clear_messages()
+        memory_session.original_messages = []
+        memory_session.uploaded_files = []
         
         # Load messages into memory session
         messages = chat_session.get('messages', [])
         for msg_data in messages:
             try:
+                msg_type = msg_data.get('type')
+                role = 'user' if msg_type == 'user' else 'assistant'
+                if msg_type in {'system', 'document_upload'}:
+                    role = 'system'
+
                 message = {
                     'id': msg_data.get('id', 'unknown'),
-                    'role': 'user' if msg_data.get('type') == 'user' else 'assistant',
+                    'role': role,
                     'content': msg_data.get('content', ''),
                     'timestamp': msg_data.get('timestamp', '')
                 }
                 memory_session.append_message(message['role'], message['content'])
+
+                if msg_type == 'document_upload':
+                    filename = message['content'].removeprefix("Document uploaded: ").split(" (", 1)[0].strip()
+                    if filename and filename not in memory_session.uploaded_files:
+                        memory_session.uploaded_files.append(filename)
                 
                 # Store original message for export
-                if not hasattr(memory_session, 'original_messages'):
-                    memory_session.original_messages = []
-                
                 memory_session.original_messages.append(message)
             except Exception as msg_error:
                 logger.error(f"Error loading message: {msg_error}")
@@ -128,3 +138,31 @@ async def get_or_create_session_for_request_async(
     new_session_id = session_manager.create_session()
     logger.info(f"Created new session: {new_session_id}")
     return new_session_id
+
+
+def get_or_create_session_for_request(
+    request: Request,
+    session_id_override: Optional[str] = None,
+) -> str:
+    """
+    Get or create a session for a request using multiple strategies:
+    1. Use the provided session_id if given
+    2. Use the X-Session-ID header if present
+    3. Use the client IP as a fallback for backward compatibility
+    4. Create a new session if nothing else is available
+    """
+    # Strategy 1: Explicit session ID (for new clients)
+    if session_id_override:
+        return session_id_override
+
+    # Strategy 2: Check for a session header (optional for the frontend)
+    session_header = request.headers.get("X-Session-ID")
+    if session_header:
+        return session_header
+
+    # Strategy 3: Use client IP for backward compatibility — each client IP
+    # gets its own persistent session.
+    client_ip = request.client.host if request.client else "unknown"
+    ip_session_id = f"ip_{client_ip}"
+    session = session_manager.get_session(ip_session_id)
+    return session.session_id

@@ -1,40 +1,12 @@
-from app.llm.llm_client import LLMClient
-from typing import List, Dict
+import logging
+from typing import Awaitable, Callable, Dict, List, Optional
+
+from app.advisor_skills import DEFAULT_SKILL_ID, AdvisorSkill, get_advisor_skill
+from app.llm.clients.llm_client import LLMClient, LLMStreamChunk
 
 SENTINEL = "</END>"
-
-# Shared compact formatting contract applied to all personas.
-COMPACT_MARKDOWN_V1 = (
-    "You must format your answer using GitHub-Flavored Markdown and exactly these three sections in this order:\n"
-    "### Thought\n"
-    "- One sentence only.\n"
-    "\n"
-    "### What to do\n"
-    "- Exactly 3 bullet points, one line each. Use '-' as the bullet. Do not use unicode bullets.\n"
-    "- If you would use an ordered list, keep text on the same line as the number (e.g., '1. Do X').\n"
-    "\n"
-    "### Next step\n"
-    "- One imperative sentence only.\n"
-    "\n"
-    "Rules: Use '###' for headings (never bold-as-heading). Insert a blank line between blocks. "
-    "Do not include tables or code blocks unless explicitly requested. "
-    "Do not include preambles or conclusions outside the three sections. "
-    f"Finish your response with the sentinel token {SENTINEL}."
-)
-
-# Soft structure guidance per response_length
-STRUCTURE_HINTS = {
-    "short": "Keep it very concise: Thought as one short sentence; bullets ≤ 12 words; next step one short sentence.",
-    "medium": "Be concise but clear: Thought one sentence; bullets ≤ 18 words; next step one sentence.",
-    "long": "Provide slightly more detail while staying compact: Thought one sentence; bullets ≤ 24 words; next step one sentence.",
-}
-
-# Conservative token ceilings (kept close to prior behavior to avoid breaking changes)
-MAX_TOKENS_MAP = {
-    "short": 300,
-    "medium": 500,
-    "long": 800,
-}
+logger = logging.getLogger(__name__)
+MAX_RETRY_TOKENS = 3200
 
 def _cut_at_sentinel(text: str) -> str:
     if not text:
@@ -96,68 +68,11 @@ def _truncate_words(s: str, limit: int) -> str:
     words = s.strip().split()
     if len(words) <= limit:
         return s.strip()
-    return " ".join(words[:limit]) + "…"
+    return " ".join(words[:limit]) + "..."
 
-def _first_sentence(text: str, max_words: int) -> str:
+def _normalize_skill_markdown(text: str, advisor_skill: AdvisorSkill) -> str:
+    """Normalize model Markdown without forcing every skill into one shape."""
     import re
-    # Split by sentence terminators conservatively
-    parts = re.split(r"(?<=[\.!?])\s+", text.strip())
-    first = parts[0] if parts else text.strip()
-    return _truncate_words(first, max_words)
-
-def _extract_heading_blocks(lines: List[str]) -> Dict[str, List[str]]:
-    # Return mapping of 'ThoughtR', 'What to do', 'Next step' -> list of content lines
-    sections = {"Thought": [], "What to do": [], "Next step": []}
-    current = None
-    for l in lines:
-        if l.strip().lower().startswith("### thought"):
-            current = "Thought"
-            continue
-        if l.strip().lower().startswith("### what to do"):
-            current = "What to do"
-            continue
-        if l.strip().lower().startswith("### next step"):
-            current = "Next step"
-            continue
-        if current:
-            sections[current].append(l)
-    return sections
-
-def _extract_bullets(lines: List[str]) -> List[str]:
-    bullets = []
-    import re
-    for l in lines:
-        s = l.strip()
-        if s.startswith("- "):
-            bullets.append(s[2:].strip())
-        elif s.startswith("* "):
-            bullets.append(s[2:].strip())
-        else:
-            m = re.match(r"^(\d+)\.\s+(.*)$", s)
-            if m and m.group(2).strip():
-                bullets.append(m.group(2).strip())
-    return bullets
-
-def _synthesize_bullets_from_text(text: str, max_items: int, per_bullet_words: int) -> List[str]:
-    # Fallback: split by sentences, make short bullet-like items
-    import re
-    sentences = re.split(r"(?<=[\.!?])\s+", text.strip())
-    items = []
-    for s in sentences:
-        s_clean = s.strip("-•* ").strip()
-        if not s_clean:
-            continue
-        items.append(_truncate_words(s_clean, per_bullet_words))
-        if len(items) >= max_items:
-            break
-    if not items:
-        return []
-    return items[:max_items]
-
-def _ensure_compact_shape(text: str, response_length: str) -> str:
-    # Normalize and coerce into the 3-section compact shape.
-    per_bullet_words = 12 if response_length == "short" else 18 if response_length == "medium" else 24
-    sentence_words = 18 if response_length == "short" else 26 if response_length == "medium" else 34
 
     t = _cut_at_sentinel(_rstrip_lines(_normalize_eols(text)))
     lines = t.split("\n")
@@ -165,77 +80,81 @@ def _ensure_compact_shape(text: str, response_length: str) -> str:
     lines = _convert_unicode_bullets(lines)
     lines = _merge_orphan_numbered_items(lines)
     t = _collapse_blank_runs("\n".join(lines))
-    lines = t.split("\n")
 
-    sections = _extract_heading_blocks(lines)
-    have_all = all(sections[k] for k in sections.keys())
+    # Backward-compatibility repair if an older prompt still leaks into a
+    # quick-advice response.
+    if advisor_skill.id == DEFAULT_SKILL_ID:
+        replacements = {
+            r"^###\s*Thought\s*$": "### Short answer",
+            r"^###\s*What to do\s*$": "### Do next",
+            r"^###\s*Next step\s*$": "### Do next",
+        }
+        repaired = []
+        for line in t.split("\n"):
+            fixed = line
+            for pattern, replacement in replacements.items():
+                fixed = re.sub(pattern, replacement, fixed, flags=re.IGNORECASE)
+            repaired.append(fixed)
+        t = _collapse_blank_runs("\n".join(repaired))
 
-    if not have_all:
-        # Build compact output from scratch using best-effort extraction
-        raw_plain = " ".join([l for l in lines if not l.strip().startswith("#")]).strip()
-        tldr = _first_sentence(raw_plain, sentence_words) if raw_plain else ""
-        # Try to pick bullets from any list-like lines first
-        bullets = _extract_bullets(lines)
-        if not bullets:
-            bullets = _synthesize_bullets_from_text(raw_plain, 3, per_bullet_words)
-        bullets = [ _truncate_words(b, per_bullet_words) for b in bullets[:3] ]
-        # Next step heuristic: use next short imperative-like sentence, else reuse first bullet/action
-        next_step = ""
-        for cand in bullets:
-            if cand:
-                next_step = cand
-                break
-        if not next_step:
-            next_step = tldr or "Proceed with the most actionable item."
-        next_step = _truncate_words(next_step, sentence_words)
+    return t.strip()
 
-        parts = []
-        parts.append("### Thought")
-        parts.append(tldr or "Concise summary unavailable.")
-        parts.append("")
-        parts.append("### What to do")
-        if bullets:
-            for b in bullets:
-                parts.append(f"- {b}")
-        else:
-            parts.append("- Identify the key task.")
-            parts.append("- Decide the immediate next action.")
-            parts.append("- Verify prerequisites and proceed.")
-        parts.append("")
-        parts.append("### Next step")
-        parts.append(next_step)
-        return "\n".join(parts).strip()
+def _has_sentinel(text: str) -> bool:
+    return bool(text and SENTINEL in text)
 
-    # If sections exist, normalize their content and enforce caps
-    tldr_body = " ".join([l.strip() for l in sections["Thought"] if l.strip()])
-    tldr_final = _first_sentence(tldr_body, sentence_words) if tldr_body else "Concise summary unavailable."
+def _retry_max_tokens(max_tokens: int) -> int:
+    return min(MAX_RETRY_TOKENS, max(max_tokens + 700, int(max_tokens * 1.75)))
 
-    bullets = _extract_bullets(sections["What to do"])
-    bullets = [ _truncate_words(b, per_bullet_words) for b in bullets[:3] ]
-    if len(bullets) < 3:
-        # try to synthesize remaining bullets from Thought or other content
-        raw_plain = " ".join([l for l in lines if not l.strip().startswith("#")]).strip()
-        filler = _synthesize_bullets_from_text(raw_plain, 3 - len(bullets), per_bullet_words)
-        bullets.extend(filler)
-    bullets = bullets[:3]
+def _compact_retry_instruction(sentinel: str) -> str:
+    return f"""
+The previous answer did not finish with {sentinel}, so regenerate the full answer from scratch.
 
-    next_body = " ".join([l.strip() for l in sections["Next step"] if l.strip()])
-    if not next_body:
-        next_body = bullets[0] if bullets else tldr_final
-    next_final = _truncate_words(_first_sentence(next_body, sentence_words), sentence_words)
+Recovery rules:
+- Do not mention the previous attempt or the retry.
+- Preserve the advisor skill's intent and guardrails.
+- Use the most natural concise structure; do not force suggested response moves as headings.
+- Keep prose sections to one short paragraph.
+- Keep list sections to no more than three items.
+- Prioritize a complete answer over nuance or detail.
+- Finish your response with the sentinel token {sentinel}.
+""".strip()
 
-    parts = []
-    parts.append("### Thought")
-    parts.append(tldr_final)
-    parts.append("")
-    parts.append("### What to do")
-    for b in bullets[:3]:
-        parts.append(f"- {b}")
-    parts.append("")
-    parts.append("### Next step")
-    parts.append(next_final)
 
-    return "\n".join(parts).strip()
+class _SentinelStreamFilter:
+    """Delay a few trailing chars so split sentinel tokens never reach the UI."""
+
+    def __init__(self, sentinel: str):
+        self.sentinel = sentinel
+        self.pending = ""
+        self.finished = False
+
+    def push(self, text: str) -> str:
+        if self.finished or not text:
+            return ""
+
+        self.pending += text
+        sentinel_idx = self.pending.find(self.sentinel)
+        if sentinel_idx != -1:
+            out = self.pending[:sentinel_idx]
+            self.pending = ""
+            self.finished = True
+            return out
+
+        keep_chars = max(len(self.sentinel) - 1, 0)
+        if len(self.pending) <= keep_chars:
+            return ""
+
+        out = self.pending[:-keep_chars]
+        self.pending = self.pending[-keep_chars:]
+        return out
+
+    def flush(self) -> str:
+        if self.finished:
+            self.pending = ""
+            return ""
+        out = self.pending
+        self.pending = ""
+        return out
 
 class Persona:
     def __init__(self, id: str, name: str, system_prompt: str, llm: LLMClient, temperature: int = 5):
@@ -245,18 +164,24 @@ class Persona:
         self.llm = llm
         self.temperature = temperature
 
-    async def respond(self, context: List[Dict], response_length: str = "medium") -> str:
-        """Generate a compact, well-formed Markdown response suitable for the UI.
-        Returns the compact Markdown string (backward compatible with previous callers).
-        """
-        max_tokens = MAX_TOKENS_MAP.get(response_length, 500)
-        structure_hint = STRUCTURE_HINTS.get(response_length, STRUCTURE_HINTS["medium"])
+    async def respond(
+        self,
+        context: List[Dict],
+        response_length: str = "medium",
+        advisor_skill=None,
+    ) -> str:
+        """Generate a skill-shaped Markdown response suitable for the UI."""
+        if isinstance(advisor_skill, AdvisorSkill):
+            skill = advisor_skill
+        else:
+            skill = get_advisor_skill(advisor_skill or DEFAULT_SKILL_ID)
+
+        max_tokens = skill.max_tokens(response_length)
         temp_scaled = round(self.temperature / 10, 2)
 
         full_prompt = (
             f"{self.system_prompt}\n\n"
-            f"{COMPACT_MARKDOWN_V1}\n\n"
-            f"{structure_hint}"
+            f"{skill.prompt_contract(response_length, SENTINEL)}"
         )
 
         raw_text = await self.llm.generate(
@@ -266,50 +191,143 @@ class Persona:
             max_tokens=max_tokens,
         )
 
-        compact = _ensure_compact_shape(raw_text or "", response_length)
+        if raw_text and not _has_sentinel(raw_text):
+            logger.warning(
+                "Advisor response missing sentinel; it may be incomplete "
+                "(persona=%s, skill=%s, response_length=%s, max_tokens=%s, chars=%s)",
+                self.id,
+                skill.id,
+                response_length,
+                max_tokens,
+                len(raw_text),
+            )
+            retry_tokens = _retry_max_tokens(max_tokens)
+            retry_text = await self.llm.generate(
+                system_prompt=f"{full_prompt}\n\n{_compact_retry_instruction(SENTINEL)}",
+                context=context,
+                temperature=temp_scaled,
+                max_tokens=retry_tokens,
+            )
+            if _has_sentinel(retry_text):
+                logger.info(
+                    "Recovered incomplete advisor response with compact retry "
+                    "(persona=%s, skill=%s, retry_tokens=%s)",
+                    self.id,
+                    skill.id,
+                    retry_tokens,
+                )
+                raw_text = retry_text
+            else:
+                logger.warning(
+                    "Advisor compact retry still missing sentinel "
+                    "(persona=%s, skill=%s, retry_tokens=%s, chars=%s)",
+                    self.id,
+                    skill.id,
+                    retry_tokens,
+                    len(retry_text or ""),
+                )
+                if retry_text and len(retry_text) > len(raw_text):
+                    raw_text = retry_text
+
+        compact = _normalize_skill_markdown(raw_text or "", skill)
 
         # Final safety: cap extreme length by trimming bullet lines further if necessary
         # (We keep this conservative to avoid changing behavior unnecessarily)
-        if len(compact) > 4000:  # very generous; UI should stay well below this
-            # Trim bullets to even fewer words
-            compact = _ensure_compact_shape(compact, "short")
+        if len(compact) > 6000:
+            compact = _truncate_words(compact, 900)
 
         return compact
 
+    async def respond_stream(
+        self,
+        context: List[Dict],
+        response_length: str = "medium",
+        advisor_skill=None,
+        on_chunk: Optional[Callable[[LLMStreamChunk], Awaitable[None]]] = None,
+    ) -> str:
+        """Stream a skill-shaped Markdown response and return the final text."""
+        if isinstance(advisor_skill, AdvisorSkill):
+            skill = advisor_skill
+        else:
+            skill = get_advisor_skill(advisor_skill or DEFAULT_SKILL_ID)
 
-"""from app.llm.llm_client import LLMClient
-
-class Persona:
-    def __init__(self, id, name, system_prompt, llm, temperature=5):
-        self.id = id
-        self.name = name
-        self.system_prompt = system_prompt
-        self.llm = llm
-        self.temperature = temperature
-    
-    async def respond(self, context: list[dict], response_length: str = "medium") -> str:
-        max_tokens_map = {
-            "short": 300,
-            "medium": 500,
-            "long": 800
-        }
-
-        response_style_map = {
-            "short": "Respond in 20-30 words.",
-            "medium": "Respond in 40-50 words.",
-            "long": "Respond in 50-60 words."
-        }
-
-        max_tokens = max_tokens_map.get(response_length, 500)
-        response_instruction = response_style_map.get(response_length, "medium")
         temp_scaled = round(self.temperature / 10, 2)
+        max_tokens = skill.max_tokens(response_length)
+        full_prompt = (
+            f"{self.system_prompt}\n\n"
+            f"{skill.prompt_contract(response_length, SENTINEL)}"
+        )
 
-        full_prompt = f"{self.system_prompt}\n\n{response_instruction}"
+        text_filter = _SentinelStreamFilter(SENTINEL)
+        streamed_text: List[str] = []
 
-        return await self.llm.generate(
+        async for chunk in self.llm.stream_generate(
             system_prompt=full_prompt,
             context=context,
             temperature=temp_scaled,
-            max_tokens=max_tokens
-        )
-"""
+            max_tokens=None,
+            include_thoughts=True,
+        ):
+            if chunk.kind == "thought":
+                if on_chunk and chunk.text:
+                    await on_chunk(chunk)
+                continue
+
+            delta = text_filter.push(chunk.text)
+            if not delta:
+                if text_filter.finished:
+                    break
+                continue
+
+            streamed_text.append(delta)
+            if on_chunk:
+                await on_chunk(LLMStreamChunk(text=delta, kind="text"))
+
+            if text_filter.finished:
+                break
+
+        tail = text_filter.flush()
+        if tail:
+            streamed_text.append(tail)
+            if on_chunk:
+                await on_chunk(LLMStreamChunk(text=tail, kind="text"))
+
+        raw_text = "".join(streamed_text)
+        if raw_text and not text_filter.finished:
+            logger.warning(
+                "Streamed advisor response missing sentinel "
+                "(persona=%s, skill=%s, response_length=%s, chars=%s)",
+                self.id,
+                skill.id,
+                response_length,
+                len(raw_text),
+            )
+            retry_tokens = _retry_max_tokens(max_tokens)
+            retry_text = await self.llm.generate(
+                system_prompt=f"{full_prompt}\n\n{_compact_retry_instruction(SENTINEL)}",
+                context=context,
+                temperature=temp_scaled,
+                max_tokens=retry_tokens,
+            )
+            if _has_sentinel(retry_text):
+                logger.info(
+                    "Recovered incomplete streamed advisor response with compact retry "
+                    "(persona=%s, skill=%s, retry_tokens=%s)",
+                    self.id,
+                    skill.id,
+                    retry_tokens,
+                )
+                raw_text = retry_text
+            elif retry_text and len(retry_text) > len(raw_text):
+                logger.warning(
+                    "Streamed advisor compact retry still missing sentinel "
+                    "(persona=%s, skill=%s, retry_tokens=%s, chars=%s)",
+                    self.id,
+                    skill.id,
+                    retry_tokens,
+                    len(retry_text),
+                )
+                raw_text = retry_text
+
+        compact = _normalize_skill_markdown(raw_text, skill)
+        return compact

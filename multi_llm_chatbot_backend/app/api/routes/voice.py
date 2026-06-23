@@ -12,10 +12,10 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
 
 from app.core.auth import get_current_active_user
 from app.models.user import User
+from app.models.voice import TTSRequest
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,6 @@ MAX_SYNTH_CHUNK = 200
 _SECTION_HEADERS = re.compile(
     r"\b(Thought|What to do|Next step)\s*[:.]?\s*", flags=re.IGNORECASE
 )
-
-
-class TTSRequest(BaseModel):
-    text: str
 
 
 def _rough_spoken_text(raw: str) -> str:

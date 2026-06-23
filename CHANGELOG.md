@@ -1,5 +1,54 @@
 # Changelog
 
+## [2.0.1a7](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a7) (2026-05-30)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a6...2.0.1a7)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Move all message persistence from frontend to backend [\#46](https://github.com/NeonGeckoCom/CCAI-Demo/issues/46)
+
+**Merged pull requests:**
+
+- persist advisor responses to db in /chat-stream endpoint. [\#78](https://github.com/NeonGeckoCom/CCAI-Demo/pull/78) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
+## [2.0.1a6](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a6) (2026-05-29)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a5...2.0.1a6)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Support BrainForge LLM Backend [\#49](https://github.com/NeonGeckoCom/CCAI-Demo/issues/49)
+
+**Merged pull requests:**
+
+- BrainForge LLM Integration [\#62](https://github.com/NeonGeckoCom/CCAI-Demo/pull/62) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
+## [2.0.1a5](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a5) (2026-05-29)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a4...2.0.1a5)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Evaluate old\_routes.py for deprecation [\#74](https://github.com/NeonGeckoCom/CCAI-Demo/issues/74)
+
+**Merged pull requests:**
+
+- deprecated old\_routes.py [\#77](https://github.com/NeonGeckoCom/CCAI-Demo/pull/77) ([NeonCharlie-24](https://github.com/NeonCharlie-24))
+
+## [2.0.1a4](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a4) (2026-05-28)
+
+[Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a3...2.0.1a4)
+
+**Implemented enhancements:**
+
+- \[FEAT\] Disable Specific Personas [\#64](https://github.com/NeonGeckoCom/CCAI-Demo/issues/64)
+- \[FEAT\] User Tutorial [\#29](https://github.com/NeonGeckoCom/CCAI-Demo/issues/29)
+
+**Merged pull requests:**
+
+- Disable Specific User Personas [\#65](https://github.com/NeonGeckoCom/CCAI-Demo/pull/65) ([NeonRyan](https://github.com/NeonRyan))
+
 ## [2.0.1a3](https://github.com/NeonGeckoCom/CCAI-Demo/tree/2.0.1a3) (2026-05-21)
 
 [Full Changelog](https://github.com/NeonGeckoCom/CCAI-Demo/compare/2.0.1a2...2.0.1a3)

@@ -16,7 +16,7 @@ from colorhash import ColorHash
 
 import httpx
 import yaml
-from pydantic import BaseModel, validator, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.utils.avatar_helpers import get_bundled_avatar_path
 from app.version import __version__
@@ -176,6 +176,16 @@ class PersonasConfig(BaseModel):
     personas_dir: str = ""
     config_dir: str = ""
     items: List[PersonaItemConfig] = []
+    allowed_advisors: Optional[List[str]] = None
+
+    @model_validator(mode='after')
+    def _validate_allowed_advisors(self):
+        if self.allowed_advisors is not None and len(self.allowed_advisors) == 0:
+            raise ValueError(
+                "allowed_advisors must not be an empty list; "
+                "omit the setting or set to null to allow all advisors"
+            )
+        return self
 
     @model_validator(mode='after')
     def _load_personas_from_directory(self):
@@ -244,7 +254,7 @@ class MongoDBConfig(BaseModel):
 
 class GeminiConfig(BaseModel):
     api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3-flash-preview"
 
     @model_validator(mode="after")
     def _warn_gemini_envvar(self):
@@ -281,6 +291,9 @@ class LLMConfig(BaseModel):
 class RAGConfig(BaseModel):
     embedding_model: str = "all-MiniLM-L6-v2"
     chroma_collection: str = "phd_advisor_documents"
+    # Document chunking (RecursiveCharacterTextSplitter), sizes in characters
+    chunk_size: int = 2000
+    chunk_overlap: int = 200
 
 
 class ToolsConfig(BaseModel):
@@ -328,6 +341,14 @@ class AppSettings(BaseModel):
     def get_frontend_config(self) -> dict:
         """Return the subset of configuration safe to expose to the frontend
         via ``GET /api/config``.  Secrets are excluded."""
+        from app.advisor_skills import ADVISOR_SKILLS
+
+        allowed = self.personas.allowed_advisors
+        persona_items = self.personas.items
+        if allowed is not None:
+            allowed_set = set(allowed)
+            persona_items = [p for p in persona_items if p.id in allowed_set]
+
         return {
             "app": self.app.dict(),
             "homepage": self.homepage.dict(),
@@ -335,7 +356,20 @@ class AppSettings(BaseModel):
             "chat_page": self.chat_page.dict(),
             "onboarding": self.onboarding.dict(),
             "personas": {
-                "items": [p.to_frontend_config() for p in self.personas.items],
+                "items": [p.to_frontend_config() for p in persona_items],
+            },
+            "advisor_skills": {
+                "items": [
+                        {
+                            "id": skill.id,
+                            "name": skill.name,
+                            "description": skill.description,
+                            "response_moves": skill.response_moves,
+                            "format_guidance": skill.format_guidance,
+                            "headings": skill.headings,
+                        }
+                    for skill in ADVISOR_SKILLS.values()
+                ],
             },
             "version": __version__,
         }

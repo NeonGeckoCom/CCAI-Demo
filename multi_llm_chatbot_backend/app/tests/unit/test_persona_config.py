@@ -3,6 +3,7 @@ import os
 import tempfile
 import yaml
 import app.config
+from pydantic import ValidationError
 from app.config import load_settings, load_personas_from_dir, PersonasConfig
 
 
@@ -62,6 +63,71 @@ class TestLoadSettings(unittest.TestCase):
         self.assertEqual(len(settings.personas.items), 2)
         ids = {p.id for p in settings.personas.items}
         self.assertEqual(ids, {"one", "two"})
+
+    def test_allowed_advisors_defaults_to_none(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "items": [
+                    {"id": "a", "name": "A"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        self.assertIsNone(settings.personas.allowed_advisors)
+
+    def test_allowed_advisors_populated(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "allowed_advisors": ["one", "two"],
+                "items": [
+                    {"id": "one", "name": "One"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        self.assertEqual(settings.personas.allowed_advisors, ["one", "two"])
+
+    def test_allowed_advisors_empty_list_raises(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "allowed_advisors": [],
+                "items": [
+                    {"id": "a", "name": "A"},
+                ]
+            }
+        })
+        with self.assertRaises(ValidationError):
+            load_settings(cfg_path)
+
+    def test_frontend_config_includes_all_when_no_whitelist(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "items": [
+                    {"id": "one", "name": "One"},
+                    {"id": "two", "name": "Two"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        frontend = settings.get_frontend_config()
+        ids = [p["id"] for p in frontend["personas"]["items"]]
+        self.assertEqual(ids, ["one", "two"])
+
+    def test_frontend_config_filters_by_whitelist(self):
+        cfg_path = _write_config(self.tmp_path, {
+            "personas": {
+                "allowed_advisors": ["two"],
+                "items": [
+                    {"id": "one", "name": "One"},
+                    {"id": "two", "name": "Two"},
+                    {"id": "three", "name": "Three"},
+                ]
+            }
+        })
+        settings = load_settings(cfg_path)
+        frontend = settings.get_frontend_config()
+        ids = [p["id"] for p in frontend["personas"]["items"]]
+        self.assertEqual(ids, ["two"])
 
     def test_bad_persona_does_not_crash_everything(self):
         """Validates that a bad persona in the inline items list causes a

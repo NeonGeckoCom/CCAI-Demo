@@ -23,6 +23,8 @@ from app.api.routes import router as main_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
 from app.api.routes.phd_canvas import router as phd_canvas_router
+from app.api.routes.preferences import router as preferences_router
+from app.api.routes.advisor_skills import router as advisor_skills_router
 
 import logging
 
@@ -61,6 +63,8 @@ app.include_router(main_router)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
+app.include_router(preferences_router, prefix="/api", tags=["preferences"])
+app.include_router(advisor_skills_router, prefix="/api", tags=["advisor-skills"])
 
 # Serve bundled avatar images
 _avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"
@@ -75,9 +79,12 @@ if _avatars_dir.is_dir():
 # ---------------------------------------------------------------------------
 # Public configuration endpoint — serves the frontend-safe subset
 # ---------------------------------------------------------------------------
-@app.get("/api/config")
+@app.get("/api/config", tags=["meta"])
 def get_public_config():
-    """Return the public (non-secret) application configuration."""
+    """Return the public (non-secret) application configuration.
+
+    Serves the frontend-safe subset of configured app settings.
+    """
     return settings.get_frontend_config()
 
 @app.get("/")

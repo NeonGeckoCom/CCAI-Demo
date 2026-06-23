@@ -1,17 +1,17 @@
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Body, Depends
 from fastapi import Query
-from app.utils.document_extractor import extract_text_from_file
+from app.parsing.document_extractor import extract_text_from_file, resolve_file_type
 from app.core.session_manager import get_session_manager
-from app.core.rag_manager import get_rag_manager
+from app.rag.manager import get_rag_manager
 from app.api.utils import get_or_create_session_for_request_async
 from fastapi.responses import StreamingResponse
 from app.utils.chat_summary import generate_summary_from_messages, parse_summary_to_blocks, format_summary_for_text_export
 from app.utils.file_export import prepare_export_response, generate_pdf_file_from_blocks
-from app.core.session_manager import get_session_manager
 from app.core.bootstrap import chat_orchestrator
+from app.api.routes.chat_sessions import persist_message
 from app.core.auth import get_current_active_user
 from app.core.database import get_database
-from app.models.user import User
+from app.models.user import PersistMessage, User
 from bson import ObjectId
 import logging
 import re
@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 session_manager = get_session_manager()
-get_rag_manager = get_rag_manager
 
 
 def sanitize_html_content(content):
@@ -163,43 +162,41 @@ async def upload_document(
     try:
         if chat_session_id:
             # If uploading to a specific chat, use chat_{id} format
-            session_id = f"chat_{chat_session_id}"
-            logger.info(f"Uploading document to specific chat session: {session_id}")
+            memory_session_id = f"chat_{chat_session_id}"
+            logger.info(f"Uploading document to specific chat session: {memory_session_id}")
         else:
             # For new/temporary chats, use regular session management
-            session_id = await get_or_create_session_for_request_async(request)
-            logger.info(f"Uploading document to new session: {session_id}")
+            memory_session_id = await get_or_create_session_for_request_async(request)
+            logger.info(f"Uploading document to new session: {memory_session_id}")
         
         # Add debug logging to track session IDs
         logger.info(f"Document upload - chat_session_id parameter: {chat_session_id}")
-        logger.info(f"Document upload - final session_id: {session_id}")
+        logger.info(f"Document upload - final session_id: {memory_session_id}")
         logger.info(f"Document upload - user_id: {current_user.id}")
-        
-        session = session_manager.get_session(session_id)
+
+        session = session_manager.get_session(memory_session_id)
 
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
         if file.size and file.size > MAX_FILE_SIZE:
             raise HTTPException(status_code=413, detail="File size exceeds 10MB limit")
 
         file_bytes = await file.read()
-        content = extract_text_from_file(file_bytes, file.content_type)
+        try:
+            content = extract_text_from_file(file_bytes, file.content_type, file.filename)
+        except ValueError as e:
+            raise HTTPException(status_code=415, detail=str(e))
         if not content.strip():
             raise HTTPException(status_code=400, detail="Document is empty or unreadable.")
 
         rag_manager = get_rag_manager()
-        file_type_map = {
-            "application/pdf": "pdf",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx", 
-            "text/plain": "txt"
-        }
-        file_type = file_type_map.get(file.content_type, "unknown")
+        file_type = resolve_file_type(file.content_type, file.filename)
 
         # Pass the consistent session_id to RAG manager
-        logger.info(f"Adding document {file.filename} to session {session_id}")
+        logger.info(f"Adding document {file.filename} to session {memory_session_id}")
         rag_result = rag_manager.add_document(
             content=content,
             filename=file.filename,
-            session_id=session_id,
+            session_id=memory_session_id,
             file_type=file_type
         )
 
@@ -217,6 +214,12 @@ async def upload_document(
             f"Document uploaded: '{doc_title}' ({file.filename}) - {rag_result['chunks_created']} sections processed, ~{rag_result['total_tokens']} tokens analyzed. You can now ask questions about this document by referencing it by name."
         )
 
+        if chat_session_id:
+            await persist_message(chat_session_id, PersistMessage(
+                type="document_upload",
+                content=f"Document uploaded: {file.filename} ({rag_result['chunks_created']} sections processed)",
+            ))
+
         # Return session info for frontend tracking
         return {
             "message": f"Document '{file.filename}' uploaded and processed successfully.",
@@ -226,7 +229,7 @@ async def upload_document(
             "total_tokens": rag_result['total_tokens'],
             "file_type": file_type,
             "can_reference_by_name": True,
-            "session_id": session_id,
+            "session_id": memory_session_id,
             "chat_session_id": chat_session_id,
             "user_id": str(current_user.id)  # ADDED: Include user ID for debugging
         }
@@ -244,17 +247,9 @@ async def search_documents(request: Request, query: str = Body(..., embed=True),
         session_id = await get_or_create_session_for_request_async(request)  # FIXED: Added await
         rag_manager = get_rag_manager()
 
-        persona_contexts = {
-            "methodologist": "methodology research design analysis",
-            "theorist": "theory theoretical framework conceptual",
-            "pragmatist": "practical application implementation"
-        }
-        persona_context = persona_contexts.get(persona, "")
-
-        results = rag_manager.search_documents(
+        results = rag_manager.search_documents_with_context(
             query=query,
             session_id=session_id,
-            persona_context=persona_context,
             n_results=5
         )
 
