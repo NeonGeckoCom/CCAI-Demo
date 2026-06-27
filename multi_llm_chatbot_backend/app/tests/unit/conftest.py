@@ -1,38 +1,37 @@
-"""Session-wide stubs for heavy-import modules.
+"""Session-wide stubs for modules that do heavy work at import time.
 
-``app.core.rag_manager`` starts NLTK / ChromaDB the moment it is
-imported, so we replace it with a ``MagicMock`` before any test is
-collected.
+``app.api.routes.__init__`` eagerly imports every sibling route, and
+``app.api.routes.provider`` instantiates real LLM clients at module
+load.  ``app.core.bootstrap`` and ``app.core.rag_manager`` likewise
+start NLTK, ChromaDB, and the LLM stack the moment they are imported.
 
-``app.core.bootstrap`` (and the route modules that import it) can load
-normally because we pre-set ``GEMINI_API_KEY`` and ``CONFIG_PATH``
-before any import occurs.  This lets ``get_settings()``, the LLM-client
-constructors, and the orchestrator initialise without real credentials
-or config files.
+We install harmless ``MagicMock`` substitutes for those modules once,
+before any test file in this directory is collected, so every test
+gets a consistent, importable view of ``app.api.routes`` without
+having to reproduce the same stubbing recipe in every test module.
 
-Route modules that are *not* under direct test (documents, sessions,
-debug, phd_canvas) are still replaced with lightweight stubs so their
-dependency trees are never pulled in.
+Tests that want to exercise the real version of a specific route
+module (for example, ``test_version.py`` wanting the real
+``app.api.routes.root``) can still pop their target out of
+``sys.modules`` in their own setup -- they no longer have to
+coordinate cleanup with peer test modules.
 """
 
-import os
 import sys
 from unittest.mock import MagicMock
 
 from fastapi import APIRouter
 
-os.environ.setdefault("GEMINI_API_KEY", "fake-test-key")
-os.environ.setdefault("CONFIG_PATH", "")
 
-# rag_manager triggers NLTK / ChromaDB on import — always stub it.
-sys.modules.setdefault("app.core.rag_manager", MagicMock())
+for _name in ("app.core.bootstrap", "app.core.rag_manager"):
+    sys.modules.setdefault(_name, MagicMock())
 
-# Stub route modules that are NOT under direct test to avoid pulling
-# in their full dependency trees when app.api.routes.__init__ runs.
 _stub_router_module = MagicMock(router=APIRouter())
 for _name in (
+    "app.api.routes.chat",
     "app.api.routes.documents",
     "app.api.routes.sessions",
+    "app.api.routes.provider",
     "app.api.routes.debug",
     "app.api.routes.phd_canvas",
 ):

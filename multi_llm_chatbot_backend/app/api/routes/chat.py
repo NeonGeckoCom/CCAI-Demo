@@ -11,7 +11,7 @@ from app.api.routes.chat_sessions import persist_message
 from app.api.utils import get_or_create_session_for_request_async
 from app.core.auth import get_current_active_user
 from app.config import get_settings
-from app.core.bootstrap import chat_orchestrator, get_llm_client
+from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids
 from app.core.session_manager import get_session_manager
@@ -20,7 +20,6 @@ from app.models.chat import (
     ChatMessage,
     ChatStreamLine,
     NewChatRequest,
-    RequestAggregatedResponse,
     PersonaQuery,
     ReplyToAdvisor,
     SwitchChatRequest,
@@ -31,39 +30,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 session_manager = get_session_manager()
-
-
-def resolve_llm_clients(user: User) -> Dict[str, Any]:
-    """Resolve cached orchestrator and persona clients from a user's config."""
-    config = user.llm_config
-    if config is None:
-        return {"orchestrator": None, "personas": None}
-
-    if config.mode == "uniform":
-        client = get_llm_client(config.default_backend)
-        return {
-            "orchestrator": client,
-            "personas": {
-                persona_id: persona.llm if persona.backend_locked else client
-                for persona_id, persona in chat_orchestrator.personas.items()
-            },
-        }
-
-    orchestrator_backend = config.orchestrator_backend or config.default_backend
-    persona_backends = config.persona_backends or {}
-    return {
-        "orchestrator": get_llm_client(orchestrator_backend),
-        "personas": {
-            persona_id: (
-                persona.llm
-                if persona.backend_locked
-                else get_llm_client(
-                    persona_backends.get(persona_id, config.default_backend)
-                )
-            )
-            for persona_id, persona in chat_orchestrator.personas.items()
-        },
-    }
 
 
 def _clip(value: Any, limit: int = 900) -> str:
@@ -161,11 +127,6 @@ async def chat_stream(
 
     async def _event_generator():
         try:
-            # Resolve per-user LLM clients from their stored config
-            llm_clients = resolve_llm_clients(current_user)
-            orchestrator_llm = llm_clients["orchestrator"]
-            persona_llms = llm_clients["personas"]
-
             # Load or create the in-memory session
             if message.chat_session_id:
                 sid = f"chat_{message.chat_session_id}"
@@ -185,7 +146,6 @@ async def chat_stream(
             )
 
             # Append user message to in-memory session and persist to MongoDB
-            response_group_id = str(ObjectId())
             session.append_message("user", message.user_input)
             if message.chat_session_id:
                 await persist_message(
@@ -381,7 +341,6 @@ async def chat_stream(
                         session, persona,
                         message.response_length or "medium",
                         skill_classification.skill,
-                        llm_client=(persona_llms or {}).get(pid),
                         on_chunk=on_chunk,
                         on_stage=on_stage,
                     )
@@ -407,7 +366,7 @@ async def chat_stream(
             tasks = [asyncio.create_task(_run(pid)) for pid in selected_personas]
 
             completed = 0
-            while message.response_mode == "panel" and completed < len(tasks):
+            while completed < len(tasks):
                 event = await event_queue.get()
                 if isinstance(event, ChatStreamLine):
                     yield event.to_ndjson()
@@ -447,104 +406,7 @@ async def chat_stream(
                 )
                 yield line.to_ndjson()
 
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-            if message.response_mode == "aggregated":
-                # ---- Aggregated mode: collect all, synthesize, yield one ----
-                yield ChatStreamLine(
-                    type="progress",
-                    data={"phase": "generating"},
-                ).to_ndjson()
-
-                panel_results = []
-                for _ in range(len(tasks)):
-                    event = await event_queue.get()
-                    while isinstance(event, ChatStreamLine):
-                        yield event.to_ndjson()
-                        event = await event_queue.get()
-                    result = event["result"]
-                    panel_results.append(result)
-                    if message.chat_session_id:
-                        await persist_message(
-                            message.chat_session_id,
-                            PersistMessage(
-                                type="advisor",
-                                persona_id=result["persona_id"],
-                                advisorName=result["persona_name"],
-                                content=result["response"],
-                                used_documents=result.get("used_documents", False),
-                                document_chunks_used=result.get("document_chunks_used", 0),
-                                response_group_id=response_group_id,
-                            ),
-                        )
-
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-                for result in panel_results:
-                    yield ChatStreamLine(
-                        type="advisor",
-                        data={
-                            "persona_id": result["persona_id"],
-                            "persona_name": result["persona_name"],
-                            "content": result["response"],
-                            "used_documents": result.get("used_documents", False),
-                            "document_chunks_used": result.get("document_chunks_used", 0),
-                            "response_group_id": response_group_id,
-                        },
-                    ).to_ndjson()
-
-                yield ChatStreamLine(
-                    type="progress",
-                    data={"phase": "synthesizing"},
-                ).to_ndjson()
-
-                synth_result = await chat_orchestrator.synthesize_aggregated_response(
-                    user_input=message.user_input,
-                    panel_results=panel_results,
-                    llm_client=orchestrator_llm,
-                    response_length=message.response_length or "medium",
-                )
-
-                if synth_result:
-                    if message.chat_session_id:
-                        await persist_message(
-                            message.chat_session_id,
-                            PersistMessage(
-                                type="advisor",
-                                persona_id="aggregated",
-                                advisorName=synth_result["persona_name"],
-                                content=synth_result["response"],
-                                is_aggregated=True,
-                                source_personas=synth_result["source_personas"],
-                                response_group_id=response_group_id,
-                            ),
-                        )
-                    yield ChatStreamLine(
-                        type="advisor",
-                        data={
-                            "persona_id": "aggregated",
-                            "persona_name": synth_result["persona_name"],
-                            "content": synth_result["response"],
-                            "is_aggregated": True,
-                            "source_personas": synth_result["source_personas"],
-                            "response_group_id": response_group_id,
-                        },
-                    ).to_ndjson()
-                else:
-                    # Synthesis failed — fall back to yielding panel responses
-                    logger.warning("Aggregated synthesis failed, falling back to panel")
-                    for result in panel_results:
-                        yield ChatStreamLine(
-                            type="advisor",
-                            data={
-                                "persona_id": result["persona_id"],
-                                "persona_name": result["persona_name"],
-                                "content": result["response"],
-                                "used_documents": result.get("used_documents", False),
-                                "document_chunks_used": result.get("document_chunks_used", 0),
-                                "response_group_id": response_group_id,
-                            },
-                        ).to_ndjson()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
             yield ChatStreamLine(
                 type="progress",
@@ -567,54 +429,6 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
-
-
-@router.post("/request-aggregated-response")
-async def request_aggregated_response(
-    request: RequestAggregatedResponse,
-    current_user: User = Depends(get_current_active_user),
-):
-    """On-demand synthesis of panel advisor responses into a single aggregated answer.
-
-    Called when a user toggles to the 'Generalized' view on a panel-mode
-    exchange that doesn't yet have an aggregated response.
-    """
-    try:
-        llm_clients = resolve_llm_clients(current_user)
-        orchestrator_llm = llm_clients.get("orchestrator")
-
-        panel_dicts = [r.model_dump() for r in request.panel_results]
-
-        result = await chat_orchestrator.synthesize_aggregated_response(
-            user_input=request.user_input,
-            panel_results=panel_dicts,
-            llm_client=orchestrator_llm,
-            response_length=request.response_length,
-        )
-
-        if not result:
-            raise HTTPException(status_code=502, detail="Synthesis produced no usable response")
-
-        await persist_message(
-            request.chat_session_id,
-            PersistMessage(
-                type="advisor",
-                persona_id="aggregated",
-                advisorName=result["persona_name"],
-                content=result["response"],
-                is_aggregated=True,
-                source_personas=result["source_personas"],
-                response_group_id=request.response_group_id,
-            ),
-        )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Synthesis endpoint error: {e}")
-        raise HTTPException(status_code=500, detail="Synthesis failed")
 
 
 @router.post("/switch-chat")
@@ -728,10 +542,7 @@ async def create_new_chat(
         raise HTTPException(status_code=500, detail="Failed to create new chat")
 
 @router.post("/chat/{persona_id}")
-async def chat_with_specific_advisor(
-    persona_id: str, input: UserInput, request: Request,
-    current_user: User = Depends(get_current_active_user),
-):
+async def chat_with_specific_advisor(persona_id: str, input: UserInput, request: Request):
     """Chat with a specific advisor - UPDATED"""
     try:
         if persona_id not in chat_orchestrator.personas:
@@ -750,16 +561,11 @@ async def chat_with_specific_advisor(
                 ),
             )
 
-        llm_clients = resolve_llm_clients(current_user)
-        persona_llm = (llm_clients["personas"] or {}).get(persona_id)
-
         result = await chat_orchestrator.chat_with_persona(
             user_input=input.user_input,
             persona_id=persona_id,
             session_id=session_id,
             advisor_skill_id=input.advisor_skill,
-            user_id=str(current_user.id),
-            llm_client=persona_llm,
         )
         
         # Handle response structure
@@ -830,10 +636,7 @@ async def chat_with_specific_advisor(
         }
 
 @router.post("/reply-to-advisor")
-async def reply_to_advisor(
-    reply: ReplyToAdvisor, request: Request,
-    current_user: User = Depends(get_current_active_user),
-):
+async def reply_to_advisor(reply: ReplyToAdvisor, request: Request):
     """Reply to a specific advisor with proper context - UPDATED"""
     try:
         if reply.advisor_id not in chat_orchestrator.personas:
@@ -874,16 +677,11 @@ async def reply_to_advisor(
         if original_message:
             contextual_input = f"[Replying to your previous message: '{original_message[:100]}...'] {reply.user_input}"
         
-        llm_clients = resolve_llm_clients(current_user)
-        advisor_llm = (llm_clients["personas"] or {}).get(reply.advisor_id)
-
         result = await chat_orchestrator.chat_with_persona(
             user_input=contextual_input,
             persona_id=reply.advisor_id,
             session_id=session_id,
             advisor_skill_id=reply.advisor_skill,
-            user_id=str(current_user.id),
-            llm_client=advisor_llm,
         )
         
         # Handle response structure
@@ -964,22 +762,15 @@ async def reply_to_advisor(
         }
 
 @router.post("/ask/")
-async def ask_question(
-    query: PersonaQuery, request: Request,
-    current_user: User = Depends(get_current_active_user),
-):
+async def ask_question(query: PersonaQuery, request: Request):
     """Ask question - UPDATED"""
     try:
         session_id = await get_or_create_session_for_request_async(request)
         
-        llm_clients = resolve_llm_clients(current_user)
-        persona_llm = (llm_clients["personas"] or {}).get(query.persona)
-
         result = await chat_orchestrator.chat_with_persona(
             user_input=query.question,
             persona_id=query.persona,
-            session_id=session_id,
-            llm_client=persona_llm,
+            session_id=session_id
         )
         
         if result["type"] == "single_persona_response":

@@ -19,23 +19,6 @@ class ChatMessage(BaseModel):
     active_advisors: Optional[List[str]] = None
     advisor_skill: Optional[str] = None
     student_context: Optional[Dict[str, Any]] = None
-    response_mode: Literal["panel", "aggregated"] = "panel"
-
-
-class PanelResult(BaseModel):
-    persona_id: str
-    persona_name: str
-    response: str
-    used_documents: bool = False
-    document_chunks_used: int = 0
-
-
-class RequestAggregatedResponse(BaseModel):
-    user_input: str
-    panel_results: List[PanelResult] = Field(min_length=1)
-    chat_session_id: str
-    response_group_id: str
-    response_length: Literal["short", "medium", "long"] = "medium"
 
 
 class ReplyToAdvisor(BaseModel):

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from app.advisor_skills import AdvisorSkill, get_advisor_skill
 from app.llm.classifier import classify_advisor_skill
-from app.models.persona import Persona, _normalize_skill_markdown
+from app.models.persona import Persona
 from app.core.session_manager import get_session_manager
 from app.rag.persona_context_builder import PersonaContextBuilder
 from app.llm.clients.llm_client import LLMClient
@@ -173,7 +173,6 @@ class ImprovedChatOrchestrator:
         persona,
         response_length: str = "medium",
         advisor_skill: Optional[AdvisorSkill] = None,
-        llm_client: Optional[LLMClient] = None,
     ):
         """Generate a document-grounded response from a single persona."""
         return await generate_single_persona_response(
@@ -181,7 +180,6 @@ class ImprovedChatOrchestrator:
             persona,
             response_length,
             advisor_skill or get_advisor_skill("quick_advice"),
-            llm_client=llm_client,
         )
 
     async def generate_single_persona_response_stream(
@@ -190,7 +188,6 @@ class ImprovedChatOrchestrator:
         persona,
         response_length: str = "medium",
         advisor_skill: Optional[AdvisorSkill] = None,
-        llm_client: Optional[LLMClient] = None,
         on_chunk=None,
         on_stage=None,
     ):
@@ -200,76 +197,9 @@ class ImprovedChatOrchestrator:
             persona,
             response_length,
             advisor_skill or get_advisor_skill("quick_advice"),
-            llm_client=llm_client,
             on_chunk=on_chunk,
             on_stage=on_stage,
         )
-
-    async def synthesize_aggregated_response(
-        self,
-        user_input: str,
-        panel_results: List[Dict[str, Any]],
-        llm_client: Optional[LLMClient] = None,
-        response_length: str = "medium",
-    ) -> Optional[Dict[str, Any]]:
-        """Synthesize multiple advisor perspectives into one response."""
-        if not panel_results:
-            return None
-
-        perspectives = "\n\n".join(
-            f"### {result['persona_name']}\n{result['response']}"
-            for result in panel_results
-        )
-        system_prompt = (
-            "You synthesize multiple doctoral-advisor perspectives into one "
-            "warm, clear, actionable answer. Address the student directly, "
-            "do not label individual advisors, preserve important trade-offs, "
-            "and use concise Markdown headings and bullets where helpful."
-        )
-        user_prompt = (
-            f"Student question:\n{user_input}\n\n"
-            f"Advisor perspectives:\n{perspectives}\n\n"
-            "Produce one cohesive best-answer response."
-        )
-        token_limits = {"short": 800, "medium": 1500, "long": 2400}
-
-        try:
-            effective_llm = llm_client or self.llm_client
-            if effective_llm is None:
-                return None
-            response = await effective_llm.generate(
-                system_prompt=system_prompt,
-                context=[{"role": "user", "content": user_prompt}],
-                temperature=0.4,
-                max_tokens=token_limits.get(response_length, 1500),
-            )
-            response = (response or "").strip()
-            if not response:
-                return None
-            response = _normalize_skill_markdown(
-                response,
-                get_advisor_skill("quick_advice"),
-            )
-            if not any(line.startswith("### ") for line in response.splitlines()):
-                response = f"### Thought\n{response}"
-            return {
-                "persona_id": "aggregated",
-                "persona_name": "Orchestrator",
-                "response": response,
-                "is_aggregated": True,
-                "source_personas": [result["persona_id"] for result in panel_results],
-                "used_documents": any(
-                    result.get("used_documents") for result in panel_results
-                ),
-                "document_chunks_used": sum(
-                    result.get("document_chunks_used", 0) for result in panel_results
-                ),
-                "response_length": response_length,
-                "context_quality": "synthesized",
-            }
-        except Exception as exc:
-            logger.error("Aggregated synthesis failed: %s", exc)
-            return None
 
     async def chat_with_persona(
         self,
@@ -279,7 +209,6 @@ class ImprovedChatOrchestrator:
         response_length: str = "medium",
         advisor_skill_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        llm_client: Optional[LLMClient] = None,
     ) -> Dict[str, Any]:
         """
         Chat with a specific persona directly - FIXED for consistent document access
@@ -317,7 +246,6 @@ class ImprovedChatOrchestrator:
                 persona,
                 response_length,
                 classification.skill,
-                llm_client=llm_client,
             )
 
             # Add response to session
@@ -372,7 +300,6 @@ class ImprovedChatOrchestrator:
         k: int = 3,
         allowed_ids: Optional[List[str]] = None,
         advisor_skill: Optional[AdvisorSkill] = None,
-        llm_client: Optional[LLMClient] = None,
     ) -> List[str]:
         """Rank personas for the session by relevance (see app.llm.llm_tasks)."""
         session = self.session_manager.get_session(session_id)
@@ -383,5 +310,5 @@ class ImprovedChatOrchestrator:
             k,
             allowed_ids=allowed_ids,
             preferred_ids=preferred_ids,
-            llm_client=llm_client or self.llm_client,
+            llm_client=self.llm_client,
         )

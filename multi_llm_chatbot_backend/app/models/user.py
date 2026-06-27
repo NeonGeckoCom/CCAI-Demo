@@ -1,35 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
-from typing import Dict, List, Literal, Optional, get_args
+from typing import Literal, Optional, List
 from datetime import datetime
 from bson import ObjectId
-
-BackendName = Literal["gemini", "ollama", "vllm"]
-LLM_BACKENDS = get_args(BackendName)
-
-
-class UserLLMConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    """Per-user LLM provider configuration.
-
-    Uniform mode:  all advisors and the orchestrator use ``default_backend``.
-    Hybrid mode:   each advisor can use a different backend; ``default_backend``
-                   is the fallback for any persona not explicitly mapped.
-    """
-    mode: Literal["uniform", "hybrid"] = "uniform"
-    default_backend: BackendName = "gemini"
-    orchestrator_backend: Optional[BackendName] = None
-    persona_backends: Optional[Dict[str, BackendName]] = None
-
-    @model_validator(mode="after")
-    def _validate_hybrid_fields(self):
-        if self.mode == "hybrid":
-            if not self.orchestrator_backend and not self.persona_backends:
-                self.orchestrator_backend = self.default_backend
-        else:
-            self.orchestrator_backend = None
-            self.persona_backends = None
-        return self
 
 class PyObjectId(ObjectId):
     @classmethod
@@ -76,7 +48,6 @@ class User(BaseModel):
     academicStage: Optional[str] = None
     researchArea: Optional[str] = None
     disabled_advisors: Optional[List[str]] = None
-    llm_config: Optional[UserLLMConfig] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
     is_active: bool = True
@@ -124,10 +95,6 @@ class PersistMessage(BaseModel):
     isExpansion: bool = False
     isExpandRequest: bool = False
     replyTo: Optional[ReplyToRef] = None
-    # Response grouping — links a user message with its panel + aggregated responses
-    response_group_id: Optional[str] = None
-    is_aggregated: Optional[bool] = None
-    source_personas: Optional[List[str]] = None
 
     @model_validator(mode='after')
     def check_type_constraints(self):
@@ -145,19 +112,6 @@ class PersistMessage(BaseModel):
     def check_reply_metadata(self):
         if self.isReply and not self.replyTo:
             raise ValueError("replyTo is required when isReply is True")
-        return self
-
-    @model_validator(mode='after')
-    def check_aggregation_metadata(self):
-        if self.is_aggregated:
-            if self.type != 'advisor':
-                raise ValueError("is_aggregated can only be True for advisor messages")
-            if self.persona_id != 'aggregated':
-                raise ValueError("persona_id must be 'aggregated' when is_aggregated is True")
-            if not self.source_personas:
-                raise ValueError("source_personas is required when is_aggregated is True")
-        if self.source_personas and not self.is_aggregated:
-            raise ValueError("source_personas should only be set on aggregated messages")
         return self
 
 
