@@ -100,12 +100,14 @@ class ImprovedChatOrchestrator:
             user_message_count = 1
 
         document_context = self._build_classification_document_context(session, user_input)
+        student_context = getattr(session, "student_context_prompt", "") or ""
 
         return await classify_advisor_skill(
             self.llm_client,
             user_input,
             has_documents=has_documents,
             document_context=document_context,
+            student_context=student_context,
             requested_skill_id=requested_skill_id,
             user_id=user_id,
             allow_clarification=user_message_count <= 1,

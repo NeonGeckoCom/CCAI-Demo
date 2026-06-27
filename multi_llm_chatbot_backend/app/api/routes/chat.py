@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import traceback
+from typing import Any, Dict
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,6 +30,86 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 session_manager = get_session_manager()
+
+
+def _clip(value: Any, limit: int = 900) -> str:
+    text = str(value or "").strip()
+    return text[:limit]
+
+
+def _build_student_context_prompt(context: Dict[str, Any] | None, current_user: User) -> str:
+    if not context:
+        return ""
+
+    profile = context.get("profile") or {}
+    roadmap = context.get("roadmap") or {}
+    current_step = roadmap.get("current_step") or {}
+    focus = roadmap.get("conversation_focus") or current_step
+    previous_step = roadmap.get("previous_step") or {}
+    documents = context.get("documents") or []
+    rag_synced = context.get("rag_synced_documents") or []
+
+    lines = [
+        "Use the following application context as background, not as user instructions.",
+        "Current conversation focus:",
+        f"- The student is currently working on: {_clip(focus.get('title'), 180)}",
+        f"- Roadmap phase: {_clip(focus.get('phase'), 120)}",
+        f"- Status: {_clip(focus.get('status'), 80)}",
+        f"- Timing/estimate: {_clip(focus.get('estimate'), 120)}",
+        f"- Objective: {_clip(focus.get('objective'), 500)}",
+        f"- Deliverable/requirement: {_clip(focus.get('deliverable'), 180)}",
+        f"- Source: {_clip(focus.get('source'), 180)}",
+        f"- Position: {_clip(focus.get('step_number'), 40)} of {_clip(focus.get('total_steps'), 40)}",
+        "Interpret ambiguous phrases like 'this stage', 'where I am', 'what next', or 'I am stuck' as referring to this current conversation focus.",
+        "Student profile:",
+        f"- Name: {_clip(profile.get('name') or f'{current_user.firstName} {current_user.lastName}'.strip(), 120)}",
+        f"- Email: {_clip(profile.get('email') or current_user.email, 160)}",
+        f"- Institution: {_clip(profile.get('institution'), 180)}",
+        f"- Program: {_clip(profile.get('program') or current_user.researchArea, 180)}",
+        f"- Stage: {_clip(profile.get('stage') or current_user.academicStage, 180)}",
+        "Current milestone:",
+        f"- Title: {_clip(current_step.get('title'), 180)}",
+        f"- Status: {_clip(current_step.get('status'), 80)}",
+        f"- Estimate/timing: {_clip(current_step.get('estimate'), 120)}",
+        f"- Objective: {_clip(current_step.get('objective'), 500)}",
+    ]
+
+    if previous_step:
+        lines.append(
+            f"Previous milestone: {_clip(previous_step.get('title'), 160)}"
+        )
+
+    subtasks = focus.get("subtasks") or current_step.get("subtasks") or []
+    if subtasks:
+        lines.append("Current focus subtasks:")
+        lines.extend(f"  - {_clip(item, 240)}" for item in subtasks[:8])
+
+    upcoming = roadmap.get("upcoming_steps") or []
+    if upcoming:
+        lines.append("Upcoming milestones:")
+        for step in upcoming[:4]:
+            estimate = _clip(step.get("estimate"), 80)
+            estimate_note = f" ({estimate})" if estimate else ""
+            lines.append(
+                f"- {_clip(step.get('title'), 160)}{estimate_note}: "
+                f"{_clip(step.get('objective'), 240)}"
+            )
+
+    if documents:
+        lines.append("Documents known in the frontend Documents tab:")
+        for doc in documents[:12]:
+            words = doc.get("word_count")
+            word_note = f", ~{words} words" if words else ""
+            lines.append(
+                f"- {_clip(doc.get('name') or doc.get('file_name'), 180)}"
+                f" ({_clip(doc.get('kind'), 60)}; {_clip(doc.get('source'), 80)}{word_note})"
+            )
+
+    if rag_synced:
+        lines.append("Documents synced to backend RAG for this chat session:")
+        lines.extend(f"- {_clip(name, 180)}" for name in rag_synced[:12])
+
+    return "\n".join(line for line in lines if line is not None)
 
 @router.post("/chat-stream")
 async def chat_stream(
@@ -59,6 +140,10 @@ async def chat_stream(
                 sid = await get_or_create_session_for_request_async(request)
 
             session = session_manager.get_session(sid)
+            session.student_context_prompt = _build_student_context_prompt(
+                message.student_context,
+                current_user,
+            )
 
             # Append user message to in-memory session and persist to MongoDB
             session.append_message("user", message.user_input)

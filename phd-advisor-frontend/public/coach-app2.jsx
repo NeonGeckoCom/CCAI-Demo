@@ -40,7 +40,7 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
   const tkey = (t) => `${step.id}::${t}`;
   const doneN = step.subtasks.filter(t => doneTasks.has(tkey(t))).length;
   const allDone = doneN === step.subtasks.length;
-  const risks = RE2.risks ? RE2.risks(step.id) : [];
+  const risks = RE2.risks ? RE2.risks(step.templateId || step.id) : [];
   const stuck = H.stallDays ? H.stallDays(roadmap, activity) : 0;
   const stepIsCurrentNow = step.status === "current" || step.status === "redo";
 
@@ -138,7 +138,8 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
               <p className="obj">{step.objective}</p>
               <div className="meta">
                 <span className="chip"><Ico name="Clock" size={12} /> {step.estimate}</span>
-                {step.deliverable && <span className="chip deliv-sat"><Ico name="CheckCircle2" size={12} /> Satisfies: {step.deliverable}</span>}
+                {step.deliverableSource && <span className="chip"><Ico name="FileText" size={12} /> Source: {step.deliverableSource}</span>}
+                {step.deliverable && !step.handbookDerived && <span className="chip deliv-sat"><Ico name="CheckCircle2" size={12} /> Satisfies: {step.deliverable}</span>}
                 {stepIsCurrentNow && stuck >= (H.STALL_DAYS || 14) && (
                   <span className="chip chip-risk"><Ico name="AlertTriangle" size={12} /> Stuck {stuck} days — let's unblock it</span>
                 )}
@@ -169,7 +170,7 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
           )}
 
           {/* Committee Builder — full workbench for the committee step */}
-          {step.id === "committee" && window.CommitteeBuilder && (
+          {(step.id === "committee" || step.templateId === "committee") && window.CommitteeBuilder && (
             <>
               <div className="section-label"><span className="ic"><Ico name="Users" size={13} /></span> Committee builder · score real names or get suggestions</div>
               <window.CommitteeBuilder />
@@ -469,6 +470,9 @@ const HELP_FAQ = [
   ["Are my conversations private?", "Choose on-device / private models in Settings to keep processing local (slightly lower accuracy)."],
   ["How do I get every feature right now?", "Settings → Feature unlocks → Reveal everything now."]
 ];
+const SETTINGS_INSTITUTIONS = window.UNIVERSITY_OPTIONS || [];
+const SETTINGS_PROGRAMS = window.PROGRAM_OPTIONS || [];
+
 function HelpCenter({ onClose, onReplayTour }) {
   const sections = (window.COACH_TOUR_STEPS || []).filter(s => s.view);
   useE2(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
@@ -501,8 +505,10 @@ function HelpCenter({ onClose, onReplayTour }) {
   );
 }
 
-function SettingsView({ theme, onToggleTheme, prefs = {}, setPrefs, engagement = {}, unlocked = {}, onRevealAll, onResetDrip, onToggleHidden, onRebuild, onReplayOnboarding, onSignOut }) {
+function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs = {}, setPrefs, engagement = {}, unlocked = {}, onRevealAll, onResetDrip, onToggleHidden, onRebuild, onReplayOnboarding, onSignOut }) {
   const [help, setHelp] = useS2(false);
+  const currentInstitution = prefs.institution || roadmap?.program?.institution || "";
+  const currentProgram = prefs.program || roadmap?.program?.name || "";
   const densityChoice = prefs.revealAll ? "everything" : (prefs.density === "focused" ? "minimal" : "balanced");
   const chooseDensity = (c) => {
     if (c === "everything") { setPrefs && setPrefs(p => ({ ...p, density: "full" })); onRevealAll && onRevealAll(); }
@@ -510,11 +516,45 @@ function SettingsView({ theme, onToggleTheme, prefs = {}, setPrefs, engagement =
     else { setPrefs && setPrefs(p => ({ ...p, density: "focused", revealAll: false })); }
   };
   const setModel = (m) => setPrefs && setPrefs(p => ({ ...p, modelMode: m }));
+  const saveAcademic = (key, value) => {
+    const clean = value || "";
+    setPrefs && setPrefs(p => ({ ...p, [key]: clean }));
+    setRoadmap && setRoadmap(r => {
+      if (!r) return r;
+      const program = r.program || {};
+      return { ...r, program: { ...program, [key === "program" ? "name" : "institution"]: clean } };
+    });
+  };
   const unlockRows = [["multiple", "Compare advisors (Multiple mode)", "after 1 message", 1], ["skills", "Skills library", "after 5 messages", 5], ["personas10", "All 10 advisors", "after 15 messages", 15]];
 
   return (
     <div className="page page-narrow">
       <div className="greeting"><h1 className="display" style={{ fontSize: 26 }}>Settings</h1><div className="sub">Make it yours.</div></div>
+
+      {/* Academic profile */}
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div className="card-h"><span className="ico"><Ico name="GraduationCap" size={14} /></span> Academic profile</div>
+        <div className="field">
+          <label>University</label>
+          <window.AcademicCombo
+            value={currentInstitution}
+            onChange={value => saveAcademic("institution", value)}
+            options={SETTINGS_INSTITUTIONS}
+            placeholder="Choose your university"
+            icon="Building2"
+          />
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Program</label>
+          <window.AcademicCombo
+            value={currentProgram}
+            onChange={value => saveAcademic("program", value)}
+            options={SETTINGS_PROGRAMS}
+            placeholder="Choose your program"
+            icon="BookOpen"
+          />
+        </div>
+      </div>
 
       {/* Display density */}
       <div className="card card-pad" style={{ marginBottom: 16 }}>
@@ -635,12 +675,13 @@ function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, o
   if (!step) return null;
   const fs = RE2.computeFeatureState(roadmap, idx);
   const liveTools = fs.active.filter(f => window.hasTool(f));
-  const risks = RE2.risks ? RE2.risks(step.id) : [];
+  const risks = RE2.risks ? RE2.risks(step.templateId || step.id) : [];
   const tkey = (t) => `${step.id}::${t}`;
   const doneN = step.subtasks.filter(t => doneTasks.has(tkey(t))).length;
   const allDone = doneN === step.subtasks.length;
   const isCurrent = step.status === "current" || step.status === "redo" || step.status === "paused";
-  const tpl = STEP_DOC[step.id] && (window.DOC_TEMPLATES || []).find(t => t.id === STEP_DOC[step.id]);
+  const docTemplateId = STEP_DOC[step.id] || STEP_DOC[step.templateId];
+  const tpl = docTemplateId && (window.DOC_TEMPLATES || []).find(t => t.id === docTemplateId);
 
   const askHow = (what) => { onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${what} I'm new to this — give concrete first actions.`); onClose(); };
   const makeBoard = () => { if (window.CoachActions) { window.CoachActions.addWidget("kanban", step.subtasks.slice(0, 6)); onToast && onToast("Task board added to Workspace"); } };
@@ -693,7 +734,7 @@ function StepWorkspace({ roadmap, stepId, doneTasks, onToggleTask, onComplete, o
           )}
 
           {/* Committee builder — special interactive tool for that step */}
-          {step.id === "committee" && window.CommitteeBuilder && (
+          {(step.id === "committee" || step.templateId === "committee") && window.CommitteeBuilder && (
             <div className="stepws-sec">
               <div className="section-label"><span className="ic"><Ico name="Users" size={13} /></span> Committee builder</div>
               <window.CommitteeBuilder />
@@ -1048,7 +1089,7 @@ function CoachRoot() {
   else if (v === "insights") body = <window.CoachInsights onNav={setView} />;
   else if (v === "workspace") body = <window.CoachWorkspace roadmap={roadmap} />;
   else if (v === "documents") body = <window.CoachDocuments roadmap={roadmap} />;
-  else body = <SettingsView theme={theme} onToggleTheme={toggleTheme}
+  else body = <SettingsView roadmap={roadmap} setRoadmap={setRoadmap} theme={theme} onToggleTheme={toggleTheme}
     prefs={prefs} setPrefs={setPrefs} engagement={engagement} unlocked={unlocked}
     onRevealAll={revealAllNow} onResetDrip={resetDrip} onToggleHidden={toggleHidden}
     onRebuild={() => { if (confirm("Rebuild your plan from scratch? Progress clears.")) { setRoadmap(null); setDoneTasks(new Set()); } }}

@@ -57,7 +57,8 @@
       name, email,
       initials: u.initials || initialsFor(name, email),
       stage: u.academicStage || u.stage || demo.stage,
-      program: u.researchArea || u.program || demo.program
+      institution: u.institution || demo.institution || "",
+      program: u.program || u.researchArea || demo.program
     };
   }
 
@@ -72,7 +73,12 @@
   async function jsonOrThrow(res) {
     let data = null;
     try { data = await res.json(); } catch (e) {}
-    if (!res.ok) throw new Error((data && (data.detail || data.message)) || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = new Error((data && (data.detail || data.message)) || `HTTP ${res.status}`);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
     return data;
   }
 
@@ -87,10 +93,10 @@
     return getUser();
   }
 
-  async function signup({ firstName, lastName, email, password, academicStage = "", researchArea = "" }) {
+  async function signup({ firstName, lastName, email, password, academicStage = "", institution = "", program = "", researchArea = "" }) {
     const res = await fetch(`${base()}/auth/signup`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ firstName, lastName, email, password, academicStage, researchArea })
+      body: JSON.stringify({ firstName, lastName, email, password, academicStage, institution, program, researchArea: researchArea || program })
     });
     const data = await jsonOrThrow(res);
     setAuth(data.access_token, data.user);
@@ -99,9 +105,9 @@
 
   // Offline/demo fallback: create a local session so the app stays usable when
   // there is no backend (mirrors v2's behavior).
-  function demoAuth({ email, name, stage }) {
+  function demoAuth({ email, name, stage, institution, program }) {
     const display = name || (email || "demo@local").split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    setAuth("demo-token", { name: display, email: email || "demo@local", stage });
+    setAuth("demo-token", { name: display, email: email || "demo@local", stage, institution, program, researchArea: program });
     return getUser();
   }
 
@@ -139,6 +145,24 @@
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return true;
   }
+  async function truncateMessages(sessionId, fromMessageId) {
+    if (!sessionId || !fromMessageId) return null;
+    const res = await fetch(`${base()}/api/chat-sessions/${sessionId}/messages/truncate`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({ from_message_id: fromMessageId })
+    });
+    return jsonOrThrow(res);
+  }
+  async function uploadDocument({ file, sessionId, filename }) {
+    if (!file) return null;
+    const form = new FormData();
+    form.append("file", file, filename || file.name || "document.txt");
+    const qs = sessionId ? `?chat_session_id=${encodeURIComponent(sessionId)}` : "";
+    const res = await fetch(`${base()}/upload-document${qs}`, {
+      method: "POST", headers: authHeaders(false), body: form
+    });
+    return jsonOrThrow(res);
+  }
   async function saveMessage(sessionId, message) {
     if (!sessionId) return;
     try {
@@ -165,12 +189,24 @@
   // ---- Streaming chat -----------------------------------------------------
   // Calls onEvent({type, data}) for every NDJSON line the backend streams.
   // type ∈ "advisor" | "clarification" | "progress" | "error".
-  async function streamChat({ userInput, sessionId, responseLength = "medium", onEvent }) {
+  async function streamChat({ userInput, userMessageId, sessionId, responseLength = "medium", activeAdvisors, advisorSkill, studentContext, onEvent }) {
     const res = await fetch(`${base()}/chat-stream`, {
       method: "POST", headers: authHeaders(),
-      body: JSON.stringify({ user_input: userInput, response_length: responseLength, chat_session_id: sessionId || null })
+      body: JSON.stringify({
+        user_input: userInput,
+        user_message_id: userMessageId || null,
+        response_length: responseLength,
+        chat_session_id: sessionId || null,
+        active_advisors: activeAdvisors || null,
+        advisor_skill: advisorSkill || null,
+        student_context: studentContext || null
+      })
     });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok || !res.body) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -199,7 +235,7 @@
   window.CoachAPI = {
     base, token, isAuthed, setAuth, clearAuth, getUser, getRawUser: rawUser, initialsFor,
     login, signup, demoAuth, getConfig,
-    listSessions, createSession, getSession, renameSession, deleteSession, saveMessage, switchChat, newChat,
+    listSessions, createSession, getSession, renameSession, deleteSession, truncateMessages, uploadDocument, saveMessage, switchChat, newChat,
     streamChat, replyToAdvisor
   };
 })();

@@ -137,6 +137,16 @@ def _document_context_for_prompt(value: object) -> str:
     return f"{text[:MAX_DOCUMENT_CONTEXT_CHARS].rstrip()}..."
 
 
+def _student_context_for_prompt(value: object) -> str:
+    text = re.sub(r"[ \t]+", " ", str(value or "")).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if not text:
+        return "No roadmap stage context was provided to the classifier."
+    if len(text) <= MAX_DOCUMENT_CONTEXT_CHARS:
+        return text
+    return f"{text[:MAX_DOCUMENT_CONTEXT_CHARS].rstrip()}..."
+
+
 def _as_bool(value: object, *, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -347,6 +357,7 @@ async def classify_advisor_skill(
     *,
     has_documents: bool = False,
     document_context: str = "",
+    student_context: str = "",
     requested_skill_id: Optional[str] = None,
     user_id: Optional[str] = None,
     allow_clarification: bool = True,
@@ -391,11 +402,16 @@ should answer. Clarification is enabled for this request: {allow_clarification}.
 If clarification is not enabled, set needs_clarification to false.
 
 A message needs clarification when it is the first user message and is too vague
-for an advisor to answer usefully, such as only "help", "advice", "I am stuck",
-or a broad request with no identifiable research problem, document, decision, or
+for an advisor to answer usefully, such as only "help" or "advice" with no
+identifiable research problem, document, decision, current roadmap stage, or
 academic situation. A message is clear enough when it names a concrete topic,
 choice, document, method, committee issue, timeline, or research problem, even
 if it is short.
+
+Use the current roadmap-stage context below when deciding whether a short
+message is specific enough. For example, if the current focus is "Build Your
+Committee", then "what should I do next?", "I am stuck", or "help me with this"
+is about committee-building unless the user explicitly changes topic.
 
 If needs_clarification is true, still return valid JSON, but use quick_advice as
 the skill_id and provide one concise clarification question plus 2-4 complete
@@ -486,6 +502,8 @@ Respond ONLY with valid JSON:
             "content": (
                 f"User message: {user_input}\n"
                 f"Uploaded documents available: {has_documents}\n"
+                "Current roadmap-stage context for routing:\n"
+                f"{_student_context_for_prompt(student_context)}\n\n"
                 "Uploaded-document context for routing:\n"
                 f"{_document_context_for_prompt(document_context)}"
             ),

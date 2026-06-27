@@ -10,10 +10,81 @@ const RE = window.RoadmapEngine;
 const RM_KEY = "phd-coach-roadmap-v1";
 const TASK_KEY = "phd-coach-tasks-v1";
 const THEME_KEY = "phd-coach-theme";
+const ONBOARDING_DOC_STORE = "phd-coach-docs-v1";
 
 const loadJSON = (k, d) => { try { const r = localStorage.getItem(k); return r != null ? JSON.parse(r) : d; } catch (e) { return d; } };
 const saveJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 const boldMd = (s) => (s || "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+const readFileAs = (file, how) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r[how](file); });
+const extOfName = (name) => (String(name || "").split(".").pop() || "").toLowerCase();
+
+async function materialToDocumentProject(material) {
+  const now = Date.now();
+  const id = `onb-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  if (material.kind === "text" && (material.text || "").trim()) {
+    const name = material.name || "Pasted requirement";
+    return {
+      id, name, uploaded: true, kind: "text", source: "Onboarding materials",
+      fileName: `${name.replace(/\.[^.]+$/, "")}.txt`,
+      content: material.text,
+      createdAt: now,
+      onboardingKey: `text:${name}:${material.text.length}`
+    };
+  }
+
+  if (!material.file) return null;
+  const file = material.file;
+  const ext = extOfName(file.name);
+  const base = {
+    id,
+    name: file.name.replace(/\.[^.]+$/, ""),
+    uploaded: true,
+    fileName: file.name,
+    mime: file.type || material.type || "",
+    size: file.size || material.size || 0,
+    source: "Onboarding materials",
+    createdAt: now,
+    onboardingKey: `file:${file.name}:${file.size || 0}:${file.lastModified || 0}`
+  };
+
+  if (["pdf", "doc", "docx", "xlsx", "pptx"].includes(ext)) {
+    const dataUrl = await readFileAs(file, "readAsDataURL");
+    const kind = ext === "pdf" ? "pdf" : ext === "xlsx" ? "xlsx" : ext === "pptx" ? "pptx" : "docx";
+    return {
+      ...base,
+      kind,
+      dataUrl: ext === "pdf" ? dataUrl : undefined,
+      rawDataUrl: dataUrl,
+      content: ""
+    };
+  }
+
+  const text = await readFileAs(file, "readAsText");
+  return { ...base, kind: "text", content: String(text || "") };
+}
+
+async function persistOnboardingMaterialsToDocuments(materials) {
+  const projects = [];
+  for (const material of materials || []) {
+    try {
+      const project = await materialToDocumentProject(material);
+      if (project) projects.push(project);
+    } catch (e) {}
+  }
+  if (!projects.length) return;
+
+  const store = loadJSON(ONBOARDING_DOC_STORE, { projects: {}, activeId: null });
+  const existingKeys = new Set(Object.values(store.projects || {}).map(project => project.onboardingKey).filter(Boolean));
+  let firstAddedId = null;
+  for (const project of projects) {
+    if (project.onboardingKey && existingKeys.has(project.onboardingKey)) continue;
+    store.projects[project.id] = project;
+    if (!firstAddedId) firstAddedId = project.id;
+    existingKeys.add(project.onboardingKey);
+  }
+  if (!store.activeId && firstAddedId) store.activeId = firstAddedId;
+  saveJSON(ONBOARDING_DOC_STORE, store);
+}
 
 // Encouraging, phase-specific tips
 const PHASE_TIPS = {
@@ -32,8 +103,8 @@ const PHASE_TIPS = {
 const advisorById = (id) => (window.ADVISORS || []).find(a => a.id === id) || { name: "Advisor", role: "", color: "#D9774B", icon: "User" };
 
 // Autocomplete pools (BACKEND: institution/program typeahead API)
-const INSTITUTIONS = ["University of Colorado Boulder", "University of Colorado Denver", "Colorado State University", "University of Michigan", "University of Washington", "UC Berkeley", "Stanford University", "MIT", "Georgia Tech", "UT Austin"];
-const PROGRAMS = ["PhD, Information Science", "PhD, Computer Science", "PhD, Neuroscience", "PhD, Psychology", "PhD, Sociology", "PhD, Education", "PhD, Mechanical Engineering", "PhD, Biology", "PhD, Economics", "PhD, English"];
+const INSTITUTIONS = window.UNIVERSITY_OPTIONS || ["University of Colorado Boulder", "University of Colorado Denver", "Colorado State University", "University of Michigan", "University of Washington", "University of California, Berkeley", "Stanford University", "Massachusetts Institute of Technology", "Georgia Institute of Technology", "University of Texas at Austin"];
+const PROGRAMS = window.PROGRAM_OPTIONS || ["PhD, Information Science", "PhD, Computer Science", "PhD, Neuroscience", "PhD, Psychology", "PhD, Sociology", "PhD, Education", "PhD, Mechanical Engineering", "PhD, Biology", "PhD, Economics", "PhD, English"];
 
 // ============================================================================
 // ONBOARDING
@@ -42,7 +113,7 @@ function Onboarding({ onComplete }) {
   const [step, setStep] = useState(0);
   const [program, setProgram] = useState("PhD, Information Science");
   const [institution, setInstitution] = useState("University of Colorado Boulder");
-  const [materials, setMaterials] = useState([]);   // {kind:'file'|'text', name}
+  const [materials, setMaterials] = useState([]);   // {kind:'file'|'text', name, text?, file?}
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const fileRef = useRef(null);
@@ -50,16 +121,38 @@ function Onboarding({ onComplete }) {
   const [found, setFound] = useState(null);       // raw discovery result
   const [items, setItems] = useState([]);          // editable milestone list
   const [editingIdx, setEditingIdx] = useState(-1);
-  const [handbook, setHandbook] = useState(false);
   const [startPosition, setStartPosition] = useState("coursework");
   const [writeStyle, setWriteStyle] = useState("unsure");
   const [publish, setPublish] = useState("unsure");
   const [densityChoice, setDensityChoice] = useState("balanced"); // everything | balanced | minimal
   const [modelMode, setModelMode] = useState("cloud");            // cloud | private
+  const [finishing, setFinishing] = useState(false);
+
+  const hasUploadedFiles = materials.some(m => m.kind === "file" && m.file);
+  const readableMaterialCount = materials.filter(m => (m.text || "").trim()).length;
+  const searchStatus = hasUploadedFiles
+    ? "Parsing your uploaded documents"
+    : readableMaterialCount > 0
+      ? "Parsing your pasted materials"
+      : materials.length > 0
+        ? "Checking your materials and public sources"
+        : "Searching public program pages";
+  const sourceNote = found?.discoveryMode === "documents"
+    ? "Parsed from your uploaded or pasted materials - please verify"
+    : found?.discoveryMode === "web"
+      ? "Sourced from public web search - please verify"
+      : "Estimated from the built-in PhD milestone template - please verify";
 
   const search = () => {
     setSearching(true); setFound(null);
-    RE.discoverDeliverables({ program, institution }).then(res => {
+    RE.discoverDeliverables({ program, institution, materials }).then(res => {
+      setFound(res);
+      setItems(res.deliverables.map(d => ({ ...d, confirmed: false })));
+      setSearching(false); setStep(2);
+    }).catch(() => {
+      const res = RE.genericDeliverables ? RE.genericDeliverables(program) : { degree: program || "PhD program", deliverables: [] };
+      res.institution = institution || "your institution";
+      res.discoveryMode = "fallback";
       setFound(res);
       setItems(res.deliverables.map(d => ({ ...d, confirmed: false })));
       setSearching(false); setStep(2);
@@ -67,37 +160,51 @@ function Onboarding({ onComplete }) {
   };
 
   const addFiles = (fileList) => {
-    const adds = [...fileList].map(f => ({ kind: "file", name: f.name }));
+    const adds = [...fileList].map(f => ({
+      kind: "file",
+      name: f.name,
+      type: f.type || "",
+      size: f.size || 0,
+      file: f
+    }));
     if (adds.length) setMaterials(p => [...p, ...adds]);
   };
   const addPaste = () => {
     const t = pasteText.trim(); if (!t) return;
     const name = t.length > 46 ? t.slice(0, 46) + "…" : t;
-    setMaterials(p => [...p, { kind: "text", name }]);
+    setMaterials(p => [...p, { kind: "text", name, text: t }]);
     setPasteText(""); setPasteOpen(false);
   };
   const removeMaterial = (i) => setMaterials(p => p.filter((_, j) => j !== i));
 
-  const finish = () => {
+  const finish = async () => {
+    if (finishing) return;
+    setFinishing(true);
     const deliverables = { ...found, deliverables: items.map(({ confirmed, ...d }) => d) };
     const rm = RE.generateRoadmap({
       program: { name: program, institution }, deliverables, startPosition,
       workflow: { writeStyle, publish: publish === "yes" }
     });
-    rm.materials = materials;
+    rm.materials = materials.map(({ file, ...material }) => material);
     // Map the density choice → {density, revealAll}; pass prefs up to CoachRoot.
     const prefs = {
       density: densityChoice === "minimal" ? "focused" : "full",
       revealAll: densityChoice === "everything",
-      modelMode
+      modelMode,
+      institution,
+      program
     };
+    try { await persistOnboardingMaterialsToDocuments(materials); } catch (e) {}
     onComplete(rm, prefs);
   };
 
   const confirmItem = (i) => setItems(p => p.map((d, j) => j === i ? { ...d, confirmed: !d.confirmed } : d));
   const removeItem = (i) => setItems(p => p.filter((_, j) => j !== i));
   const editItem = (i, name) => setItems(p => p.map((d, j) => j === i ? { ...d, name } : d));
-  const uploadHandbook = () => { setHandbook(true); setItems(p => p.map(d => ({ ...d, confirmed: true }))); };
+  const uploadHandbook = () => {
+    setStep(1);
+    setTimeout(() => fileRef.current?.click(), 0);
+  };
 
   return (
     <div className="onb">
@@ -111,15 +218,23 @@ function Onboarding({ onComplete }) {
             <p className="lead">We'll look for public requirements — handbooks, program pages, graduate-school rules — and ask you to confirm what we find.</p>
             <div className="field">
               <label>Your program</label>
-              <div className="wrap"><span className="fi"><Icon name="GraduationCap" size={15} /></span>
-                <input value={program} onChange={e => setProgram(e.target.value)} placeholder="e.g. PhD, Neuroscience" list="onb-programs" /></div>
-              <datalist id="onb-programs">{PROGRAMS.map(p => <option key={p} value={p}></option>)}</datalist>
+              <window.AcademicCombo
+                value={program}
+                onChange={setProgram}
+                options={PROGRAMS}
+                placeholder="e.g. PhD, Neuroscience"
+                icon="GraduationCap"
+              />
             </div>
             <div className="field">
               <label>Institution</label>
-              <div className="wrap"><span className="fi"><Icon name="Building2" size={15} /></span>
-                <input value={institution} onChange={e => setInstitution(e.target.value)} list="onb-institutions" /></div>
-              <datalist id="onb-institutions">{INSTITUTIONS.map(p => <option key={p} value={p}></option>)}</datalist>
+              <window.AcademicCombo
+                value={institution}
+                onChange={setInstitution}
+                options={INSTITUTIONS}
+                placeholder="Choose your institution"
+                icon="Building2"
+              />
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
               <button className="btn primary lg" onClick={() => setStep(1)} disabled={!program.trim()}>
@@ -161,14 +276,14 @@ function Onboarding({ onComplete }) {
                   <div key={i} className="mat-row">
                     <span className="mat-ico"><Icon name={m.kind === "file" ? "FileText" : "AlignLeft"} size={14} /></span>
                     <span className="mat-name">{m.name}</span>
-                    <span className="mat-kind">{m.kind === "file" ? "file" : "pasted text"}</span>
+                    <span className="mat-kind">{m.kind === "file" ? "document" : "pasted text"}</span>
                     <button className="dv-act danger" onClick={() => removeMaterial(i)} title="Remove"><Icon name="X" size={13} /></button>
                   </div>
                 ))}
               </div>
             )}
 
-            {searching && <div className="search-state"><Icon name="Search" size={16} className="spin" /> Searching public sources{materials.length > 0 ? " + your materials" : ""} for <strong>&nbsp;{program}&nbsp;</strong> requirements…</div>}
+            {searching && <div className="search-state"><Icon name="Search" size={16} className="spin" /> {searchStatus} for <strong>&nbsp;{program}&nbsp;</strong> requirements…</div>}
 
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18 }}>
               <button className="btn ghost" onClick={() => setStep(0)} disabled={searching}><Icon name="ArrowLeft" size={14} /> Back</button>
@@ -212,17 +327,17 @@ function Onboarding({ onComplete }) {
                 </div>
               ))}
             </div>
-            {handbook ? (
+            {materials.length > 0 ? (
               <div className="search-state" style={{ background: "var(--sage-soft)", color: "var(--sage)" }}>
-                <Icon name="FileCheck" size={16} /> Handbook uploaded — we'll cross-check every milestone against it.
+                <Icon name="FileCheck" size={16} /> Using your uploaded or pasted materials to shape the plan.
               </div>
             ) : (
               <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} onClick={uploadHandbook}>
-                <Icon name="Upload" size={14} /> Upload your handbook instead
+                <Icon name="Upload" size={14} /> Add handbook or materials
               </button>
             )}
             <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 10, display: "flex", gap: 6, alignItems: "center" }}>
-              <Icon name="Globe" size={12} /> Sourced via Perplexity online search — please verify
+              <Icon name={found.discoveryMode === "documents" ? "FileText" : "Globe"} size={12} /> {sourceNote}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18 }}>
               <button className="btn ghost" onClick={() => setStep(1)}><Icon name="ArrowLeft" size={14} /> Back</button>
@@ -313,7 +428,10 @@ function Onboarding({ onComplete }) {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
               <button className="btn ghost" onClick={() => setStep(4)}><Icon name="ArrowLeft" size={14} /> Back</button>
-              <button className="btn primary lg" onClick={finish}><Icon name="Sparkles" size={15} color="#fff" /> Build my plan</button>
+              <button className="btn primary lg" onClick={finish} disabled={finishing}>
+                <Icon name={finishing ? "Loader" : "Sparkles"} size={15} color="#fff" className={finishing ? "spin" : ""} />
+                {finishing ? "Saving materials..." : "Build my plan"}
+              </button>
             </div>
           </>
         )}

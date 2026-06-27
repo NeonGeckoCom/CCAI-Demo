@@ -3,6 +3,8 @@
 
 const { useState: useSL } = React;
 const IcoL = window.Icon;
+const LANDING_INSTITUTIONS = window.UNIVERSITY_OPTIONS || ["University of Colorado Boulder", "University of Michigan", "University of Washington", "Stanford University"];
+const LANDING_PROGRAMS = window.PROGRAM_OPTIONS || ["PhD, Information Science", "PhD, Computer Science", "PhD, Neuroscience", "PhD, Education"];
 
 // Interactive "the engine" demo — the thing a chatbot can't do.
 const ENGINE_MILES = [
@@ -266,6 +268,8 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
   const [pw, setPw] = useSL("");
   const [showPw, setShowPw] = useSL(false);
   const [name, setName] = useSL("");
+  const [institution, setInstitution] = useSL("");
+  const [program, setProgram] = useSL("");
   const [err, setErr] = useSL("");
   const [busy, setBusy] = useSL(false);
 
@@ -277,7 +281,7 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
         await window.CoachAPI.signup({
           firstName: parts[0] || name.trim() || "PhD",
           lastName: parts.slice(1).join(" "),
-          email, password: pw
+          email, password: pw, institution, program, researchArea: program
         });
       } else {
         await window.CoachAPI.login(email, pw);
@@ -288,7 +292,7 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
       // back to an offline demo session so the app stays usable. A real HTTP
       // error (e.g. wrong password) is surfaced to the user instead.
       if (e instanceof TypeError) {
-        window.CoachAPI.demoAuth({ email, name: isSignup ? name : "" });
+        window.CoachAPI.demoAuth({ email, name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
         onAuthed(isSignup);
       } else {
         setErr(e.message || "Authentication failed. Please try again.");
@@ -297,7 +301,7 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
   };
 
   const googleDemo = () => {
-    window.CoachAPI.demoAuth({ email: email || "you@example.com", name: isSignup ? name : "" });
+    window.CoachAPI.demoAuth({ email: email || "you@example.com", name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
     onAuthed(isSignup);
   };
 
@@ -334,6 +338,30 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
               <div className="wrap"><span className="fi"><IcoL name="User" size={15} /></span>
                 <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" /></div>
             </div>
+          )}
+          {isSignup && (
+            <>
+              <div className="field">
+                <label>University</label>
+                <window.AcademicCombo
+                  value={institution}
+                  onChange={setInstitution}
+                  options={LANDING_INSTITUTIONS}
+                  placeholder="Choose your university"
+                  icon="Building2"
+                />
+              </div>
+              <div className="field">
+                <label>Program</label>
+                <window.AcademicCombo
+                  value={program}
+                  onChange={setProgram}
+                  options={LANDING_PROGRAMS}
+                  placeholder="Choose your program"
+                  icon="GraduationCap"
+                />
+              </div>
+            </>
           )}
           <div className="field">
             <label>Email</label>

@@ -18,6 +18,7 @@ class ChatMessage(BaseModel):
     response_length: str = "medium"
     active_advisors: Optional[List[str]] = None
     advisor_skill: Optional[str] = None
+    student_context: Optional[Dict[str, Any]] = None
 
 
 class ReplyToAdvisor(BaseModel):

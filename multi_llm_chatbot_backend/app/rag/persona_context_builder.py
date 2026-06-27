@@ -387,6 +387,18 @@ When analyzing the document context:
 
         # Check if we actually have meaningful document content
         has_documents = bool(document_context and document_context.strip() and len(document_context.strip()) > 50)
+        student_context = (getattr(session, "student_context_prompt", "") or "").strip()
+        student_context_block = (
+            "\n    STUDENT PROFILE AND ROADMAP CONTEXT:\n"
+            f"    {student_context}\n\n"
+            "    CURRENT-STAGE GUIDANCE:\n"
+            "    Use the current conversation focus as the default frame for the response. "
+            "If the student's message is ambiguous, short, or refers to 'this stage', "
+            "'where I am', 'next', or being stuck, interpret it as about that current "
+            "milestone. Anchor advice, examples, and next actions to that stage unless "
+            "the student explicitly changes topic.\n"
+            if student_context else ""
+        )
 
         # Build the system message with proper document awareness
         if has_documents:
@@ -395,6 +407,7 @@ When analyzing the document context:
             doc_list = ", ".join(uploaded_docs) if uploaded_docs else "uploaded documents"
 
             system_message = f"""{persona.system_prompt}
+{student_context_block}
 
     CURRENT SESSION CONTEXT:
     The student has uploaded the following documents: {doc_list}
@@ -411,6 +424,7 @@ When analyzing the document context:
         else:
             # NO DOCUMENTS - Explicitly tell persona not to reference documents
             system_message = f"""{persona.system_prompt}
+{student_context_block}
 
     IMPORTANT: The student has NOT uploaded any documents yet. Do not reference any specific documents, files, or assume you have access to their research materials.
 

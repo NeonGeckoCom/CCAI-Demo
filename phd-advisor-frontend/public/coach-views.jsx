@@ -346,13 +346,16 @@ function CoachDocuments({ roadmap }) {
           const dataUrl = await readAs(file, "readAsDataURL");
           try { addDoc({ ...base, kind: "pdf", dataUrl }); }
           catch (err) { setUploadErr("That PDF is too large to store in the browser demo."); }
-        } else if (ext === "docx" && window.mammoth) {
+        } else if (ext === "docx" || ext === "doc") {
           setBusy(file.name);
-          const arrayBuffer = await readAs(file, "readAsArrayBuffer");
+          const dataUrl = await readAs(file, "readAsDataURL");
           let text = "";
-          try { const r = await window.mammoth.extractRawText({ arrayBuffer }); text = (r.value || "").trim(); } catch (err) { text = ""; }
+          if (ext === "docx" && window.mammoth) {
+            const arrayBuffer = await readAs(file, "readAsArrayBuffer");
+            try { const r = await window.mammoth.extractRawText({ arrayBuffer }); text = (r.value || "").trim(); } catch (err) { text = ""; }
+          }
           setBusy("");
-          addDoc({ ...base, kind: "docx", content: text, converted: true });
+          addDoc({ ...base, kind: "docx", content: text, rawDataUrl: dataUrl, converted: Boolean(text) });
         } else {
           // txt, md, rtf, csv, html, .doc fallback → editable text
           const text = await readAs(file, "readAsText");

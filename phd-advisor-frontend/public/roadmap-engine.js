@@ -278,25 +278,242 @@
     };
   }
 
-  /* BACKEND: Perplexity online search.
-     Production:
-       const r = await fetch('/api/discover-deliverables', {
-         method:'POST', body: JSON.stringify({ program, institution })
-       });
-       // server-side: Perplexity sonar query →
-       //   "official PhD deliverables, milestones, and timeline for {program} at {institution}"
-       // returns structured {degree, deliverables:[{name,when,source}]}
-     Mock below resolves after a short delay so the UI can show a search state. */
-  function discoverDeliverables({ program, institution }) {
-    return new Promise((resolve) => {
-      const key = (program || "").toLowerCase();
-      let hit = null;
-      for (const k of Object.keys(PROGRAM_DB)) if (key.includes(k)) hit = PROGRAM_DB[k];
-      const result = hit ? JSON.parse(JSON.stringify(hit)) : genericDeliverables(program);
-      result.institution = institution || "your institution";
-      // Simulate search latency
-      setTimeout(() => resolve(result), 1100);
+  const DISCOVERY_PATTERNS = [
+    { name: "Plan / program of study", when: "Year 1", re: /\b(program|plan) of study\b|\bdegree plan\b|\bstudy plan\b/i },
+    { name: "Coursework / credit requirements", when: "Years 1-2", re: /\b(coursework|course requirements|required credits|credit hours|core courses)\b/i },
+    { name: "Lab rotations", when: "Year 1", re: /\b(lab )?rotations?\b|\brotation reports?\b/i },
+    { name: "Advisor / committee selection", when: "Year 1-2", re: /\b(select|choose|appoint|form).{0,60}\b(advisor|supervisor|committee|chair)\b|\bdoctoral committee\b/i },
+    { name: "Annual review / progress report", when: "Yearly", re: /\bannual (review|progress|evaluation)\b|\bprogress report\b|\byearly committee\b/i },
+    { name: "Qualifying / comprehensive exam", when: "End of Year 2", re: /\b(qualifying|comprehensive|preliminary|prelim|candidacy) exam(?:ination)?\b|\bquals\b|\bcomps\b/i },
+    { name: "Dissertation proposal / prospectus", when: "Years 2-3", re: /\b(dissertation|thesis) (proposal|prospectus)\b|\bproposal defense\b|\bdefend.{0,40}(proposal|prospectus)\b/i },
+    { name: "Advance to candidacy", when: "After exam/proposal", re: /\badvance(d)? to candidacy\b|\badmission to candidacy\b|\bcandidacy form\b/i },
+    { name: "Ethics / IRB approval", when: "Before data collection", re: /\b(IRB|IACUC|human subjects|ethics approval|research ethics|institutional review)\b/i },
+    { name: "Teaching / TA requirement", when: "During enrollment", re: /\b(teaching|TA|teaching assistant|pedagogy) requirement\b/i },
+    { name: "Dissertation writing", when: "Final phase", re: /\bwrite .{0,40}(dissertation|thesis)\b|\bdissertation chapters?\b|\bthesis chapters?\b/i },
+    { name: "Dissertation defense / oral exam", when: "Final year", re: /\b(dissertation|thesis) defense\b|\boral defense\b|\bfinal oral\b|\bfinal examination\b/i },
+    { name: "Final dissertation submission", when: "After defense", re: /\b(final|submit|submission|deposit).{0,60}\b(dissertation|thesis)\b|\bProQuest\b|\brepository submission\b|\bgraduate school submission\b/i }
+  ];
+
+  function clone(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  }
+
+  function delayResult(result, ms) {
+    return new Promise((resolve) => setTimeout(() => resolve(result), ms));
+  }
+
+  function cleanText(value) {
+    return (value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function normalizeSource(value, fallback) {
+    const source = cleanText(value || fallback);
+    return source.length > 80 ? source.slice(0, 77) + "..." : source;
+  }
+
+  function formatWhen(value) {
+    const cleaned = cleanText(value);
+    return /^y\s*\d/i.test(cleaned) ? cleaned.replace(/^y/i, "Year ") : cleaned;
+  }
+
+  function inferWhen(evidence, fallback, anchorPattern) {
+    const text = cleanText(evidence);
+    const timeRe = /\b(end of )?y(?:ear)?\s*[1-7](?:\s*[-–]\s*(?:y|year)?\s*[1-7])?\b|\b(years?|semesters?)\s*[1-7](?:\s*[-–]\s*[1-7])?\b|\b(final year|yearly|annually|before [a-z ]{3,36}|after [a-z ]{3,36}|prior to [a-z ]{3,36}|no later than [a-z ]{3,36})\b/ig;
+    let anchor = 0;
+    if (anchorPattern) {
+      anchorPattern.lastIndex = 0;
+      const anchorMatch = anchorPattern.exec(text);
+      anchor = anchorMatch ? anchorMatch.index + Math.floor(anchorMatch[0].length / 2) : 0;
+      anchorPattern.lastIndex = 0;
+    }
+    const matches = [];
+    let match;
+    while ((match = timeRe.exec(text)) !== null) {
+      matches.push({
+        value: formatWhen(match[0]),
+        index: match.index + Math.floor(match[0].length / 2)
+      });
+    }
+    if (!matches.length) return fallback;
+    const score = (item) => Math.abs(item.index - anchor) + (item.index < anchor ? 45 : 0);
+    matches.sort((a, b) => score(a) - score(b));
+    return matches[0].value;
+  }
+
+  function evidenceFragments(text) {
+    const lines = (text || "").split(/\r?\n+/).map(cleanText).filter(s => s.length >= 12 && s.length <= 500);
+    const sentences = ((text || "").match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g) || [])
+      .map(cleanText)
+      .filter(s => s.length >= 12 && s.length <= 500);
+    return [...lines, ...sentences].slice(0, 700);
+  }
+
+  function dedupeDeliverables(deliverables) {
+    const seen = new Set();
+    return (deliverables || []).filter((item) => {
+      const key = cleanText(item.name).toLowerCase().replace(/[^a-z0-9]+/g, " ");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 12);
+  }
+
+  function normalizeDiscoveryResult(result, { program, institution, mode, defaultSource }) {
+    const out = result ? clone(result) : genericDeliverables(program);
+    out.degree = out.degree || program || "PhD program";
+    out.institution = out.institution || institution || "your institution";
+    out.discoveryMode = out.discoveryMode || mode || "fallback";
+    out.deliverables = dedupeDeliverables((out.deliverables || []).map((item) => ({
+      name: cleanText(item.name),
+      when: cleanText(item.when) || "Program-specific",
+      source: normalizeSource(item.source, defaultSource || "Discovery result")
+    })));
+    return out;
+  }
+
+  function localTemplateDeliverables(program, institution) {
+    const key = (program || "").toLowerCase();
+    let hit = null;
+    for (const k of Object.keys(PROGRAM_DB)) if (key.includes(k)) hit = PROGRAM_DB[k];
+    const result = hit ? clone(hit) : genericDeliverables(program);
+    result.discoveryMode = "fallback";
+    result.deliverables = (result.deliverables || []).map(d => ({
+      ...d,
+      source: /perplexity|web search/i.test(d.source || "") ? "Built-in milestone template" : d.source
+    }));
+    return normalizeDiscoveryResult(result, {
+      program,
+      institution,
+      mode: "fallback",
+      defaultSource: "Built-in milestone template"
     });
+  }
+
+  function parseMaterialsForDeliverables({ program, institution, materials }) {
+    const chunks = (materials || [])
+      .map(m => ({ name: m.name || "Uploaded material", text: cleanText(m.text || "") }))
+      .filter(m => m.text.length > 0);
+
+    if (!chunks.length) return null;
+
+    const deliverables = [];
+    chunks.forEach((chunk) => {
+      const fragments = evidenceFragments(chunk.text);
+      DISCOVERY_PATTERNS.forEach((pattern) => {
+        const hit = fragments.find(f => pattern.re.test(f));
+        if (!hit && !pattern.re.test(chunk.text)) return;
+        let when = inferWhen(hit || chunk.text, pattern.when, pattern.re);
+        if (pattern.name === "Dissertation defense / oral exam" && /^after\b/i.test(when)) when = pattern.when;
+        deliverables.push({
+          name: pattern.name,
+          when,
+          source: chunk.name
+        });
+      });
+    });
+
+    if (!deliverables.length) {
+      const fallback = localTemplateDeliverables(program, institution);
+      fallback.discoveryMode = "fallback";
+      return fallback;
+    }
+
+    return normalizeDiscoveryResult({
+      degree: program || "PhD program",
+      institution: institution || "your institution",
+      discoveryMode: "documents",
+      deliverables
+    }, {
+      program,
+      institution,
+      mode: "documents",
+      defaultSource: "Uploaded material"
+    });
+  }
+
+  function backendBase() {
+    const configured = (window.PHD_API_BASE || "").trim();
+    if (configured) return configured.replace(/\/+$/, "");
+    if (window.location && /^https?:$/.test(window.location.protocol)) {
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+    return "http://localhost:8000";
+  }
+
+  function materialHasFile(materials) {
+    return (materials || []).some(m => m && m.file);
+  }
+
+  function serializableMaterials(materials) {
+    return (materials || []).map(m => ({
+      kind: m.kind || "text",
+      name: m.name || "Uploaded material",
+      type: m.type || "",
+      size: m.size || 0,
+      text: m.text || ""
+    }));
+  }
+
+  function buildDiscoveryRequest({ program, institution, materials }) {
+    const hasFiles = materialHasFile(materials);
+    if (!hasFiles) {
+      return {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ program, institution, materials: serializableMaterials(materials) })
+      };
+    }
+
+    const form = new FormData();
+    form.append("program", program || "");
+    form.append("institution", institution || "");
+    form.append("materials", JSON.stringify(serializableMaterials(materials)));
+    (materials || []).forEach((material) => {
+      if (material && material.file) {
+        form.append("files", material.file, material.name || material.file.name || "uploaded-file");
+      }
+    });
+    return { body: form };
+  }
+
+  async function fetchOnlineDeliverables({ program, institution, materials = [] }) {
+    if (!window.fetch) return null;
+    const controller = window.AbortController ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 9000) : null;
+    const request = buildDiscoveryRequest({ program, institution, materials });
+    try {
+      const response = await fetch(`${backendBase()}/api/discover-deliverables`, {
+        method: "POST",
+        ...request,
+        signal: controller ? controller.signal : undefined
+      });
+      if (!response.ok) return null;
+      const result = await response.json();
+      if (!result || !Array.isArray(result.deliverables) || result.deliverables.length === 0) return null;
+      return normalizeDiscoveryResult(result, {
+        program,
+        institution,
+        mode: "web",
+        defaultSource: "Public web search"
+      });
+    } catch (e) {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async function discoverDeliverables({ program, institution, materials = [] }) {
+    const hasFiles = materialHasFile(materials);
+    const parsedFromMaterials = hasFiles ? null : parseMaterialsForDeliverables({ program, institution, materials });
+    if (!hasFiles && parsedFromMaterials && parsedFromMaterials.discoveryMode === "documents") {
+      return delayResult(parsedFromMaterials, 450);
+    }
+
+    const online = await fetchOnlineDeliverables({ program, institution, materials });
+    if (online) return online;
+
+    const textFallback = hasFiles ? parseMaterialsForDeliverables({ program, institution, materials }) : parsedFromMaterials;
+    return delayResult(textFallback || localTemplateDeliverables(program, institution), 650);
   }
 
   // --------------------------------------------------------------------------
@@ -316,6 +533,251 @@
     { id: "not-sure",           label: "Not sure",                       completedThrough: null }
   ];
 
+  const DELIVERABLE_RULES = [
+    {
+      key: "program-study", templateId: "orientation", phase: "Start", icon: "ClipboardList", gate: true,
+      re: /\b(program|plan) of study\b|\bdegree plan\b|\bstudy plan\b/i,
+      objective: (name) => `File or confirm the official ${name} exactly as your program requires it.`,
+      subtasks: (name, source) => [
+        `Find the exact ${name} wording in ${source}`,
+        "List every credit, residency, and approval condition attached to it",
+        "Confirm the form or plan with your advisor or graduate office"
+      ],
+      add: ["meeting-prep", "burnout-check"], retire: []
+    },
+    {
+      key: "coursework", templateId: "orientation", phase: "Start", icon: "BookOpen", gate: true,
+      re: /\b(coursework|course requirements|required credits|credit hours|core courses)\b/i,
+      objective: (name) => `Complete the coursework and credit rules named in your program materials: ${name}.`,
+      subtasks: (name, source) => [
+        `Extract the required courses and credits from ${source}`,
+        "Map remaining courses to terms without overloading dissertation work",
+        "Check prerequisites, minimum grades, and transfer or waiver rules"
+      ],
+      add: ["meeting-prep"], retire: []
+    },
+    {
+      key: "rotations", templateId: "topic-ideas", phase: "Start", icon: "RefreshCw", gate: true,
+      re: /\b(lab )?rotations?\b|\brotation reports?\b/i,
+      objective: () => "Finish the required rotation sequence and use it to choose a viable research home.",
+      subtasks: (name, source) => [
+        `Confirm the rotation count, timing, and evaluation rule in ${source}`,
+        "Schedule rotations with faculty whose methods fit your interests",
+        "Document what each rotation teaches you about fit, data, and mentoring"
+      ],
+      add: ["topic-explorer", "advisor-matcher"], retire: []
+    },
+    {
+      key: "committee", templateId: "committee", phase: "Topic", icon: "Users", gate: true,
+      re: /\b(advisor|supervisor|committee|chair|doctoral committee)\b/i,
+      objective: (name) => `Form the advising structure your handbook requires: ${name}.`,
+      subtasks: (name, source) => [
+        `Read the membership, chair, and outside-member rules in ${source}`,
+        "Shortlist people who cover topic, method, and institutional requirements",
+        "Confirm appointments and file any required committee paperwork"
+      ],
+      add: ["advisor-matcher", "meeting-prep"], retire: []
+    },
+    {
+      key: "annual-review", templateId: "committee", phase: "Progress", icon: "CalendarCheck", gate: false,
+      re: /\bannual (review|progress|evaluation)\b|\bprogress report\b|\byearly committee\b/i,
+      objective: (name) => `Prepare the recurring progress checkpoint required by your program: ${name}.`,
+      subtasks: (name, source) => [
+        `Confirm the cadence, format, and signer rules in ${source}`,
+        "Collect evidence of coursework, research, teaching, and milestones",
+        "Turn committee feedback into the next version of the plan"
+      ],
+      add: ["meeting-prep"], retire: []
+    },
+    {
+      key: "qualifying-exam", templateId: "prelim", phase: "Proposal", icon: "ClipboardCheck", gate: true,
+      re: /\b(qualifying|comprehensive|preliminary|prelim|candidacy) exam(?:ination)?\b|\bquals\b|\bcomps\b/i,
+      objective: (name) => `Prepare for and pass the exam requirement named in your handbook: ${name}.`,
+      subtasks: (name, source) => [
+        `Confirm exam format, timing, committee rules, and retake policy in ${source}`,
+        "Build the reading list or study scope around the handbook language",
+        "Schedule mock questions before the official exam window"
+      ],
+      add: ["prelim-prep", "qa-simulator"], retire: ["topic-explorer", "feasibility-check", "advisor-matcher"]
+    },
+    {
+      key: "proposal", templateId: "proposal", phase: "Proposal", icon: "FileText", gate: true,
+      re: /\b(dissertation|thesis) (proposal|prospectus)\b|\bproposal defense\b|\bdefend.{0,40}(proposal|prospectus)\b|\bprospectus\b/i,
+      objective: (name) => `Write and defend the proposal milestone your program requires: ${name}.`,
+      subtasks: (name, source) => [
+        `Check proposal format, timing, and circulation rules in ${source}`,
+        "Map each research aim to method, data, and committee expertise",
+        "Send the draft early enough to satisfy the handbook timeline"
+      ],
+      add: ["proposal-builder", "methods-designer", "reviewer-2"], retire: ["gap-finder"]
+    },
+    {
+      key: "candidacy", templateId: "candidacy", phase: "Proposal", icon: "Award", gate: true,
+      re: /\badvance(d)? to candidacy\b|\badmission to candidacy\b|\bcandidacy form\b/i,
+      objective: () => "Complete the candidacy paperwork and status change required by your program.",
+      subtasks: (name, source) => [
+        `Confirm the candidacy trigger and form requirements in ${source}`,
+        "Verify coursework, exams, proposal, and committee records are complete",
+        "File the candidacy form and save confirmation"
+      ],
+      add: [], retire: []
+    },
+    {
+      key: "irb", templateId: "irb", phase: "Methods", icon: "ShieldCheck", gate: true,
+      re: /\b(IRB|IACUC|human subjects|ethics approval|research ethics|institutional review)\b/i,
+      objective: () => "Secure the required ethics or protocol approval before collecting usable data.",
+      subtasks: (name, source) => [
+        `Confirm whether ${name} applies to your project using ${source}`,
+        "Draft consent, recruitment, instrument, and data-management materials",
+        "Wait for approval before collecting dissertation data"
+      ],
+      add: ["irb-protocol", "methods-designer"], retire: ["prelim-prep", "qa-simulator"]
+    },
+    {
+      key: "teaching", templateId: "orientation", phase: "Professional", icon: "Presentation", gate: true,
+      re: /\b(teaching|TA|teaching assistant|pedagogy) requirement\b/i,
+      objective: (name) => `Plan and complete the teaching requirement in your program materials: ${name}.`,
+      subtasks: (name, source) => [
+        `Confirm teaching load, eligible roles, and documentation in ${source}`,
+        "Place teaching terms around exams, proposal, and data collection",
+        "Save appointment or completion evidence for annual review"
+      ],
+      add: ["meeting-prep"], retire: []
+    },
+    {
+      key: "writing", templateId: "writing", phase: "Writing", icon: "PenTool", gate: false,
+      re: /\bwrite .{0,40}(dissertation|thesis)\b|\bdissertation chapters?\b|\bthesis chapters?\b|\bdissertation writing\b/i,
+      objective: () => "Draft and revise the dissertation writing milestone described by your program.",
+      subtasks: (name, source) => [
+        `Check chapter, formatting, and review expectations in ${source}`,
+        "Set a chapter delivery cadence with your chair",
+        "Keep formatting aligned with graduate school rules from the first draft"
+      ],
+      add: ["writing-tracker", "outline-builder", "latex-pad"], retire: ["analysis-pipeline"]
+    },
+    {
+      key: "defense", templateId: "defense", phase: "Defense", icon: "Presentation", gate: true,
+      re: /\b(dissertation|thesis) defense\b|\boral defense\b|\bfinal oral\b|\bfinal examination\b/i,
+      objective: (name) => `Prepare for and complete the final defense requirement: ${name}.`,
+      subtasks: (name, source) => [
+        `Confirm defense scheduling, committee, and announcement rules in ${source}`,
+        "Build the talk around question, gap, method, findings, and contribution",
+        "Rehearse Q&A against likely committee concerns"
+      ],
+      add: ["defense-deck", "qa-simulator"], retire: ["viz-studio", "reviewer-2"]
+    },
+    {
+      key: "submission", templateId: "submission", phase: "Submission", icon: "UploadCloud", gate: true,
+      re: /\b(final|submit|submission|deposit).{0,60}\b(dissertation|thesis)\b|\bProQuest\b|\brepository submission\b|\bgraduate school submission\b/i,
+      objective: () => "Submit the final dissertation package required by your program and graduate school.",
+      subtasks: (name, source) => [
+        `Confirm final upload, formatting, signature, and deadline rules in ${source}`,
+        "Run the final format check before collecting approvals",
+        "Upload the accepted dissertation and save proof of submission"
+      ],
+      add: ["formatting-check", "proquest-checklist"], retire: ["writing-tracker", "outline-builder", "latex-pad", "defense-deck", "qa-simulator"]
+    }
+  ];
+
+  function milestoneTemplate(id) {
+    return MILESTONES.find((m) => m.id === id) || MILESTONES[0];
+  }
+
+  function slugify(value) {
+    return cleanText(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  }
+
+  function uniqueStepId(base, used) {
+    const root = slugify(base) || "requirement";
+    let id = root;
+    let n = 2;
+    while (used.has(id)) id = `${root}-${n++}`;
+    used.add(id);
+    return id;
+  }
+
+  function defaultRequirementSubtasks(name, source) {
+    return [
+      `Read the exact requirement in ${source}`,
+      "Turn the requirement into dates, forms, and approval steps",
+      "Confirm the next action with your advisor or graduate coordinator"
+    ];
+  }
+
+  function ruleForDeliverable(item) {
+    const name = cleanText(item && item.name);
+    return DELIVERABLE_RULES.find((rule) => rule.re.test(name)) || {
+      key: "program-requirement",
+      templateId: "orientation",
+      phase: "Program Requirements",
+      icon: "Flag",
+      gate: true,
+      objective: (n) => `Complete the program requirement found in your materials: ${n}.`,
+      subtasks: defaultRequirementSubtasks,
+      add: ["meeting-prep"],
+      retire: []
+    };
+  }
+
+  function hasSpecificDeliverables(deliverables) {
+    const items = (deliverables && deliverables.deliverables) || [];
+    if (!items.length) return false;
+    if (deliverables.discoveryMode && deliverables.discoveryMode !== "fallback") return true;
+    if (deliverables.discoveryMode === "fallback") return false;
+    return items.some((item) => item.source && !/\b(built-in|template|generic)\b/i.test(item.source));
+  }
+
+  function stepFromDeliverable(item, index, usedIds) {
+    const rule = ruleForDeliverable(item);
+    const template = milestoneTemplate(rule.templateId);
+    const name = cleanText(item.name) || template.title;
+    const source = normalizeSource(item.source, "Program materials");
+    return {
+      ...template,
+      id: uniqueStepId(`${rule.key}-${name || index + 1}`, usedIds),
+      templateId: template.id,
+      phase: rule.phase || template.phase,
+      title: name,
+      icon: rule.icon || template.icon,
+      objective: (rule.objective || ((n) => `Complete the program requirement: ${n}.`))(name, source),
+      estimate: cleanText(item.when) || template.estimate,
+      gate: rule.gate != null ? rule.gate : template.gate,
+      deliverable: name,
+      deliverableSource: source,
+      source,
+      handbookDerived: true,
+      subtasks: (rule.subtasks || defaultRequirementSubtasks)(name, source),
+      add: [...(rule.add || template.add || [])],
+      retire: [...(rule.retire || template.retire || [])],
+      status: "locked"
+    };
+  }
+
+  function insertOptionalMilestones(steps, workflow) {
+    const insert = (opt) => {
+      const node = { ...opt, status: "locked" };
+      const idx = steps.findIndex((s) => s.id === opt.afterId || s.templateId === opt.afterId);
+      if (idx >= 0) steps.splice(idx + 1, 0, node);
+    };
+    if (workflow && workflow.writeStyle === "as-you-go") insert(OPTIONAL_MILESTONES["write-as-you-go"]);
+    if (workflow && workflow.publish) insert(OPTIONAL_MILESTONES["publish-track"]);
+    return steps;
+  }
+
+  function applyStartPosition(steps, startPosition) {
+    const pos = START_POSITIONS.find((p) => p.id === startPosition) || START_POSITIONS[0];
+    const cutoff = pos.completedThrough
+      ? steps.findIndex((s) => s.id === pos.completedThrough || s.templateId === pos.completedThrough)
+      : -1;
+    const marked = steps.map((s, i) => {
+      if (cutoff >= 0 && i <= cutoff) return { ...s, status: "done" };
+      return s;
+    });
+    const firstActive = marked.findIndex((s) => s.status !== "done");
+    if (firstActive >= 0) marked[firstActive] = { ...marked[firstActive], status: "current" };
+    return marked;
+  }
+
   // --------------------------------------------------------------------------
   // generateRoadmap  (BACKEND: LLM plan synthesis)
   // Production: send {program, deliverables, startPosition, workflow} to an LLM
@@ -323,36 +785,19 @@
   // deliverable-mapped plan. Mock = deterministic assembly from the library.
   // --------------------------------------------------------------------------
   function generateRoadmap({ program, deliverables, startPosition, workflow }) {
-    let steps = MILESTONES.map((m) => ({ ...m, status: "locked" }));
+    const sourceItems = dedupeDeliverables((deliverables && deliverables.deliverables) || []);
+    const usedIds = new Set();
+    let steps = hasSpecificDeliverables(deliverables)
+      ? sourceItems.map((item, i) => stepFromDeliverable(item, i, usedIds))
+      : MILESTONES.map((m) => ({ ...m, status: "locked" }));
 
-    // Weave optional milestones based on workflow prefs
-    if (workflow && workflow.writeStyle === "as-you-go") {
-      const opt = { ...OPTIONAL_MILESTONES["write-as-you-go"], status: "locked" };
-      const idx = steps.findIndex((s) => s.id === opt.afterId);
-      if (idx >= 0) steps.splice(idx + 1, 0, opt);
-    }
-    if (workflow && workflow.publish) {
-      const opt = { ...OPTIONAL_MILESTONES["publish-track"], status: "locked" };
-      const idx = steps.findIndex((s) => s.id === opt.afterId);
-      if (idx >= 0) steps.splice(idx + 1, 0, opt);
-    }
+    steps = insertOptionalMilestones(steps, workflow);
+    steps = applyStartPosition(steps, startPosition);
 
-    // Mark completed-through based on start position (null = nothing done yet)
-    const pos = START_POSITIONS.find((p) => p.id === startPosition) || START_POSITIONS[0];
-    const cutoff = pos.completedThrough ? steps.findIndex((s) => s.id === pos.completedThrough) : -1;
-    steps = steps.map((s, i) => {
-      if (i < cutoff) return { ...s, status: "done" };
-      if (i === cutoff) return { ...s, status: "done" };
-      return s;
-    });
-    // First non-done becomes current
-    const firstActive = steps.findIndex((s) => s.status !== "done");
-    if (firstActive >= 0) steps[firstActive] = { ...steps[firstActive], status: "current" };
-
-    // Attach which deliverable(s) each gate milestone satisfies
+    // Attach which deliverable(s) each generic fallback milestone satisfies.
     steps = steps.map((s) => ({
       ...s,
-      deliverable: s.gate && deliverables ? matchDeliverable(s, deliverables) : null
+      deliverable: s.deliverable || (s.gate && deliverables ? matchDeliverable(s, deliverables) : null)
     }));
 
     return {
@@ -368,12 +813,18 @@
     // NOTE: keyword matching is intentionally specific — "defense" alone would
     // wrongly match "Dissertation proposal defense" for the FINAL defense.
     const map = {
-      proposal: "proposal defense", prelim: "exam", collection: "IRB",
-      defense: "oral defense", submission: "submission"
+      proposal: ["proposal defense", "prospectus"],
+      prelim: ["exam", "examination", "quals", "comps"],
+      collection: ["IRB", "IACUC", "ethics"],
+      defense: ["oral defense", "final examination", "dissertation defense", "thesis defense"],
+      submission: ["submission", "deposit", "ProQuest", "repository"]
     };
-    const needle = map[milestone.id];
-    if (!needle) return null;
-    const d = deliverables.deliverables.find((x) => x.name.toLowerCase().includes(needle.toLowerCase()));
+    const needles = map[milestone.id];
+    if (!needles) return null;
+    const d = (deliverables.deliverables || []).find((x) => {
+      const name = x.name.toLowerCase();
+      return needles.some((needle) => name.includes(needle.toLowerCase()));
+    });
     return d ? d.name : null;
   }
 
@@ -408,6 +859,10 @@
   // target so the tool surface rewinds with you. Steps before the target stay
   // completed. Returns {roadmap, direction}.
   // --------------------------------------------------------------------------
+  function stepMatches(step, id) {
+    return step && (step.id === id || step.templateId === id);
+  }
+
   function setCurrent(roadmap, stepId) {
     const steps = roadmap.steps.map((s) => ({ ...s }));
     const target = steps.findIndex((s) => s.id === stepId);
@@ -539,7 +994,7 @@
 
     // Reopen any affected (already-done) milestones → they go back to "redo"
     (tmpl.reopens || []).forEach((rid) => {
-      const ri = steps.findIndex((s) => s.id === rid);
+      const ri = steps.findIndex((s) => stepMatches(s, rid));
       if (ri >= 0 && steps[ri].status === "done") steps[ri].status = "redo";
     });
 
@@ -719,6 +1174,7 @@
     risks: (id) => MILESTONE_RISKS[id] || [],
     START_POSITIONS,
     PROGRAM_DB,
+    genericDeliverables,
     discoverDeliverables,
     generateRoadmap,
     computeFeatureState,

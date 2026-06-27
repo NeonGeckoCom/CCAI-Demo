@@ -25,6 +25,7 @@ from app.api.routes.chat_sessions import router as chat_sessions_router
 from app.api.routes.phd_canvas import router as phd_canvas_router
 from app.api.routes.preferences import router as preferences_router
 from app.api.routes.advisor_skills import router as advisor_skills_router
+from app.api.routes.discovery import router as discovery_router
 
 import logging
 
@@ -49,6 +50,9 @@ app = FastAPI(
 
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 cors_origins = [origin.strip() for origin in cors_origins]  # Clean whitespace
+for local_origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+    if local_origin not in cors_origins:
+        cors_origins.append(local_origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +69,7 @@ app.include_router(chat_sessions_router, prefix="/api", tags=["chat-sessions"])
 app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
 app.include_router(preferences_router, prefix="/api", tags=["preferences"])
 app.include_router(advisor_skills_router, prefix="/api", tags=["advisor-skills"])
+app.include_router(discovery_router, prefix="/api", tags=["discovery"])
 
 # Serve bundled avatar images
 _avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"
