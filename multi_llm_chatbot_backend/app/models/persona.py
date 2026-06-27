@@ -157,20 +157,23 @@ class _SentinelStreamFilter:
         return out
 
 class Persona:
-    def __init__(self, id: str, name: str, system_prompt: str, llm: LLMClient, temperature: int = 5):
+    def __init__(self, id: str, name: str, system_prompt: str, llm: LLMClient, temperature: int = 5, backend_locked: bool = False):
         self.id = id
         self.name = name
         self.system_prompt = system_prompt
         self.llm = llm
         self.temperature = temperature
+        self.backend_locked = backend_locked
 
     async def respond(
         self,
         context: List[Dict],
         response_length: str = "medium",
         advisor_skill=None,
+        llm: Optional[LLMClient] = None,
     ) -> str:
         """Generate a skill-shaped Markdown response suitable for the UI."""
+        effective_llm = llm or self.llm
         if isinstance(advisor_skill, AdvisorSkill):
             skill = advisor_skill
         else:
@@ -184,7 +187,7 @@ class Persona:
             f"{skill.prompt_contract(response_length, SENTINEL)}"
         )
 
-        raw_text = await self.llm.generate(
+        raw_text = await effective_llm.generate(
             system_prompt=full_prompt,
             context=context,
             temperature=temp_scaled,
@@ -202,7 +205,7 @@ class Persona:
                 len(raw_text),
             )
             retry_tokens = _retry_max_tokens(max_tokens)
-            retry_text = await self.llm.generate(
+            retry_text = await effective_llm.generate(
                 system_prompt=f"{full_prompt}\n\n{_compact_retry_instruction(SENTINEL)}",
                 context=context,
                 temperature=temp_scaled,
@@ -243,9 +246,11 @@ class Persona:
         context: List[Dict],
         response_length: str = "medium",
         advisor_skill=None,
+        llm: Optional[LLMClient] = None,
         on_chunk: Optional[Callable[[LLMStreamChunk], Awaitable[None]]] = None,
     ) -> str:
         """Stream a skill-shaped Markdown response and return the final text."""
+        effective_llm = llm or self.llm
         if isinstance(advisor_skill, AdvisorSkill):
             skill = advisor_skill
         else:
@@ -261,7 +266,7 @@ class Persona:
         text_filter = _SentinelStreamFilter(SENTINEL)
         streamed_text: List[str] = []
 
-        async for chunk in self.llm.stream_generate(
+        async for chunk in effective_llm.stream_generate(
             system_prompt=full_prompt,
             context=context,
             temperature=temp_scaled,
@@ -303,7 +308,7 @@ class Persona:
                 len(raw_text),
             )
             retry_tokens = _retry_max_tokens(max_tokens)
-            retry_text = await self.llm.generate(
+            retry_text = await effective_llm.generate(
                 system_prompt=f"{full_prompt}\n\n{_compact_retry_instruction(SENTINEL)}",
                 context=context,
                 temperature=temp_scaled,

@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from app.llm.clients.llm_client import LLMStreamChunk
+from app.llm.clients.llm_client import LLMClient, LLMStreamChunk
 from app.rag.persona_context_builder import PersonaContextBuilder
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ async def generate_single_persona_response(
     persona,
     response_length: str = "medium",
     advisor_skill=None,
+    llm_client: Optional[LLMClient] = None,
 ) -> Dict[str, Any]:
     """Generate a response from a single persona with enhanced RAG integration."""
     try:
@@ -59,13 +60,14 @@ async def generate_single_persona_response(
                     user_message = msg.get("content", "")
                     break
 
+        effective_llm = llm_client or persona.llm
         document_context = ""
         if user_message:
             document_context = await _context_builder.retrieve_relevant_documents(
                 user_input=user_message,
                 session_id=session.session_id,
                 persona_id=persona.id,
-                llm_client=persona.llm,
+                llm_client=effective_llm,
             )
 
         enhanced_context = await _context_builder.build_enhanced_context_for_persona(
@@ -76,7 +78,12 @@ async def generate_single_persona_response(
         for msg in enhanced_context:
             logger.info("Generating response role=%s:\n%s", msg["role"], msg["content"])
 
-        response = await persona.respond(enhanced_context, response_length, advisor_skill)
+        response = await persona.respond(
+            enhanced_context,
+            response_length,
+            advisor_skill,
+            llm=effective_llm,
+        )
 
         if not _is_valid_response(response, persona.id):
             logger.warning("Invalid response from %s, using fallback", persona.id)
@@ -115,6 +122,7 @@ async def generate_single_persona_response_stream(
     persona,
     response_length: str = "medium",
     advisor_skill=None,
+    llm_client: Optional[LLMClient] = None,
     on_chunk: Optional[Callable[[LLMStreamChunk], Awaitable[None]]] = None,
     on_stage: Optional[Callable[[str, Dict[str, str]], Awaitable[None]]] = None,
 ) -> Dict[str, Any]:
@@ -129,13 +137,14 @@ async def generate_single_persona_response_stream(
                     user_message = msg.get("content", "")
                     break
 
+        effective_llm = llm_client or persona.llm
         document_context = ""
         if user_message:
             document_context = await _context_builder.retrieve_relevant_documents(
                 user_input=user_message,
                 session_id=session.session_id,
                 persona_id=persona.id,
-                llm_client=persona.llm,
+                llm_client=effective_llm,
                 on_stage=on_stage,
             )
 
@@ -150,6 +159,7 @@ async def generate_single_persona_response_stream(
             enhanced_context,
             response_length,
             advisor_skill,
+            llm=effective_llm,
             on_chunk=on_chunk,
         )
 

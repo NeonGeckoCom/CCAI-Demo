@@ -75,6 +75,14 @@ class LLMClient(ABC):
         )
         return ToolCallResult(text=text, used_tool=False)
 
+    async def health_check(self) -> bool:
+        """Return whether this backend is usable.
+
+        Cloud providers use configuration validity as their default health
+        signal; self-hosted clients override this with a lightweight probe.
+        """
+        return True
+
     async def stream_generate(
         self,
         system_prompt: str,
