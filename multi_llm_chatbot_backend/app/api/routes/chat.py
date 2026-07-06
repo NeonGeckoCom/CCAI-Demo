@@ -220,14 +220,13 @@ async def chat_stream(
                 },
             ).to_ndjson()
 
-            # Use the user's fixed advisor selection instead of LLM-ranking a
-            # multi-persona panel for every message.
-            requested_advisor_id = next(
-                (pid for pid in (message.active_advisors or []) if pid),
-                None,
-            )
-            if requested_advisor_id:
-                selected_personas = [requested_advisor_id] if requested_advisor_id in available else []
+            # Honor the user's explicit advisor selection. In single mode the
+            # frontend sends one id; in multiple mode it sends up to three, and
+            # each gets its own concurrent response below. Preserve the user's
+            # order and drop any that are no longer available.
+            requested_advisor_ids = [pid for pid in (message.active_advisors or []) if pid]
+            if requested_advisor_ids:
+                selected_personas = [pid for pid in requested_advisor_ids if pid in available]
             else:
                 selected_personas = available[:1]
 

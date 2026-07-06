@@ -136,18 +136,26 @@ function CoachSkills({ roadmap, onNav }) {
     if (saved) return new Set(saved);
     return new Set(base.map(s => s.id)); // default: all library skills on
   });
-  const [cat, setCat] = useSK("all");
   const [q, setQ] = useSK("");
   const [creating, setCreating] = useSK(false);
   const [toast, setToast] = useSK("");
+  // Sections start closed — the page opens calm; expand only what you need.
+  const [collapsed, setCollapsed] = useSK(() => new Set((window.SKILL_CATEGORIES || []).filter(c => c.id !== "all").map(c => c.id)));
 
   useEK(() => skSave(SK_EN_KEY, [...enabled]), [enabled]);
   useEK(() => skSave(SK_CUSTOM_KEY, custom), [custom]);
   useEK(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 2400); return () => clearTimeout(t); }, [toast]);
 
   const toggle = (id) => setEnabled(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const list = all.filter(s => (cat === "all" || s.cat === cat) && (!q || `${s.name} ${s.desc} ${s.model}`.toLowerCase().includes(q.toLowerCase())));
-  const featured = base.filter(s => s.featured && enabled.has(s.id));
+  const toggleSection = (id) => setCollapsed(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const searching = q.trim().length > 0;
+  const matches = (s) => `${s.name} ${s.desc} ${s.model}`.toLowerCase().includes(q.toLowerCase());
+  const featured = base.filter(s => s.featured && enabled.has(s.id)).slice(0, 3);
+  // All skills, grouped under their category. Compact rows keep the full
+  // library present without a wall of cards.
+  const sections = cats.filter(c => c.id !== "all")
+    .map(c => ({ ...c, skills: all.filter(s => s.cat === c.id) }))
+    .filter(c => c.skills.length > 0);
 
   const doRun = (s) => {
     if (s.runnable) { const r = runSkill(s.id, roadmap); if (r) { setToast(r.msg); } }
@@ -180,23 +188,16 @@ function CoachSkills({ roadmap, onNav }) {
     );
   };
 
+  const searchResults = searching ? all.filter(matches) : [];
+
   return (
     <div className="page">
       <div className="greeting" style={{ marginBottom: 14 }}>
         <h1 className="display" style={{ fontSize: 26 }}>Skills</h1>
-        <div className="sub">Specialized assistants that <strong>do the work</strong> — each one produces a tool, a document, or an answer. Turn them on, run them, or use them in Chat; the right ones surface as you move through your plan.</div>
+        <div className="sub">Specialized assistants that do the work. Turn them on, run them, or use them in Chat.</div>
       </div>
 
-      {featured.length > 0 && (
-        <>
-          <div className="section-label"><span className="ic"><IcoK name="Star" size={13} /></span> Suggested for where you are now</div>
-          <div className="sk-grid" style={{ marginBottom: 18 }}>
-            {featured.map(s => <Tile key={s.id} s={s} />)}
-          </div>
-        </>
-      )}
-
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
         <div className="field" style={{ margin: 0, flex: 1, minWidth: 200 }}>
           <div className="wrap"><span className="fi"><IcoK name="Search" size={15} /></span>
             <input placeholder="Search skills…" value={q} onChange={e => setQ(e.target.value)} /></div>
@@ -204,14 +205,40 @@ function CoachSkills({ roadmap, onNav }) {
         <button className="btn primary" onClick={() => setCreating(true)}><IcoK name="Plus" size={15} color="#fff" /> Create a skill</button>
       </div>
 
-      <div className="pal-cats" style={{ marginBottom: 14 }}>
-        {cats.map(c => <button key={c.id} className={`pal-cat ${cat === c.id ? "active" : ""}`} onClick={() => setCat(c.id)}>{c.label}</button>)}
-      </div>
+      {searching ? (
+        <>
+          <div className="section-label"><span className="ic"><IcoK name="Search" size={13} /></span> Results · {searchResults.length}</div>
+          <div className="sk-grid-3">{searchResults.map(s => <Tile key={s.id} s={s} />)}</div>
+          {searchResults.length === 0 && <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: 14, padding: "40px 0" }}>No skills match — try a different search.</div>}
+        </>
+      ) : (
+        <>
+          {featured.length > 0 && (
+            <>
+              <div className="section-label"><span className="ic"><IcoK name="Star" size={13} /></span> Suggested for where you are now</div>
+              <div className="sk-grid" style={{ marginBottom: 22 }}>
+                {featured.map(s => <Tile key={s.id} s={s} />)}
+              </div>
+            </>
+          )}
 
-      <div className="sk-grid">
-        {list.map(s => <Tile key={s.id} s={s} />)}
-      </div>
-      {list.length === 0 && <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: 14, padding: "40px 0" }}>No skills match — try a different search or category.</div>}
+          {sections.map(c => {
+            const isOpen = !collapsed.has(c.id);
+            const onCount = c.skills.filter(s => enabled.has(s.id)).length;
+            return (
+              <div className="sk-sec" key={c.id}>
+                <button className="sk-sec-h" onClick={() => toggleSection(c.id)} aria-expanded={isOpen}>
+                  <span className="sk-sec-i"><IcoK name={c.icon} size={14} /></span>
+                  <span className="sk-sec-t">{c.label}</span>
+                  <span className="sk-sec-count">{onCount} of {c.skills.length} on</span>
+                  <IcoK name={isOpen ? "ChevronUp" : "ChevronDown"} size={15} />
+                </button>
+                {isOpen && <div className="sk-grid-3">{c.skills.map(s => <Tile key={s.id} s={s} />)}</div>}
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {creating && <CreateSkillModal onClose={() => setCreating(false)} onCreate={(s) => { setCustom(p => [...p, s]); setEnabled(p => new Set(p).add(s.id)); setCreating(false); setToast(`“${s.name}” created`); }} />}
       {toast && <div className="toast"><IcoK name="CheckCircle2" size={15} /> {toast}</div>}
