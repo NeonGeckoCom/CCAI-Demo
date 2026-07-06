@@ -107,6 +107,116 @@ const INSTITUTIONS = window.UNIVERSITY_OPTIONS || ["University of Colorado Bould
 const PROGRAMS = window.PROGRAM_OPTIONS || ["PhD, Information Science", "PhD, Computer Science", "PhD, Neuroscience", "PhD, Psychology", "PhD, Sociology", "PhD, Education", "PhD, Mechanical Engineering", "PhD, Biology", "PhD, Economics", "PhD, English"];
 
 // ============================================================================
+// SOURCE-CONFLICT DETECTION
+// ----------------------------------------------------------------------------
+// When two uploaded/pasted sources disagree (e.g. an advisor email says quals
+// are Year 2 but the handbook PDF says Year 3), we surface it so the student
+// resolves it before we build the plan.
+//
+// DATA CONTRACT — the backend discovery response will populate `found.conflicts`
+// once wired (it already extracts every file's text server-side). Until then we
+// run a light client-side scan over pasted text. Either way the shape is:
+//   conflicts: [{
+//     id:        string,
+//     topic:     string,                     // human label, e.g. "Qualifying exam timing"
+//     milestone: string,                     // milestone name this affects (matched to items)
+//     field:     "when",                     // which attribute disagrees
+//     options:   [{ source: string, value: string }, ...]
+//   }]
+// ============================================================================
+// Value regexes are per-probe so a timing conflict extracts a year/semester and
+// a coursework conflict extracts a credit count — never the wrong kind of number.
+const CONFLICT_TIME_RE = /\b(?:end of |before |after |by |no later than )?(?:year|yr)\s?\d(?:\s?[-–]\s?(?:year|yr)?\s?\d)?\b|\b(?:spring|fall|summer|autumn|winter)\s?\d{2,4}\b|\bsemester\s?\d\b/i;
+const CONFLICT_CREDIT_RE = /\b\d{1,3}\s?(?:credit hours|credits|credit|hours)\b/i;
+const CONFLICT_PROBES = [
+  { milestone: "Qualifying / comprehensive exam", topic: "Qualifying / comprehensive exam timing", re: /qualif|comprehensive exam|\bprelim|\bquals\b|candidacy exam/i, valueRe: CONFLICT_TIME_RE },
+  { milestone: "Dissertation proposal / prospectus", topic: "Proposal / prospectus timing", re: /proposal|prospectus/i, valueRe: CONFLICT_TIME_RE },
+  { milestone: "Coursework / credit requirements", topic: "Coursework / credit requirement", re: /credit hours?|\bcredits\b|coursework/i, valueRe: CONFLICT_CREDIT_RE },
+  { milestone: "Dissertation defense / oral exam", topic: "Dissertation defense timing", re: /dissertation defense|thesis defense|final oral|oral defense/i, valueRe: CONFLICT_TIME_RE },
+  { milestone: "Annual review / progress report", topic: "Annual review timing", re: /annual (?:review|progress|evaluation)|progress report/i, valueRe: CONFLICT_TIME_RE },
+];
+
+function detectConflicts(found, materials) {
+  // Prefer backend-provided conflicts (covers PDFs/Word) once discovery fills them.
+  if (found && Array.isArray(found.conflicts) && found.conflicts.length) return found.conflicts;
+  // Client fallback: only pasted/typed text is readable in the browser. Uploaded
+  // PDF/Word text lives on the backend, so those are covered once it fills conflicts.
+  const sources = (materials || [])
+    .filter(m => (m.text || "").trim())
+    .map(m => ({ source: m.name || "Pasted text", text: m.text }));
+  if (sources.length < 2) return [];
+  const conflicts = [];
+  CONFLICT_PROBES.forEach((probe, pi) => {
+    const vals = [];
+    sources.forEach(src => {
+      const idx = src.text.search(probe.re);
+      if (idx < 0) return;
+      const snippet = src.text.slice(Math.max(0, idx - 40), idx + 180);
+      const vm = snippet.match(probe.valueRe);
+      if (vm) vals.push({ source: src.source, value: vm[0].replace(/\s+/g, " ").trim() });
+    });
+    const distinct = new Set(vals.map(v => v.value.toLowerCase().replace(/^yr/, "year")));
+    if (vals.length >= 2 && distinct.size >= 2) {
+      conflicts.push({ id: `c${pi}`, topic: probe.topic, milestone: probe.milestone, field: "when", options: vals });
+    }
+  });
+  return conflicts;
+}
+
+function ConflictResolver({ conflicts, resolutions, onChoose, onApply, onClose }) {
+  const total = conflicts.length;
+  const resolved = conflicts.filter(c => resolutions[c.id] !== undefined).length;
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Resolve source conflicts">
+        <div className="modal-h">
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--amber-soft)", color: "var(--amber)", display: "grid", placeItems: "center", flexShrink: 0 }}><Icon name="GitCompare" size={18} /></div>
+            <div>
+              <h2 className="display">Your sources disagree</h2>
+              <p>We found {total} place{total === 1 ? "" : "s"} where your materials give different answers. Pick the one to trust. Your graduate office is always the final word.</p>
+            </div>
+          </div>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><Icon name="X" size={14} /></button>
+        </div>
+        <div className="modal-b">
+          <div className="conflict-list">
+            {conflicts.map(c => (
+              <div key={c.id} className="conflict">
+                <div className="conflict-topic"><Icon name="AlertTriangle" size={13} /> {c.topic}</div>
+                <div className="conflict-opts">
+                  {c.options.map((o, oi) => {
+                    const sel = resolutions[c.id] === oi;
+                    return (
+                      <button key={oi} className={`conflict-opt ${sel ? "sel" : ""}`} onClick={() => onChoose(c.id, oi)}>
+                        <span className={`co-radio ${sel ? "on" : ""}`}>{sel && <Icon name="Check" size={11} color="#fff" />}</span>
+                        <span className="co-val">{o.value}</span>
+                        <span className="co-src"><Icon name="FileText" size={10} /> {o.source}</span>
+                      </button>
+                    );
+                  })}
+                  <button className={`conflict-opt subtle ${resolutions[c.id] === "skip" ? "sel" : ""}`} onClick={() => onChoose(c.id, "skip")}>
+                    <span className={`co-radio ${resolutions[c.id] === "skip" ? "on" : ""}`}>{resolutions[c.id] === "skip" && <Icon name="Check" size={11} color="#fff" />}</span>
+                    <span className="co-val" style={{ fontWeight: 500, color: "var(--text-2)" }}>Not sure yet, decide later</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="modal-f">
+          <span style={{ fontSize: 12, color: "var(--text-3)" }}>{resolved} of {total} resolved</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn ghost" onClick={onClose}>Skip for now</button>
+            <button className="btn primary" onClick={onApply} disabled={resolved === 0}><Icon name="Check" size={14} color="#fff" /> Apply choices</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // ONBOARDING
 // ============================================================================
 function Onboarding({ onComplete }) {
@@ -121,6 +231,9 @@ function Onboarding({ onComplete }) {
   const [found, setFound] = useState(null);       // raw discovery result
   const [items, setItems] = useState([]);          // editable milestone list
   const [editingIdx, setEditingIdx] = useState(-1);
+  const [conflicts, setConflicts] = useState([]);          // [{id, topic, milestone, field, options}]
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [resolutions, setResolutions] = useState({});      // { [conflictId]: optionIndex | "skip" }
   const [startPosition, setStartPosition] = useState("coursework");
   const [writeStyle, setWriteStyle] = useState("unsure");
   const [publish, setPublish] = useState("unsure");
@@ -143,19 +256,24 @@ function Onboarding({ onComplete }) {
       ? "Sourced from public web search - please verify"
       : "Estimated from the built-in PhD milestone template - please verify";
 
+  const applyDiscovery = (res) => {
+    setFound(res);
+    setItems(res.deliverables.map(d => ({ ...d, confirmed: false })));
+    const cf = detectConflicts(res, materials);
+    setConflicts(cf); setResolutions({}); setConflictOpen(cf.length > 0);
+    setSearching(false); setStep(2);
+  };
+
   const search = () => {
     setSearching(true); setFound(null);
-    RE.discoverDeliverables({ program, institution, materials }).then(res => {
-      setFound(res);
-      setItems(res.deliverables.map(d => ({ ...d, confirmed: false })));
-      setSearching(false); setStep(2);
-    }).catch(() => {
+    // Save uploaded/pasted materials to the Documents section the moment the
+    // student proceeds — not only at the very end of onboarding (finish()).
+    persistOnboardingMaterialsToDocuments(materials).catch(() => {});
+    RE.discoverDeliverables({ program, institution, materials }).then(applyDiscovery).catch(() => {
       const res = RE.genericDeliverables ? RE.genericDeliverables(program) : { degree: program || "PhD program", deliverables: [] };
       res.institution = institution || "your institution";
       res.discoveryMode = "fallback";
-      setFound(res);
-      setItems(res.deliverables.map(d => ({ ...d, confirmed: false })));
-      setSearching(false); setStep(2);
+      applyDiscovery(res);
     });
   };
 
@@ -198,6 +316,23 @@ function Onboarding({ onComplete }) {
     onComplete(rm, prefs);
   };
 
+  const chooseResolution = (cid, choice) => setResolutions(p => ({ ...p, [cid]: choice }));
+  const applyResolutions = () => {
+    setItems(prev => prev.map(item => {
+      const c = conflicts.find(cf => {
+        const choice = resolutions[cf.id];
+        if (choice === undefined || choice === "skip") return false;
+        const a = (item.name || "").toLowerCase();
+        const b = (cf.milestone || "").toLowerCase();
+        return b && (a.includes(b) || b.includes(a));
+      });
+      if (!c) return item;
+      const chosen = c.options[resolutions[c.id]];
+      return chosen ? { ...item, when: chosen.value, conflictSource: chosen.source } : item;
+    }));
+    setConflictOpen(false);
+  };
+
   const confirmItem = (i) => setItems(p => p.map((d, j) => j === i ? { ...d, confirmed: !d.confirmed } : d));
   const removeItem = (i) => setItems(p => p.filter((_, j) => j !== i));
   const editItem = (i, name) => setItems(p => p.map((d, j) => j === i ? { ...d, name } : d));
@@ -215,7 +350,7 @@ function Onboarding({ onComplete }) {
         {step === 0 && (
           <>
             <h1 className="display">Tell us your program.</h1>
-            <p className="lead">We'll look for public requirements — handbooks, program pages, graduate-school rules — and ask you to confirm what we find.</p>
+            <p className="lead">We'll look for public requirements like handbooks, program pages, and graduate-school rules, then ask you to confirm what we find.</p>
             <div className="field">
               <label>Your program</label>
               <window.AcademicCombo
@@ -247,7 +382,7 @@ function Onboarding({ onComplete }) {
         {step === 1 && (
           <>
             <h1 className="display">Add what you already have.</h1>
-            <p className="lead">Requirements often arrive as a pile of emails and PDFs. Drop anything here — handbooks, advisor emails, timelines, forms — or paste text straight from an email. We'll fold it all into your plan. You can always add more later.</p>
+            <p className="lead">Requirements often arrive as a pile of emails and PDFs. Drop anything here: handbooks, advisor emails, timelines, forms, or paste text straight from an email. We'll fold it all into your plan. You can always add more later.</p>
 
             <input ref={fileRef} type="file" multiple style={{ display: "none" }}
               onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
@@ -299,7 +434,14 @@ function Onboarding({ onComplete }) {
         {step === 2 && found && (
           <>
             <h1 className="display">We found these possible milestones.</h1>
-            <p className="lead">Please confirm each one for <strong>{found.degree}</strong> at {found.institution}{materials.length > 0 ? <> — cross-checked against your <strong>{materials.length} uploaded item{materials.length === 1 ? "" : "s"}</strong></> : ""} — or edit and remove what doesn't match. Your graduate office is always the final word.</p>
+            <p className="lead">Please confirm each one for <strong>{found.degree}</strong> at {found.institution}{materials.length > 0 ? <>, cross-checked against your <strong>{materials.length} uploaded item{materials.length === 1 ? "" : "s"}</strong></> : ""}. Edit and remove what doesn't match. Your graduate office is always the final word.</p>
+            {conflicts.length > 0 && (
+              <button className="conflict-banner" onClick={() => setConflictOpen(true)}>
+                <span className="cb-ico"><Icon name="AlertTriangle" size={14} /></span>
+                <span className="cb-txt"><b>{conflicts.length} source conflict{conflicts.length === 1 ? "" : "s"}</b>. Your materials disagree on some dates. Resolve before we build the plan.</span>
+                <span className="cb-go">Review <Icon name="ArrowRight" size={13} /></span>
+              </button>
+            )}
             <div className="deliv-list">
               {items.map((d, i) => (
                 <div key={i} className={`deliv ${d.confirmed ? "confirmed" : ""}`}>
@@ -351,26 +493,14 @@ function Onboarding({ onComplete }) {
         {step === 3 && (
           <>
             <h1 className="display">Where are you today?</h1>
-            <p className="lead">Your plan starts from your real position. Not sure is a fine answer — you can change all of this later.</p>
+            <p className="lead">Your plan starts from your real position. You can change all of this later.</p>
             <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-2)", display: "block", marginBottom: 8 }}>Current stage</label>
-            <div className="opt-grid" style={{ marginBottom: 18 }}>
+            <div className="opt-grid">
               {RE.START_POSITIONS.map(p => (
                 <button key={p.id} className={`opt ${startPosition === p.id ? "sel" : ""}`} onClick={() => setStartPosition(p.id)}>
                   <span className="dot" /> {p.label}
                 </button>
               ))}
-            </div>
-            <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-2)", display: "block", marginBottom: 8 }}>When do you like to write?</label>
-            <div className="opt-grid three" style={{ marginBottom: 18 }}>
-              <button className={`opt ${writeStyle === "as-you-go" ? "sel" : ""}`} onClick={() => setWriteStyle("as-you-go")}><span className="dot" /> As I go</button>
-              <button className={`opt ${writeStyle === "at-end" ? "sel" : ""}`} onClick={() => setWriteStyle("at-end")}><span className="dot" /> Mostly at the end</button>
-              <button className={`opt ${writeStyle === "unsure" ? "sel" : ""}`} onClick={() => setWriteStyle("unsure")}><span className="dot" /> Not sure yet</button>
-            </div>
-            <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-2)", display: "block", marginBottom: 8 }}>Aiming to publish along the way?</label>
-            <div className="opt-grid three">
-              <button className={`opt ${publish === "yes" ? "sel" : ""}`} onClick={() => setPublish("yes")}><span className="dot" /> Yes, target papers</button>
-              <button className={`opt ${publish === "no" ? "sel" : ""}`} onClick={() => setPublish("no")}><span className="dot" /> Dissertation-first</button>
-              <button className={`opt ${publish === "unsure" ? "sel" : ""}`} onClick={() => setPublish("unsure")}><span className="dot" /> Not sure yet</button>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
               <button className="btn ghost" onClick={() => setStep(2)}><Icon name="ArrowLeft" size={14} /> Back</button>
@@ -382,7 +512,7 @@ function Onboarding({ onComplete }) {
         {step === 4 && (
           <>
             <h1 className="display">How much do you want to see?</h1>
-            <p className="lead">PhD Navigator has a lot under the hood. Choose how much shows up at once — you can change this anytime in Settings.</p>
+            <p className="lead">PhD Navigator has a lot under the hood. Choose how much shows up at once. You can change this anytime in Settings.</p>
             <div className="onb-choice">
               <button className={`onb-choice-card ${densityChoice === "everything" ? "sel" : ""}`} onClick={() => setDensityChoice("everything")}>
                 <span className="occ-ico"><Icon name="LayoutDashboard" size={18} /></span>
@@ -410,7 +540,7 @@ function Onboarding({ onComplete }) {
         {step === 5 && (
           <>
             <h1 className="display">Cloud or private models?</h1>
-            <p className="lead">Your advisors are powered by AI. Choose where that runs — you can switch later in Settings.</p>
+            <p className="lead">Your advisors are powered by AI. Choose where that runs. You can switch later in Settings.</p>
             <div className="onb-choice">
               <button className={`onb-choice-card ${modelMode === "cloud" ? "sel" : ""}`} onClick={() => setModelMode("cloud")}>
                 <span className="occ-ico"><Icon name="Cloud" size={18} /></span>
@@ -420,7 +550,7 @@ function Onboarding({ onComplete }) {
               <button className={`onb-choice-card ${modelMode === "private" ? "sel" : ""}`} onClick={() => setModelMode("private")}>
                 <span className="occ-ico"><Icon name="ShieldCheck" size={18} /></span>
                 <span className="occ-t">On-device &amp; private</span>
-                <span className="occ-d">Runs locally on your machine — fully private, with slightly lower accuracy.</span>
+                <span className="occ-d">Runs locally on your machine. Fully private, with slightly lower accuracy.</span>
               </button>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 10, display: "flex", gap: 6, alignItems: "center" }}>
@@ -436,6 +566,15 @@ function Onboarding({ onComplete }) {
           </>
         )}
       </div>
+      {conflictOpen && (
+        <ConflictResolver
+          conflicts={conflicts}
+          resolutions={resolutions}
+          onChoose={chooseResolution}
+          onApply={applyResolutions}
+          onClose={() => setConflictOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -450,7 +589,7 @@ function Rail({ view, onNav, user, skillsUnlocked = true, onSignOut }) {
     { id: "chat", label: "Chat", icon: "MessageCircle" },
     { id: "skills", label: "Skills", icon: "Sparkles" },
     { id: "insights", label: "Insights", icon: "Lightbulb" },
-    { id: "workspace", label: "Workspace", icon: "LayoutDashboard" },
+    { id: "defense", label: "Defense Room", icon: "Presentation" },
     { id: "documents", label: "Documents", icon: "FileText" },
     { id: "settings", label: "Settings", icon: "Settings" }
   ].filter(it => it.id !== "skills" || skillsUnlocked); // Skills stays hidden until unlocked in chat
@@ -544,37 +683,7 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
         </div>
       </div>
 
-      {/* TODAY — one focused next action, to cut cognitive load */}
-      <div className={`today ${atRisk ? "at-risk" : ""}`}>
-        <div className="today-l">
-          <div className="today-eyebrow">
-            <Icon name="Sun" size={13} /> Today · {current.title}
-            {atRisk && <span className="risk-pill"><Icon name="AlertTriangle" size={11} /> stuck {stuck}d</span>}
-          </div>
-          {nudge ? (
-            <div className="today-action">
-              <button className="today-check" onClick={checkNudge} title="Mark done"><span /></button>
-              <span className="today-text">{nudge}</span>
-            </div>
-          ) : (
-            <div className="today-action"><Icon name="CheckCircle2" size={16} color="var(--sage)" /> <span className="today-text">All steps here are checked — ready to complete this milestone.</span></div>
-          )}
-        </div>
-        <button className="btn primary" onClick={() => onOpenStep ? onOpenStep(current.id) : onNav("plan")}>
-          {nudge ? "Work on this" : "Complete milestone"} <Icon name="ArrowRight" size={15} color="#fff" />
-        </button>
-      </div>
-
       <Timeline steps={tlSteps} onSelect={(s) => onOpenStep ? onOpenStep(s.id) : onNav("plan")} />
-
-      {/* Gentle accountability nudge — one, not a guilt machine */}
-      {!focused && nudge && (
-        <button className="nudge" onClick={() => onNav("plan")}>
-          <span className="nudge-ico"><Icon name="Hand" size={15} /></span>
-          <span className="nudge-body"><b>Picking up where you left off.</b> You set out to <b>{nudge.toLowerCase()}</b> — want to knock that out today?</span>
-          <span className="nudge-go"><Icon name="ArrowRight" size={15} /></span>
-        </button>
-      )}
 
       {!focused && <div className="dash">
         <div className="dash-col">
@@ -587,51 +696,22 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
               <button className="btn" onClick={() => onNav("chat")}><Icon name="MessageCircle" size={15} /> Ask a question</button>
             </div>
           </div>
-
-          {/* Recovery, first-class */}
-          <div className="recover-card" onClick={onOpenSos}>
-            <div className="recover-ico"><Icon name="LifeBuoy" size={20} color="#fff" /></div>
-            <div style={{ flex: 1 }}>
-              <div className="recover-t">{reopened ? "You're in recovery mode" : "Something go wrong?"}</div>
-              <div className="recover-d">{reopened ? "Your plan was re-routed to get you back on track. Open it to see your recovery steps." : "Data rejected, committee change, null result — tell us in plain words and your whole plan re-routes around it."}</div>
-            </div>
-            <button className="btn" onClick={(e) => { e.stopPropagation(); onOpenSos(); }}><Icon name="Wand2" size={15} /> {reopened ? "Review plan" : "Re-plan"}</button>
-          </div>
         </div>
 
         <div className="dash-col">
           {nextGate && (
-            <div className="card card-pad">
+            <div className="card card-pad dash-fill">
               <div className="card-h"><span className="ico"><Icon name="Flag" size={14} /></span> Next checkpoint</div>
               <div style={{ fontSize: 16, fontWeight: 700 }}>{nextGate.title}</div>
               <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 4 }}>{nextGate.estimate}{nextGate.deliverable ? ` · satisfies: ${nextGate.deliverable}` : ""}</div>
             </div>
           )}
 
-          {liveTools.length > 0 && (
-            <div className="card card-pad">
-              <div className="card-h"><span className="ico"><Icon name="Wrench" size={14} /></span> Tools for this step</div>
-              <div className="qtools">
-                {liveTools.map(f => {
-                  const feat = RE.feature(f);
-                  return (
-                    <button key={f} className="qtool" onClick={() => onNav("plan")}>
-                      <span className="qt-ico"><Icon name={feat.icon} size={16} /></span>
-                      <span className="qt-n">{feat.name}</span>
-                      <span className="qt-d">{feat.blurb}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="tip tip-coach">
-            <span className="tip-ico"><Icon name="Lightbulb" size={15} color="#fff" /></span>
-            <div className="tip-body"><b>Tip.</b> {tip}</div>
-          </div>
         </div>
       </div>}
+
+      {/* Workspace lives here now — its own full-width Tools row, not a separate page */}
+      {window.CoachWorkspace && <window.CoachWorkspace roadmap={roadmap} embedded />}
 
       {!focused && <button className="sos" onClick={onOpenSos}><Icon name="LifeBuoy" size={15} /> Something came up?</button>}
     </div>

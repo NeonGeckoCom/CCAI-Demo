@@ -127,27 +127,74 @@ const wsSuggestFor = (roadmap) => {
   return (cur && WS_SUGGEST[cur.id]) || ["notes", "reading-queue", "deadlines", "pomodoro"];
 };
 
-function CoachWorkspace({ roadmap }) {
+// `embedded` renders one white "Tools" box on the Home page (its own row) that
+// holds up to three widgets. Non-embedded is the full standalone Workspace page.
+// Both share the WS_KEY store, so it's one workspace.
+function CoachWorkspace({ roadmap, embedded }) {
   const [layout, setLayout] = useSV(() => HV.loadJSON(WS_KEY, []));
   const [paletteOpen, setPaletteOpen] = useSV(false);
   useEV(() => HV.saveJSON(WS_KEY, layout), [layout]);
 
-  const addWidget = (type) => setLayout(p => [...p, { id: `w-${type}-${Date.now()}`, type, size: "M" }]);
+  const EMBED_MAX = 3;
+  const addWidget = (type) => setLayout(p => (embedded && p.length >= EMBED_MAX) ? p : [...p, { id: `w-${type}-${Date.now()}`, type, size: "M" }]);
   const applyPreset = (preset) => setLayout(preset.layout.map((type, i) => ({ id: `w-${type}-${Date.now()}-${i}`, type, size: "M" })));
   const remove = (id) => setLayout(p => p.filter(w => w.id !== id));
   const cycle = (id) => setLayout(p => p.map(w => w.id === id ? { ...w, size: w.size === "S" ? "M" : w.size === "M" ? "L" : "S" } : w));
 
   const curStep = roadmap?.steps?.find(s => s.status === "current");
   const suggested = wsSuggestFor(roadmap);
+  const palette = paletteOpen && <WidgetPalette onClose={() => setPaletteOpen(false)} onAdd={(t) => { addWidget(t); setPaletteOpen(false); }} suggested={suggested} stepTitle={curStep?.title} />;
 
+  const widgetCard = (w) => {
+    const isCustom = w.type === "custom";
+    const def = isCustom
+      ? { type: "custom", name: w.custom?.title || "Custom tool", icon: "Wand2" }
+      : (window.WIDGET_CATALOG || []).find(d => d.type === w.type);
+    if (!def) return null;
+    return (
+      <div key={w.id} className={`ws-widget size-${w.size} ${def.critic ? "critic" : ""}`}>
+        <div className="ws-w-head">
+          <span className="ws-w-ico"><IcoV name={def.icon} size={14} /></span>
+          <span className="ws-w-title">{def.name}{isCustom && <span className="ws-custom-tag">custom</span>}</span>
+          <button className="ws-size" onClick={() => cycle(w.id)} title="Resize: S = 3 per row, M = 2, L = full row">{w.size}</button>
+          <button className="ws-w-del" onClick={() => remove(w.id)}><IcoV name="Trash2" size={13} /></button>
+        </div>
+        <div className="ws-w-body">{isCustom ? (window.CustomTool ? <window.CustomTool inst={w.custom} /> : null) : <WidgetBody def={def} seed={w.seed} />}</div>
+      </div>
+    );
+  };
+
+  // Home: one white Tools box, up to three widgets.
+  if (embedded) {
+    const shown = layout.slice(0, EMBED_MAX);
+    const full = layout.length >= EMBED_MAX;
+    return (
+      <section className="ws-embed">
+        <div className="card card-pad ws-tools-box">
+          <div className="ws-embed-head">
+            <div className="card-h" style={{ margin: 0 }}><span className="ico"><IcoV name="Wrench" size={14} /></span> Tools{shown.length ? ` · ${shown.length}/${EMBED_MAX}` : ""}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {shown.length > 0 && <button className="btn sm" onClick={() => setLayout([])}><IcoV name="Eraser" size={14} /> Clear</button>}
+              <button className="btn primary sm" disabled={full} onClick={() => setPaletteOpen(true)}><IcoV name="Plus" size={14} color="#fff" /> Add widget</button>
+            </div>
+          </div>
+          {shown.length === 0
+            ? <button className="ws-tools-empty" onClick={() => setPaletteOpen(true)}><IcoV name="Plus" size={18} /> Add up to three tools for this step</button>
+            : <div className="ws-grid">{shown.map(widgetCard)}</div>}
+        </div>
+        {palette}
+      </section>
+    );
+  }
+
+  // Standalone page: presets + unlimited widgets.
   if (layout.length === 0) {
     return (
       <div className="page">
         <div className="greeting">
           <h1 className="display" style={{ fontSize: 26 }}>Workspace</h1>
-          <div className="sub">Your <strong>tools</strong> live here — the boards, trackers, and notes your <strong>Skills</strong> and My Plan produce. Same data everywhere, never duplicated.</div>
+          <div className="sub">Your <strong>tools</strong> live here. The boards, trackers, and notes your <strong>Skills</strong> and My Plan produce, with the same data everywhere.</div>
         </div>
-
         <div className="section-label"><span className="ic"><IcoV name="LayoutGrid" size={13} /></span> Start with a preset</div>
         <div className="preset-grid">
           {(window.WORKSPACE_PRESETS || []).map(p => (
@@ -162,16 +209,14 @@ function CoachWorkspace({ roadmap }) {
             </button>
           ))}
         </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 22, justifyContent: "center" }}>
-          <span style={{ fontSize: 13, color: "var(--text-3)" }}>Or build your own —</span>
+          <span style={{ fontSize: 13, color: "var(--text-3)" }}>Or build your own</span>
           <button className="btn sm" onClick={() => setPaletteOpen(true)}><IcoV name="Plus" size={14} /> Add a widget</button>
         </div>
-        {paletteOpen && <WidgetPalette onClose={() => setPaletteOpen(false)} onAdd={(t) => { addWidget(t); setPaletteOpen(false); }} suggested={suggested} stepTitle={curStep?.title} />}
+        {palette}
       </div>
     );
   }
-
   return (
     <div className="page">
       <div className="greeting" style={{ marginBottom: 14 }}>
@@ -182,28 +227,8 @@ function CoachWorkspace({ roadmap }) {
         <button className="btn sm" onClick={() => setLayout([])}><IcoV name="Eraser" size={14} /> Clear</button>
         <button className="btn primary sm" onClick={() => setPaletteOpen(true)}><IcoV name="Plus" size={14} color="#fff" /> Add widget</button>
       </div>
-
-      <div className="ws-grid">
-        {layout.map(w => {
-          const isCustom = w.type === "custom";
-          const def = isCustom
-            ? { type: "custom", name: w.custom?.title || "Custom tool", icon: "Wand2" }
-            : (window.WIDGET_CATALOG || []).find(d => d.type === w.type);
-          if (!def) return null;
-          return (
-            <div key={w.id} className={`ws-widget size-${w.size} ${def.critic ? "critic" : ""}`}>
-              <div className="ws-w-head">
-                <span className="ws-w-ico"><IcoV name={def.icon} size={14} /></span>
-                <span className="ws-w-title">{def.name}{isCustom && <span className="ws-custom-tag">custom</span>}</span>
-                <button className="ws-size" onClick={() => cycle(w.id)}>{w.size}</button>
-                <button className="ws-w-del" onClick={() => remove(w.id)}><IcoV name="Trash2" size={13} /></button>
-              </div>
-              <div className="ws-w-body">{isCustom ? (window.CustomTool ? <window.CustomTool inst={w.custom} /> : null) : <WidgetBody def={def} seed={w.seed} />}</div>
-            </div>
-          );
-        })}
-      </div>
-      {paletteOpen && <WidgetPalette onClose={() => setPaletteOpen(false)} onAdd={(t) => { addWidget(t); setPaletteOpen(false); }} suggested={suggested} stepTitle={curStep?.title} />}
+      <div className="ws-grid">{layout.map(widgetCard)}</div>
+      {palette}
     </div>
   );
 }

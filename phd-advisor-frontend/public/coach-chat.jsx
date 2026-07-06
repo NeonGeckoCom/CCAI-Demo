@@ -473,7 +473,9 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
 
   // switching to single keeps only the first active persona
   const setSingle = () => { setMode("single"); setActive(a => a.slice(0, 1).length ? a.slice(0, 1) : [advisors[0].id]); };
-  const setMulti = () => { if (!unlocked.multiple) return; setMode("multiple"); setActive(a => a.length ? a : advisors.slice(0, 3).map(x => x.id)); };
+  // Entering multiple mode should actually show a panel: expand to three
+  // advisors unless the user already curated two or more.
+  const setMulti = () => { if (!unlocked.multiple) return; setMode("multiple"); setActive(a => a.length >= 2 ? a : advisors.slice(0, 3).map(x => x.id)); };
   // Reconcile saved chat state with what's currently unlocked (e.g. after a drip reset).
   useEC(() => {
     if (!unlocked.multiple && mode === "multiple") setMode("single");
@@ -878,7 +880,7 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
       <div className="chat-context" style={{ marginTop: 14 }}>
         <IcoC name="MapPin" size={14} /> Chatting about: <strong>&nbsp;{current.title}</strong>
         <div className="chat-hist" ref={histRef} style={{ marginLeft: "auto", position: "relative" }}>
-          <button className={`btn sm ghost ${histOpen ? "on" : ""}`} onClick={() => setHistOpen(o => !o)} title="Chat history" aria-label="Chat history"><IcoC name="History" size={14} /> History</button>
+          <button className={`btn sm ghost ${histOpen ? "on" : ""}`} onClick={() => setHistOpen(o => !o)} title="Chat history" aria-label="Chat history"><IcoC name="History" size={14} /> Chat History</button>
           {histOpen && (
             <div className="chat-hist-pop">
               <div className="chat-hist-h">Recent chats</div>

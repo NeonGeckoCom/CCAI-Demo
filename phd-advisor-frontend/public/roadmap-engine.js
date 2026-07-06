@@ -523,14 +523,10 @@
   const START_POSITIONS = [
     { id: "just-starting",      label: "Just starting",                  completedThrough: null },
     { id: "coursework",         label: "Coursework / exploration",       completedThrough: "orientation" },
-    { id: "choosing",           label: "Choosing advisor or topic",      completedThrough: "orientation" },
     { id: "prelims",            label: "Preparing for prelims / quals",  completedThrough: "proposal" },
     { id: "committee-proposal", label: "Forming committee / proposal",   completedThrough: "topic-ideas" },
-    { id: "candidate",          label: "Advanced to candidacy",          completedThrough: "candidacy" },
     { id: "researching",        label: "Conducting research",            completedThrough: "pilot" },
-    { id: "writing-up",         label: "Writing dissertation",           completedThrough: "analysis" },
-    { id: "defense-prep",       label: "Preparing for defense",          completedThrough: "writing" },
-    { id: "not-sure",           label: "Not sure",                       completedThrough: null }
+    { id: "writing-up",         label: "Writing dissertation",           completedThrough: "analysis" }
   ];
 
   const DELIVERABLE_RULES = [
@@ -886,17 +882,43 @@
     const idx = steps.findIndex((s) => s.id === stepId);
     if (idx < 0) return { roadmap, justCompleted: null };
     steps[idx].status = "done";
-    const next = steps.findIndex((s) => s.status !== "done");
-    if (next >= 0) steps[next].status = "current";
+    // PhD progress is not linear: several steps can be in flight at once.
+    // Only auto-advance to the next milestone when nothing else is active.
+    let next = steps.findIndex((s) => s.status === "current" || s.status === "redo" || s.status === "paused");
+    let promoted = false;
+    if (next < 0) {
+      next = steps.findIndex((s) => s.status !== "done");
+      if (next >= 0) { steps[next].status = "current"; promoted = true; }
+    }
     const completedNumber = steps.filter((s) => s.status === "done").length;
     return {
       roadmap: { ...roadmap, steps },
       justCompleted: steps[idx],
       milestoneNumber: completedNumber,
       retired: steps[idx].retire || [],
-      unlocked: next >= 0 ? (steps[next].add || []) : [],
+      unlocked: promoted && next >= 0 ? (steps[next].add || []) : [],
       nextStep: next >= 0 ? steps[next] : null
     };
+  }
+
+  // --------------------------------------------------------------------------
+  // PARALLEL WORK — students rarely move strictly in order. addCurrent marks an
+  // extra milestone in-progress without touching the rest of the plan;
+  // stopCurrent sets a parallel one back to not-started (always keeps at least
+  // one step active).
+  // --------------------------------------------------------------------------
+  function addCurrent(roadmap, stepId) {
+    const steps = roadmap.steps.map((s) =>
+      s.id === stepId && s.status !== "done" ? { ...s, status: "current" } : { ...s });
+    return { roadmap: { ...roadmap, steps } };
+  }
+
+  function stopCurrent(roadmap, stepId) {
+    const active = roadmap.steps.filter((s) => s.status === "current" || s.status === "redo");
+    if (active.length <= 1) return { roadmap };
+    const steps = roadmap.steps.map((s) =>
+      s.id === stepId && s.status === "current" ? { ...s, status: "locked" } : { ...s });
+    return { roadmap: { ...roadmap, steps } };
   }
 
   // --------------------------------------------------------------------------
@@ -1179,6 +1201,8 @@
     generateRoadmap,
     computeFeatureState,
     setCurrent,
+    addCurrent,
+    stopCurrent,
     markComplete,
     replan,
     forkPlan,
