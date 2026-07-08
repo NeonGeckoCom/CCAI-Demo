@@ -437,3 +437,5 @@ llm:
 rag:
   embedding_model: "all-MiniLM-L6-v2"
   chroma_collection: "undergrad_advisor_documents"
+  chunk_size: 4000
+  chunk_overlap: 400

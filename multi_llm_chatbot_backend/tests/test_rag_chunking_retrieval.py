@@ -103,6 +103,8 @@ class RagChunkingRetrievalTests(unittest.TestCase):
     def test_chunker_preserves_line_boundaries_and_uses_sentence_separators(self):
         chunker = DocumentChunker()
 
+        self.assertEqual(chunker.text_splitter._chunk_size, 4000)
+        self.assertEqual(chunker.text_splitter._chunk_overlap, 400)
         self.assertEqual(chunker.text_splitter._separators, PROSE_CHUNK_SEPARATORS)
         self.assertEqual(chunker.text_splitter._keep_separator, "end")
         self.assertLess(PROSE_CHUNK_SEPARATORS.index(". "), PROSE_CHUNK_SEPARATORS.index(" "))

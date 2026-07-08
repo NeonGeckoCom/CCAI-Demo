@@ -244,14 +244,16 @@ function Onboarding({ onComplete }) {
   const hasUploadedFiles = materials.some(m => m.kind === "file" && m.file);
   const readableMaterialCount = materials.filter(m => (m.text || "").trim()).length;
   const searchStatus = hasUploadedFiles
-    ? "Parsing your uploaded documents"
+    ? "Reading your uploaded documents with AI"
     : readableMaterialCount > 0
-      ? "Parsing your pasted materials"
+      ? "Reading your pasted materials with AI"
       : materials.length > 0
         ? "Checking your materials and public sources"
         : "Searching public program pages";
-  const sourceNote = found?.discoveryMode === "documents"
-    ? "Parsed from your uploaded or pasted materials - please verify"
+  const sourceNote = found?.extractionMethod === "llm_rag"
+    ? "Extracted by AI from RAG-indexed materials - please verify"
+    : found?.discoveryMode === "documents"
+      ? "Parsed from your uploaded or pasted materials - please verify"
     : found?.discoveryMode === "web"
       ? "Sourced from public web search - please verify"
       : "Estimated from the built-in PhD milestone template - please verify";
@@ -471,7 +473,7 @@ function Onboarding({ onComplete }) {
             </div>
             {materials.length > 0 ? (
               <div className="search-state" style={{ background: "var(--sage-soft)", color: "var(--sage)" }}>
-                <Icon name="FileCheck" size={16} /> Using your uploaded or pasted materials to shape the plan.
+                <Icon name="FileCheck" size={16} /> AI read your uploaded or pasted materials to shape the plan.
               </div>
             ) : (
               <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} onClick={uploadHandbook}>

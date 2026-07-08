@@ -432,6 +432,7 @@
   }
 
   function backendBase() {
+    if (window.CoachAPI && window.CoachAPI.base) return window.CoachAPI.base();
     const configured = (window.PHD_API_BASE || "").trim();
     if (configured) return configured.replace(/\/+$/, "");
     if (window.location && /^https?:$/.test(window.location.protocol)) {
@@ -455,10 +456,12 @@
   }
 
   function buildDiscoveryRequest({ program, institution, materials }) {
+    const token = window.CoachAPI && window.CoachAPI.token ? window.CoachAPI.token() : null;
+    const authHeaders = token ? { "Authorization": `Bearer ${token}` } : {};
     const hasFiles = materialHasFile(materials);
     if (!hasFiles) {
       return {
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ program, institution, materials: serializableMaterials(materials) })
       };
     }
@@ -472,13 +475,13 @@
         form.append("files", material.file, material.name || material.file.name || "uploaded-file");
       }
     });
-    return { body: form };
+    return { headers: authHeaders, body: form };
   }
 
   async function fetchOnlineDeliverables({ program, institution, materials = [] }) {
     if (!window.fetch) return null;
     const controller = window.AbortController ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), 9000) : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 60000) : null;
     const request = buildDiscoveryRequest({ program, institution, materials });
     try {
       const response = await fetch(`${backendBase()}/api/discover-deliverables`, {
@@ -505,10 +508,9 @@
   async function discoverDeliverables({ program, institution, materials = [] }) {
     const hasFiles = materialHasFile(materials);
     const parsedFromMaterials = hasFiles ? null : parseMaterialsForDeliverables({ program, institution, materials });
-    if (!hasFiles && parsedFromMaterials && parsedFromMaterials.discoveryMode === "documents") {
-      return delayResult(parsedFromMaterials, 450);
-    }
 
+    // The backend uses the configured chat LLM and shared RAG stack for every
+    // uploaded file or pasted source. Local parsing is a resilience fallback.
     const online = await fetchOnlineDeliverables({ program, institution, materials });
     if (online) return online;
 

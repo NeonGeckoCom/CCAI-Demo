@@ -386,6 +386,9 @@ function responseStageText(phase, data = {}) {
         ? `Using ${data.advisor_skill_name} for this answer...`
         : "Shaping the answer plan...";
     case "advisor_selected":
+      if (Array.isArray(data.persona_names) && data.persona_names.length > 1) {
+        return `Sending this to ${data.persona_names.length} advisors...`;
+      }
       return data.persona_name
         ? `Sending this to ${data.persona_name}...`
         : "Sending this to your advisor...";

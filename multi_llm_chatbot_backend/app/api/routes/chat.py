@@ -13,7 +13,7 @@ from app.core.auth import get_current_active_user
 from app.config import get_settings
 from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
-from app.core.persona_filter import get_available_persona_ids
+from app.core.persona_filter import get_available_persona_ids, select_persona_ids
 from app.core.session_manager import get_session_manager
 from app.models.user import PersistMessage, ReplyToRef, User
 from app.models.chat import (
@@ -220,15 +220,14 @@ async def chat_stream(
                 },
             ).to_ndjson()
 
-            # Honor the user's explicit advisor selection. In single mode the
-            # frontend sends one id; in multiple mode it sends up to three, and
-            # each gets its own concurrent response below. Preserve the user's
-            # order and drop any that are no longer available.
-            requested_advisor_ids = [pid for pid in (message.active_advisors or []) if pid]
-            if requested_advisor_ids:
-                selected_personas = [pid for pid in requested_advisor_ids if pid in available]
-            else:
-                selected_personas = available[:1]
+            # Honor the user's ordered selection. The composer offers up to
+            # three advisors in Multiple mode; requests without a selection
+            # retain the historical single-advisor fallback.
+            selected_personas = select_persona_ids(
+                available,
+                message.active_advisors,
+                max_personas=3,
+            )
 
             # Guard against race condition where the selected advisor
             # becomes unavailable (e.g. service update) between preference
@@ -260,13 +259,22 @@ async def chat_stream(
                 ).to_ndjson()
                 return
 
-            selected_persona = chat_orchestrator.get_persona(selected_personas[0])
+            selected_advisors = [
+                chat_orchestrator.get_persona(persona_id)
+                for persona_id in selected_personas
+            ]
+            selected_names = [
+                persona.name if persona else persona_id
+                for persona_id, persona in zip(selected_personas, selected_advisors)
+            ]
             yield ChatStreamLine(
                 type="progress",
                 data={
                     "phase": "advisor_selected",
                     "persona_id": selected_personas[0],
-                    "persona_name": selected_persona.name if selected_persona else selected_personas[0],
+                    "persona_name": selected_names[0],
+                    "persona_ids": selected_personas,
+                    "persona_names": selected_names,
                 },
             ).to_ndjson()
 

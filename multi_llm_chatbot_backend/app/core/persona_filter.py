@@ -27,3 +27,30 @@ def get_available_persona_ids(
         ids = [pid for pid in ids if pid not in user_disabled]
 
     return ids
+
+
+def select_persona_ids(
+    available_ids: List[str],
+    requested_ids: Optional[List[str]] = None,
+    max_personas: int = 3,
+) -> List[str]:
+    """Select the requested, available personas in the user's order.
+
+    A request with no usable IDs keeps the historical single-advisor fallback.
+    If IDs were explicitly requested but none are available, an empty list is
+    returned so the caller can report that selection error. Duplicate IDs are
+    ignored and the result is capped to bound concurrent LLM calls.
+    """
+    requested = [persona_id for persona_id in (requested_ids or []) if persona_id]
+    if not requested:
+        return available_ids[:1]
+
+    available = set(available_ids)
+    selected = []
+    for persona_id in requested:
+        if persona_id in available and persona_id not in selected:
+            selected.append(persona_id)
+            if len(selected) >= max_personas:
+                break
+
+    return selected
