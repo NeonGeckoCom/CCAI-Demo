@@ -649,73 +649,180 @@ function greetWord() {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
+// Home dashboard — design option "3a" (decluttered): a single line of context
+// under the greeting, then three blocks — Today, your plan, and the workspace
+// tools. Nothing competes with Today. All of it is wired to live app state:
+// the checklist is the current step's subtasks, the plan snapshot reads the
+// roadmap, and the context line surfaces the soonest real deadline + next gate.
 function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activity, onOpenStep, focused }) {
   const steps = roadmap.steps;
-  // Focused/minimal mode: trim the timeline to completed + current(+recovery).
-  const tlSteps = focused ? steps.filter(s => ["done", "current", "redo"].includes(s.status) || s.recovery) : steps;
-  const doneCount = steps.filter(s => s.status === "done").length;
-  const pct = Math.round((doneCount / steps.length) * 100);
   const current = steps.find(s => s.status === "current") || steps.find(s => s.status === "redo") || steps[0];
   const curIdx = steps.indexOf(current);
-  const fs = RE.computeFeatureState(roadmap, curIdx);
-  const liveTools = fs.active.filter(f => window.hasTool(f)).slice(0, 2);
-  const tip = PHASE_TIPS[current.phase] || PHASE_TIPS.Start;
+  const dts = doneTasks || new Set();
+
+  // --- Today: the current step's checklist, toggled in place ----------------
+  const subs = current.subtasks || [];
+  const todo = subs.map(t => ({ t, key: `${current.id}::${t}`, done: dts.has(`${current.id}::${t}`) }));
+  const doneToday = todo.filter(x => x.done).length;
+  const shownTodo = todo.slice(0, 6);
+  const toggleTask = (key) => setDoneTasks && setDoneTasks(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  // --- Plan snapshot: last done · current (with progress) · next ------------
+  const prevDone = steps.slice(0, curIdx).reverse().find(s => s.status === "done");
+  const next = steps.slice(curIdx + 1).find(s => s.status !== "done") || steps[curIdx + 1];
+  const curPct = subs.length ? Math.round((doneToday / subs.length) * 100)
+    : Math.min(100, Math.round((curIdx / Math.max(1, steps.length)) * 100));
+  const pendingFirst = todo.find(x => !x.done);
+  const curHint = pendingFirst ? `${pendingFirst.t} — the last piece` : (current.objective || "");
+  const goStep = () => onOpenStep ? onOpenStep(current.id) : onNav("plan");
+
+  // --- Context line: soonest real deadline (from the Deadlines tool store) ---
+  const today = new Date(new Date().toDateString());
+  const upcoming = (loadJSON("phd-coach-deadlines-v1", []) || [])
+    .filter(d => d && d.date)
+    .map(d => ({ ...d, days: Math.ceil((new Date(d.date + "T00:00:00") - today) / 86400000) }))
+    .filter(d => !isNaN(d.days) && d.days >= 0)
+    .sort((a, b) => a.days - b.days);
+  const nd = upcoming[0];
+  const ndText = nd ? (nd.days === 0 ? "due today" : nd.days === 1 ? "due tomorrow" : `in ${nd.days} days`) : null;
   const nextGate = steps.slice(curIdx).find(s => s.gate && s.status !== "done");
 
-  // Gentle accountability: the first thing you committed to on this step but haven't ticked.
-  const dts = doneTasks || new Set();
-  const pending = (current.subtasks || []).filter(t => !dts.has(`${current.id}::${t}`));
-  const nudge = pending[0];
-  const reopened = steps.find(s => s.status === "redo" || s.recovery);
-  const stuck = stallDays(roadmap, activity);
-  const atRisk = stuck >= STALL_DAYS;
-
-  const checkNudge = () => {
-    if (!nudge || !setDoneTasks) return;
-    setDoneTasks(prev => { const n = new Set(prev); n.add(`${current.id}::${nudge}`); return n; });
-  };
+  // Big-screen stat strip (design 1a/2a tiles). Progress + Today are live;
+  // the deadline tile reads the nearest real deadline. The meeting tile is a
+  // demo placeholder until a calendar/meeting source is wired to the backend.
+  const doneCount = steps.filter(s => s.status === "done").length;
+  const pct = Math.round((doneCount / steps.length) * 100);
+  const fmtMonthDay = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch (e) { return iso; } };
+  const meetWith = (window.ADVISORS && window.ADVISORS[0] && window.ADVISORS[0].name) || "your advisor";
 
   return (
-    <div className="page">
-      <div className="greeting">
+    <div className="page dash-home">
+      <div className="greeting" style={{ marginBottom: 18 }}>
         <h1 className="display">{greetWord()}, {window.MOCK_USER.name.split(" ")[0]}.</h1>
-        <div className="sub">
-          You're <button className="linkish" onClick={() => onNav("plan")}>{pct}% through your plan</button> — right
-          now you're on <button className="linkish" onClick={() => onNav("plan")}>{current.title}</button>.
+        <div className="dh-context">
+          {nd
+            ? <span><Icon name="Calendar" size={13} /> Nearest deadline — <b className="accent">{nd.label}, {ndText}</b></span>
+            : <span><Icon name="Calendar" size={13} /> No deadlines logged — add them in your Workspace</span>}
+          {nextGate && <><span className="dh-mid">·</span><span>Next gate: <b>{nextGate.title}</b>{nextGate.estimate ? ` · ${nextGate.estimate}` : ""}</span></>}
         </div>
       </div>
 
-      <Timeline steps={tlSteps} onSelect={(s) => onOpenStep ? onOpenStep(s.id) : onNav("plan")} />
-
-      {!focused && <div className="dash">
-        <div className="dash-col">
-          <div className="where">
-            <span className="phase-tag"><Icon name="MapPin" size={12} /> You are here · {current.phase}</span>
-            <h2 className="display">{current.title}</h2>
-            <p className="obj">{current.objective}</p>
-            <div className="where-actions">
-              <button className="btn primary" onClick={() => onNav("plan")}><Icon name="ArrowRight" size={15} color="#fff" /> Continue this step</button>
-              <button className="btn" onClick={() => onNav("chat")}><Icon name="MessageCircle" size={15} /> Ask a question</button>
-            </div>
+      {/* Big-screen only: glanceable stat tiles (hidden below 1500px via CSS) */}
+      {!focused && (
+        <div className="dh-stats">
+          <div className="dh-stat">
+            <div className="dh-stat-l">Plan progress</div>
+            <div className="dh-stat-n">{pct}%</div>
+            <div className="dh-stat-bar"><span style={{ width: `${pct}%` }} /></div>
+            <div className="dh-stat-s">{doneCount} of {steps.length} milestones</div>
+          </div>
+          <div className="dh-stat">
+            <div className="dh-stat-l amber">Next deadline</div>
+            {nd ? (
+              <>
+                <div className="dh-stat-nm">{nd.label}</div>
+                <div className="dh-stat-s">{fmtMonthDay(nd.date)} · <b className="amber">{ndText}</b></div>
+              </>
+            ) : (
+              <>
+                <div className="dh-stat-nm">Nothing due soon</div>
+                <div className="dh-stat-s">You're clear this week</div>
+              </>
+            )}
+          </div>
+          <div className="dh-stat">
+            <div className="dh-stat-l accent">Today</div>
+            <div className="dh-stat-n">{doneToday}<span className="dh-stat-unit">/{todo.length} tasks</span></div>
+            <div className="dh-stat-s">on {current.title}</div>
+          </div>
+          <div className="dh-stat">
+            <div className="dh-stat-l sage">Next meeting</div>
+            <div className="dh-stat-nm">{meetWith}</div>
+            <div className="dh-stat-s">Prep doc is ready to send</div>
           </div>
         </div>
+      )}
 
-        <div className="dash-col">
-          {nextGate && (
-            <div className="card card-pad dash-fill">
-              <div className="card-h"><span className="ico"><Icon name="Flag" size={14} /></span> Next checkpoint</div>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>{nextGate.title}</div>
-              <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 4 }}>{nextGate.estimate}{nextGate.deliverable ? ` · satisfies: ${nextGate.deliverable}` : ""}</div>
+      <div className="dh-row">
+        {/* TODAY */}
+        <div className="dh-card dh-today">
+          <div className="dh-card-head">
+            <span className="dh-eyebrow accent">Today</span>
+            <span className="dh-count">{doneToday} of {todo.length} done</span>
+          </div>
+          {shownTodo.length > 0 ? (
+            <div className="dh-tasks">
+              {shownTodo.map((x, i) => (
+                <div key={i} className={`dh-task ${x.done ? "done" : ""}`}>
+                  <button className="dh-cb" onClick={() => toggleTask(x.key)} aria-label={x.done ? "Mark not done" : "Mark done"}>
+                    {x.done && <Icon name="Check" size={12} color="#fff" />}
+                  </button>
+                  <span className="dh-task-t">{x.t}</span>
+                  <span className="dh-task-meta">{current.title}</span>
+                </div>
+              ))}
+              {todo.length > shownTodo.length && (
+                <button className="linkish dh-more" onClick={goStep}>+{todo.length - shownTodo.length} more on this step</button>
+              )}
+            </div>
+          ) : (
+            <div className="dh-today-empty">
+              <p>No to-dos on this step yet.</p>
+              <button className="btn sm" onClick={goStep}><Icon name="Plus" size={13} /> Add to-dos in the plan</button>
             </div>
           )}
-
         </div>
-      </div>}
 
-      {/* Workspace lives here now — its own full-width Tools row, not a separate page */}
-      {window.CoachWorkspace && <window.CoachWorkspace roadmap={roadmap} embedded />}
+        {/* YOUR PLAN */}
+        <div className="dh-card dh-plan">
+          <div className="dh-card-head"><span className="dh-eyebrow">Your plan</span></div>
+          <div className="dh-track">
+            <div className="dh-rail">
+              {prevDone && <><span className="dh-node done"><Icon name="Check" size={10} color="#fff" /></span><span className="dh-line done" /></>}
+              <span className="dh-node cur" />
+              {next && <><span className="dh-line" /><span className="dh-node locked" /></>}
+            </div>
+            <div className="dh-track-body">
+              {prevDone && <div className="dh-mile"><div className="dh-mile-t">{prevDone.title}</div><div className="dh-mile-s">Done</div></div>}
+              <div className="dh-mile-cur">
+                <div className="dh-mile-cur-t">{current.title}</div>
+                <div className="dh-bar"><span style={{ width: `${Math.max(6, curPct)}%` }} /></div>
+                <div className="dh-mile-s">{curHint}</div>
+              </div>
+              {next && (
+                <div className="dh-mile">
+                  <div className="dh-mile-t">{next.title} {next.gate && <span className="dh-gate">GATE</span>}</div>
+                  <div className="dh-mile-s">{next.estimate || "Up next"}</div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="dh-plan-actions">
+            <button className="btn primary" onClick={goStep}>Continue this step <Icon name="ArrowRight" size={14} color="#fff" /></button>
+            <button className="btn" onClick={() => onNav("plan")}>Full plan</button>
+          </div>
+        </div>
+      </div>
 
-      {!focused && <button className="sos" onClick={onOpenSos}><Icon name="LifeBuoy" size={15} /> Something came up?</button>}
+      {/* WORKSPACE TOOLS — three live, milestone-matched tools (design 3a).
+          These are the app's real tools via window.renderTool, so they persist
+          and stay fully functional; "All tools" opens the full workspace/plan. */}
+      {!focused && window.renderTool && (
+        <>
+          <div className="dh-ws-head">
+            <span className="dh-eyebrow">Workspace</span>
+            <span className="dh-ws-sub">tools matched to {current.title}</span>
+            <button className="linkish dh-ws-all" onClick={() => onNav("plan")}>All tools →</button>
+          </div>
+          <div className="dh-tools">
+            {window.renderTool("pomodoro")}
+            {window.renderTool("reading-queue")}
+            {window.renderTool("notes")}
+          </div>
+        </>
+      )}
+
+      <button className="sos" onClick={onOpenSos}><Icon name="LifeBuoy" size={15} /> Something came up?</button>
     </div>
   );
 }

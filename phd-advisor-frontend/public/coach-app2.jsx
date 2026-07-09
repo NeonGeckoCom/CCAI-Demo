@@ -1262,6 +1262,9 @@ function CoachRoot() {
 
       <Celebration data={celebrate} onClose={() => setCelebrate(null)} />
       {showTour && <window.CoachTour onNav={setView} onClose={() => setShowTour(false)} skillsUnlocked={unlocked.skills} />}
+      {/* Per-page first-view walkthrough (Documents/Insights/Skills/Defense).
+          Suppressed while the app-wide welcome tour is running so they don't stack. */}
+      {!showTour && window.PageTour && <window.PageTour page={v} />}
       <RecoveryModal open={sosOpen} onClose={() => setSosOpen(false)} onReplan={handleReplan} />
       {recovered && (
         <div className="backdrop" onClick={() => { setRecovered(null); setView("plan"); }}>

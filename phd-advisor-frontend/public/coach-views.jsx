@@ -30,8 +30,8 @@ function CoachInsights({ onNav }) {
           <h2 className="display">Insights appear here once you've chatted with your advisors a few times.</h2>
           <p>They summarize what's emerging across your conversations — open questions, blockers, and the next steps your advisors keep pointing at. Nothing is generated until there's real history to summarize.</p>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-            <button className="btn primary" onClick={() => onNav && onNav("chat")}><IcoV name="MessageCircle" size={15} color="#fff" /> Start a conversation</button>
-            <button className="btn" onClick={() => setPreview(true)}><IcoV name="Eye" size={15} /> Preview with sample data</button>
+            <button className="btn primary" data-ptour="ins-chat" onClick={() => onNav && onNav("chat")}><IcoV name="MessageCircle" size={15} color="#fff" /> Start a conversation</button>
+            <button className="btn" data-ptour="ins-preview" onClick={() => setPreview(true)}><IcoV name="Eye" size={15} /> Preview with sample data</button>
           </div>
         </div>
       </div>
@@ -500,14 +500,14 @@ function CoachDocuments({ roadmap }) {
           <h1 className="display" style={{ fontSize: 26 }}>Documents</h1>
           <div className="sub">{projects.length > 0 ? `${projects.length} document${projects.length === 1 ? "" : "s"} stored.` : "Upload what your program sent you — or let a Skill draft one for you."}</div>
         </div>
-        <button className="btn primary" onClick={triggerUpload}><IcoV name="Upload" size={15} color="#fff" /> Upload document</button>
+        <button className="btn primary" data-ptour="doc-upload" onClick={triggerUpload}><IcoV name="Upload" size={15} color="#fff" /> Upload document</button>
       </div>
 
       {busy && <div className="search-state" style={{ marginBottom: 14 }}><IcoV name="Loader" size={16} className="spin" /> Reading &amp; converting <strong>&nbsp;{busy}&nbsp;</strong>…</div>}
       {uploadErr && <div className="doc-upload-err"><IcoV name="AlertTriangle" size={15} /> {uploadErr}</div>}
 
       {/* Drag-and-drop / empty-state dropzone */}
-      <button className="doc-dropzone" onClick={triggerUpload}>
+      <button className="doc-dropzone" data-ptour="doc-dropzone" onClick={triggerUpload}>
         <span className="doc-dz-ico"><IcoV name="UploadCloud" size={22} /></span>
         <span className="doc-dz-t">Upload a document</span>
         <span className="doc-dz-d">PDF, Word (.docx), or text. Word &amp; text files become editable; PDFs are stored for viewing.</span>

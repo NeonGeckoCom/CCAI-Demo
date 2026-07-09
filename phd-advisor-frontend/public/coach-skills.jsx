@@ -198,11 +198,11 @@ function CoachSkills({ roadmap, onNav }) {
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
-        <div className="field" style={{ margin: 0, flex: 1, minWidth: 200 }}>
+        <div className="field" data-ptour="sk-search" style={{ margin: 0, flex: 1, minWidth: 200 }}>
           <div className="wrap"><span className="fi"><IcoK name="Search" size={15} /></span>
             <input placeholder="Search skills…" value={q} onChange={e => setQ(e.target.value)} /></div>
         </div>
-        <button className="btn primary" onClick={() => setCreating(true)}><IcoK name="Plus" size={15} color="#fff" /> Create a skill</button>
+        <button className="btn primary" data-ptour="sk-create" onClick={() => setCreating(true)}><IcoK name="Plus" size={15} color="#fff" /> Create a skill</button>
       </div>
 
       {searching ? (
