@@ -2,9 +2,9 @@
    poster sessions, and research talks. Replaces the old Workspace page slot.
    Exports window.CoachDefenseRoom.
 
-   Frontend demo today; BACKEND LATER:
+   Backend-required for real committee profile lookup and question generation:
    - uploaded materials get parsed server-side and seed the question generator
-   - committee questions come from the real personas via /chat-stream
+   - real committee questions come from /api/defense/questions when available
    - voice uses the backend TTS/STT pipeline instead of browser speechSynthesis */
 
 (function () {
@@ -17,38 +17,13 @@
     { id: "talk", name: "Research talk", icon: "Presentation", desc: "Conference-style Q&A: audience questions on clarity, novelty, and what comes next." }
   ];
 
-  // Question bank per format. Tags drive the coverage readout in feedback.
-  // BACKEND: replace with persona-generated questions seeded by uploaded materials.
-  const QUESTIONS = {
-    defense: [
-      { tag: "Framing", q: "In one minute: what is the single question your dissertation answers, and why does it matter now?" },
-      { tag: "Methods", q: "Why is your method the right one here? What would change if you had chosen the obvious alternative?" },
-      { tag: "Evidence", q: "Which of your results is the most fragile, and what would it take to overturn it?" },
-      { tag: "Contribution", q: "What can the field do after your dissertation that it could not do before?" },
-      { tag: "Limitations", q: "Where does your claim stop? Name a population or setting where it does not hold." },
-      { tag: "Future work", q: "If you had one more year with no committee, what would you do next and why?" }
-    ],
-    poster: [
-      { tag: "Pitch", q: "I have 30 seconds before my next session. What is your poster about and why should I care?" },
-      { tag: "So what", q: "Interesting. Who actually uses this result, and what do they do differently because of it?" },
-      { tag: "Methods", q: "Walk me through your method using only what is visible on the poster." },
-      { tag: "Evidence", q: "Your effect looks small from here. Convince me it is real." },
-      { tag: "Next steps", q: "If I gave you funding tomorrow, what is the first study you would run?" }
-    ],
-    talk: [
-      { tag: "Clarity", q: "Can you restate your main finding for someone outside your subfield?" },
-      { tag: "Novelty", q: "How is this different from the well-known prior work in this area?" },
-      { tag: "Methods", q: "You moved fast through the methods slide. What are you not showing us?" },
-      { tag: "Generalization", q: "Would this hold outside the setting you studied? What is your evidence?" },
-      { tag: "Next steps", q: "What is the follow-up study, and what result would surprise you?" }
-    ]
-  };
+  const QUESTION_COUNT = { defense: 6, poster: 5, talk: 5 };
 
   const wordCount = (s) => (s || "").trim().split(/\s+/).filter(Boolean).length;
 
   // Real committee members the student adds by name/title. Stored locally so the
-  // roster survives reloads. BACKEND LATER: look up each member's public academic
-  // profile (publications, talks, group page) and tailor their questions to it.
+  // roster survives reloads; the backend resolves public academic profiles when
+  // a member is added, then Start practice only generates questions.
   const REAL_KEY = "phd-defense-committee-v1";
   const REAL_COLORS = ["#B45309", "#0F766E", "#7C3AED", "#BE123C", "#1D4ED8"];
   const loadReal = () => { try { const v = JSON.parse(localStorage.getItem(REAL_KEY)); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
@@ -132,12 +107,15 @@
     const advisors = window.ADVISORS || [];
     const [stage, setStage] = useState("setup");        // setup | live | feedback
     const [format, setFormat] = useState("defense");
-    const [committee, setCommittee] = useState(() => advisors.slice(0, 3).map(a => a.id));
+    const [committee, setCommittee] = useState([]);
     const [materials, setMaterials] = useState([]);     // {name, size}
     const [voice, setVoice] = useState(false);
-    const [realMembers, setRealMembers] = useState(loadReal);   // {id, name, title}
+    const [realMembers, setRealMembers] = useState(loadReal);   // {id, name, institution}
     const [newName, setNewName] = useState("");
-    const [newTitle, setNewTitle] = useState("");
+    const [newInstitution, setNewInstitution] = useState("");
+    const [resolvingMember, setResolvingMember] = useState(false);
+    const [sessionQuestions, setSessionQuestions] = useState(null);
+    const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [qIdx, setQIdx] = useState(0);
     const [answer, setAnswer] = useState("");
     const [log, setLog] = useState([]);                 // {q, tag, advisorId, answer, spoken}
@@ -146,17 +124,32 @@
     const recRef = useRef(null);
     const spokeRef = useRef(false);                     // any part of this answer came in by voice
 
-    const questions = QUESTIONS[format] || QUESTIONS.defense;
-    // Real members render exactly like personas on the panel: name + title,
-    // their own color, and a "real" badge so the source is obvious.
+    const questionCount = QUESTION_COUNT[format] || 6;
+    const parsingMaterials = materials.some(m => m.status === "parsing");
+    const researchFieldLabel = (profile) => (profile?.research_areas || [])
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(", ");
+    // Real members render exactly like personas on the panel: name + research
+    // fields, their own color, and a "profile" badge so the source is obvious.
     const realAsPanelists = realMembers.map((m, i) => ({
-      id: m.id, name: m.name, role: m.title || "Committee member",
-      color: REAL_COLORS[i % REAL_COLORS.length], icon: "UserCheck", real: true
+      id: m.id,
+      name: m.name,
+      role: researchFieldLabel(m.profile) || "Public profile",
+      color: REAL_COLORS[i % REAL_COLORS.length],
+      icon: "UserCheck",
+      real: true,
+      profile: m.profile
     }));
     const roster = [...advisors, ...realAsPanelists];
     const panel = roster.filter(a => committee.includes(a.id));
-    const asker = panel.length ? panel[qIdx % panel.length] : { name: "Committee member", role: "", color: "var(--primary)", icon: "User" };
-    const current = questions[qIdx];
+    const hasSelectedCommittee = panel.length > 0;
+    const questions = (sessionQuestions && sessionQuestions.length) ? sessionQuestions : [];
+    const current = questions[qIdx] || null;
+    const questionAsker = current && (current.advisorId || current.member_id)
+      ? panel.find(a => a.id === (current.advisorId || current.member_id))
+      : null;
+    const asker = questionAsker || (panel.length ? panel[qIdx % panel.length] : { name: "Committee member", role: "", color: "var(--primary)", icon: "User" });
 
     // Audio out: read each question aloud as it appears, in the asker's voice.
     useEffect(() => {
@@ -199,19 +192,91 @@
     const togglePanelist = (id) => setCommittee(c =>
       c.includes(id) ? (c.length > 1 ? c.filter(x => x !== id) : c) : (c.length < 3 ? [...c, id] : c));
 
-    const addFiles = (fileList) => {
-      const adds = [...fileList].map(f => ({ name: f.name, size: f.size || 0 }));
-      if (adds.length) setMaterials(p => [...p, ...adds]);
+    const readLocalTextMaterial = async (file) => {
+      const name = (file?.name || "").toLowerCase();
+      const canRead = (file?.type || "").startsWith("text/")
+        || /\.(txt|md|markdown|csv|json|html?)$/.test(name);
+      if (!canRead || !file?.text) return "";
+      return (await file.text()).replace(/\s+/g, " ").trim();
     };
 
-    const addRealMember = () => {
+    const addFiles = async (fileList) => {
+      const files = [...(fileList || [])];
+      if (!files.length) return;
+      const startedAt = Date.now();
+      const placeholders = files.map((f, i) => ({
+        id: `mat-${startedAt}-${i}`,
+        name: f.name || "Uploaded material",
+        size: f.size || 0,
+        text: "",
+        status: "parsing",
+        wordCount: 0,
+        fileType: ""
+      }));
+      setMaterials(p => [...p, ...placeholders]);
+
+      await Promise.all(files.map(async (file, i) => {
+        const id = placeholders[i].id;
+        try {
+          let parsed = null;
+          if (window.CoachAPI?.parseDefenseMaterial) {
+            parsed = await window.CoachAPI.parseDefenseMaterial(file);
+          }
+          const text = (parsed?.text || "").trim();
+          if (!text) throw new Error("No readable text returned");
+          setMaterials(p => p.map(m => m.id === id ? {
+            ...m,
+            name: parsed.name || m.name,
+            text,
+            status: "parsed",
+            wordCount: parsed.word_count || text.split(/\s+/).filter(Boolean).length,
+            fileType: parsed.file_type || ""
+          } : m));
+        } catch (e) {
+          const localText = await readLocalTextMaterial(file).catch(() => "");
+          setMaterials(p => p.map(m => m.id === id ? {
+            ...m,
+            text: localText,
+            status: localText ? "parsed-local" : "failed",
+            wordCount: localText ? localText.split(/\s+/).filter(Boolean).length : 0,
+            error: localText ? "" : "Could not parse"
+          } : m));
+        }
+      }));
+    };
+
+    const addRealMember = async () => {
       const name = newName.trim();
-      if (!name) return;
-      const member = { id: `real-${Date.now()}`, name, title: newTitle.trim() };
+      if (!name || resolvingMember) return;
+      const member = { id: `real-${Date.now()}`, name, institution: newInstitution.trim() };
+      setResolvingMember(true);
+      let profile = null;
+      try {
+        if (!window.CoachAPI?.resolveDefenseMemberProfile) throw new Error("Profile API unavailable");
+        profile = await window.CoachAPI.resolveDefenseMemberProfile({
+          id: member.id,
+          name: member.name,
+          title: "",
+          institution: member.institution || roadmap?.program?.institution || "",
+          area: ""
+        });
+      } catch (e) {
+        if (onToast) onToast(`Could not fetch public profile data for ${member.name}.`);
+        setResolvingMember(false);
+        return;
+      } finally {
+        setResolvingMember(false);
+      }
+      if (!profile || profile.source_status !== "web") {
+        if (onToast) onToast(`No public academic profile found for ${member.name}.`);
+        return;
+      }
+      member.profile = profile;
       const next = [...realMembers, member];
       setRealMembers(next); saveReal(next);
       setCommittee(c => c.length < 3 ? [...c, member.id] : c);
-      setNewName(""); setNewTitle("");
+      setNewName(""); setNewInstitution("");
+      if (onToast) onToast(`Found public profile data: ${member.name}`);
     };
     const removeRealMember = (id) => {
       const next = realMembers.filter(m => m.id !== id);
@@ -219,7 +284,124 @@
       setCommittee(c => c.filter(x => x !== id));
     };
 
-    const start = () => { setLog([]); setQIdx(0); setAnswer(""); spokeRef.current = false; setStage("live"); };
+    const buildDefenseSummary = () => {
+      const currentStep = roadmap?.current_step || roadmap?.current || roadmap?.steps?.find?.(s => s.status === "current") || {};
+      return [currentStep.title, currentStep.objective, currentStep.deliverable, ...(currentStep.subtasks || [])].filter(Boolean).join(". ");
+    };
+    const defenseGenerationError = (e) => {
+      const detail = e?.data?.detail;
+      if (detail && typeof detail === "object") {
+        const reason = detail.reason ? String(detail.reason).replace(/_/g, " ") : "";
+        const diagnostic = detail.diagnostics?.failure_reason
+          ? String(detail.diagnostics.failure_reason).replace(/_/g, " ")
+          : "";
+        const rejected = detail.diagnostics?.rejected_count ? `${detail.diagnostics.rejected_count} rejected` : "";
+        return [detail.message, reason, diagnostic, rejected].filter(Boolean).join(" · ");
+      }
+      return e?.message || "Question generation failed.";
+    };
+    const personaQuestionAngles = (advisor) => {
+      const name = (advisor?.name || "").toLowerCase();
+      if (name.includes("method")) {
+        return [
+          "validity threats, controls, sampling, measurement, and whether the claims follow from the evidence",
+          "methodological assumptions the student should be ready to defend"
+        ];
+      }
+      if (name.includes("theor")) {
+        return [
+          "conceptual framing, definitions, contribution to theory, and alternative explanations",
+          "whether the dissertation's central constructs are precise enough to defend"
+        ];
+      }
+      return [
+        advisor?.summary || advisor?.role || "the selected advisor's stated perspective",
+        "committee-style challenge based on the selected advisor persona"
+      ];
+    };
+    const personaProfileFor = (advisor) => ({
+      id: advisor.id,
+      name: advisor.name,
+      title: advisor.role || "Advisor persona",
+      institution: "",
+      profile_url: `persona://${advisor.id}`,
+      source_status: "persona",
+      confidence: 1,
+      summary: [advisor.role, advisor.summary].filter(Boolean).join(". ") || `${advisor.name} advisor persona.`,
+      research_areas: [advisor.role, advisor.summary].filter(Boolean).slice(0, 3),
+      questioning_style: [advisor.summary || advisor.role || "committee-style questions"],
+      question_angles: personaQuestionAngles(advisor),
+      sources: [{ title: `${advisor.name} selected advisor persona`, url: `persona://${advisor.id}`, kind: "advisor_persona" }]
+    });
+    const start = async () => {
+      setLog([]); setQIdx(0); setAnswer(""); spokeRef.current = false; setSessionQuestions(null);
+
+      const selectedPanel = panel.map(a => {
+        if (!a.real) {
+          return {
+            id: a.id,
+            name: a.name,
+            title: a.role || "",
+            institution: "",
+            area: a.role || a.summary || "",
+            profile: personaProfileFor(a)
+          };
+        }
+        const stored = realMembers.find(m => m.id === a.id) || {};
+        return {
+          id: a.id,
+          name: stored.name || a.name,
+          title: stored.profile?.title || stored.title || "",
+          institution: stored.institution || stored.profile?.institution || roadmap?.program?.institution || "",
+          area: (stored.profile?.research_areas || []).slice(0, 2).join(", ") || stored.title || "",
+          profile: stored.profile || null
+        };
+      });
+
+      if (!selectedPanel.length) {
+        if (onToast) onToast("Select at least one committee member before starting.");
+        return;
+      }
+      if (selectedPanel.some(member => !["web", "persona"].includes(member.profile?.source_status))) {
+        if (onToast) onToast("Remove and re-add members without public profile data before starting.");
+        return;
+      }
+      if (!window.CoachAPI?.generateDefenseQuestions) {
+        if (onToast) onToast("Defense question API is unavailable.");
+        return;
+      }
+
+      setLoadingQuestions(true);
+      try {
+        const materialPayload = materials
+          .filter(m => (m.text || "").trim())
+          .map(m => ({ name: m.name || "Uploaded material", text: m.text || "" }));
+        const hasUploadedMaterial = materialPayload.length > 0;
+        const result = await window.CoachAPI.generateDefenseQuestions({
+          format,
+          thesisTitle: hasUploadedMaterial ? "" : roadmap?.program?.name || "",
+          researchSummary: hasUploadedMaterial ? "" : buildDefenseSummary(),
+          materials: materialPayload,
+          committeeMembers: selectedPanel,
+          questionCount
+        });
+        const generated = (result?.questions || []).map(q => ({
+          tag: q.tag || "Committee question",
+          q: q.q,
+          advisorId: q.member_id,
+          groundedIn: q.grounded_in || [],
+          sourceUrls: q.source_urls || []
+        })).filter(q => q.q);
+        if (!generated.length) throw new Error("No generated questions returned.");
+        setSessionQuestions(generated);
+        if (onToast) onToast("Generated LLM questions from public committee profiles.");
+        setStage("live");
+      } catch (e) {
+        if (onToast) onToast(`Could not generate defense questions: ${defenseGenerationError(e)}`);
+      } finally {
+        setLoadingQuestions(false);
+      }
+    };
     const record = (skipped) => {
       stopListening();
       setLog(p => [...p, { q: current.q, tag: current.tag, advisorId: asker.id, answer: skipped ? "" : answer.trim(), spoken: !skipped && spokeRef.current }]);
@@ -267,7 +449,7 @@
                     {a.name}
                     {a.real && a.role !== "Committee member" && <span className="def-chip-sub">{a.role}</span>}
                   </span>
-                  {a.real && <span className="def-real-badge">real</span>}
+                  {a.real && <span className="def-real-badge">{a.profile?.source_status === "web" ? "profile" : "real"}</span>}
                   {a.real && <span className="def-mat-x" role="button" tabIndex={0} title="Remove member"
                     onClick={e => { e.stopPropagation(); removeRealMember(a.id); }}
                     onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); removeRealMember(a.id); } }}>
@@ -282,12 +464,14 @@
             <div className="def-add-real-h"><IcoD name="UserPlus" size={13} /> Add your real committee members</div>
             <div className="def-add-row">
               <input className="def-add-input" value={newName} onChange={e => setNewName(e.target.value)}
-                placeholder="Name, e.g. Dr. Maria Chen" onKeyDown={e => e.key === "Enter" && addRealMember()} />
-              <input className="def-add-input" value={newTitle} onChange={e => setNewTitle(e.target.value)}
-                placeholder="Title / area (optional), e.g. Assoc. Prof., HCI" onKeyDown={e => e.key === "Enter" && addRealMember()} />
-              <button className="btn sm" onClick={addRealMember} disabled={!newName.trim()}><IcoD name="Plus" size={13} /> Add</button>
+                placeholder="Name, e.g. Dr. Maria Chen" onKeyDown={e => e.key === "Enter" && !resolvingMember && addRealMember()} />
+              <input className="def-add-input" value={newInstitution} onChange={e => setNewInstitution(e.target.value)}
+                placeholder="Affiliated institution, e.g. University of Colorado Boulder" onKeyDown={e => e.key === "Enter" && !resolvingMember && addRealMember()} />
+              <button className="btn sm" onClick={addRealMember} disabled={!newName.trim() || resolvingMember}>
+                <IcoD name={resolvingMember ? "Loader2" : "Plus"} size={13} /> {resolvingMember ? "Searching..." : "Add"}
+              </button>
             </div>
-            <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Globe" size={12} /> Once wired to the backend, we will use each member's public academic profile, such as publications and talks, so their questions sound like the real person.</div>
+            <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Globe" size={12} /> Adding a member searches public academic pages by name and affiliated institution. Start practice then generates questions from the saved profile.</div>
           </div>
 
           <div className="section-label"><span className="ic"><IcoD name="Upload" size={13} /></span> Materials (optional)</div>
@@ -297,19 +481,22 @@
             <button className="btn" onClick={() => fileRef.current?.click()}><IcoD name="Upload" size={14} /> Upload slides or draft</button>
             {materials.map((m, i) => (
               <span key={i} className="def-mat">
-                <IcoD name="FileText" size={12} /> {m.name}
+                <IcoD name={m.status === "failed" ? "AlertTriangle" : m.status === "parsing" ? "Loader2" : "FileText"} size={12} /> {m.name}
+                {m.status === "parsing" && " · parsing"}
+                {(m.status === "parsed" || m.status === "parsed-local") && ` · ${m.wordCount || 0} words`}
+                {m.status === "failed" && " · unreadable"}
                 <button className="def-mat-x" onClick={() => setMaterials(p => p.filter((_, j) => j !== i))} title="Remove"><IcoD name="X" size={11} /></button>
               </span>
             ))}
           </div>
-          <div className="def-note"><IcoD name="Info" size={12} /> Once wired to the backend, your materials will seed the committee's questions.</div>
+          <div className="def-note"><IcoD name="Info" size={12} /> Parsed materials seed the committee's questions. Unreadable files are ignored.</div>
 
           <div className="def-startrow">
             <button className={`composer-btn ${voice ? "on" : ""}`} onClick={() => setVoice(v => !v)} title="Questions are read aloud">
               <IcoD name={voice ? "Volume2" : "VolumeX"} size={14} /> Voice {voice ? "on" : "off"}
             </button>
-            <button className="btn primary lg" onClick={start} disabled={panel.length === 0}>
-              <IcoD name="Play" size={15} color="#fff" /> Start practice · {fmt.name}
+            <button className="btn primary lg" onClick={start} disabled={!hasSelectedCommittee || loadingQuestions || parsingMaterials}>
+              <IcoD name={(loadingQuestions || parsingMaterials) ? "Loader2" : "Play"} size={15} color="#fff" /> {parsingMaterials ? "Parsing materials..." : loadingQuestions ? "Preparing questions..." : `Start practice · ${fmt.name}`}
             </button>
           </div>
         </div>
@@ -318,6 +505,19 @@
 
     // ---- Live session ----------------------------------------------------------
     if (stage === "live") {
+      if (!current) {
+        return (
+          <div className="page">
+            <div className="def-live-head">
+              <div>
+                <div className="section-label" style={{ margin: 0 }}><span className="ic"><IcoD name="AlertTriangle" size={13} /></span> No generated questions</div>
+                <div className="def-live-count">Question generation did not complete.</div>
+              </div>
+              <button className="btn sm" onClick={() => setStage("setup")}><IcoD name="ArrowLeft" size={13} /> Back</button>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="page">
           <div className="def-live-head">
