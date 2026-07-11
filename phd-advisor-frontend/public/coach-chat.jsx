@@ -10,6 +10,34 @@ const IcoC = window.Icon;
 const HC = window.coachHelpers;
 
 const MD_LINK_RE = /^(https?:\/\/|mailto:)/i;
+const PROFILE_PLACEHOLDERS = new Set([
+  "string",
+  "undefined",
+  "null",
+  "none",
+  "n/a",
+  "na",
+  "unknown",
+  "choose your program",
+  "select your program",
+  "choose your university",
+  "select your university"
+]);
+
+function cleanProfileValue(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (PROFILE_PLACEHOLDERS.has(text.toLowerCase())) return "";
+  return text;
+}
+
+function firstProfileValue(...values) {
+  for (const value of values) {
+    const clean = cleanProfileValue(value);
+    if (clean) return clean;
+  }
+  return "";
+}
 
 function parseInlineMarkdown(text, keyPrefix) {
   const src = String(text || "");
@@ -577,11 +605,11 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     };
     return {
       profile: {
-        name: user.name || "",
-        email: user.email || "",
-        institution: user.institution || roadmap.program?.institution || "",
-        program: user.program || roadmap.program?.name || "",
-        stage: user.stage || ""
+        name: firstProfileValue(user.name),
+        email: firstProfileValue(user.email),
+        institution: firstProfileValue(roadmap.program?.institution, user.institution),
+        program: firstProfileValue(roadmap.program?.name, user.program),
+        stage: firstProfileValue(user.stage)
       },
       roadmap: {
         program: roadmap.program || null,

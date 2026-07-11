@@ -29,6 +29,34 @@
   const token = () => { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
   const rawUser = () => { try { return JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch (e) { return null; } };
   const isAuthed = () => !!token();
+  const PROFILE_PLACEHOLDERS = new Set([
+    "string",
+    "undefined",
+    "null",
+    "none",
+    "n/a",
+    "na",
+    "unknown",
+    "choose your program",
+    "select your program",
+    "choose your university",
+    "select your university"
+  ]);
+
+  function cleanProfileValue(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (PROFILE_PLACEHOLDERS.has(text.toLowerCase())) return "";
+    return text;
+  }
+
+  function firstProfileValue(...values) {
+    for (const value of values) {
+      const clean = cleanProfileValue(value);
+      if (clean) return clean;
+    }
+    return "";
+  }
 
   function setAuth(tok, user) {
     try {
@@ -51,14 +79,14 @@
     const u = rawUser();
     const demo = window.MOCK_USER || { name: "PhD Student", email: "", stage: "", program: "" };
     if (!u) return demo;
-    const name = u.name || [u.firstName, u.lastName].filter(Boolean).join(" ") || u.full_name || u.email || demo.name;
-    const email = u.email || demo.email;
+    const name = firstProfileValue(u.name, [u.firstName, u.lastName].filter(Boolean).join(" "), u.full_name, u.email, demo.name);
+    const email = firstProfileValue(u.email, demo.email);
     return {
       name, email,
       initials: u.initials || initialsFor(name, email),
-      stage: u.academicStage || u.stage || demo.stage,
-      institution: u.institution || demo.institution || "",
-      program: u.program || u.researchArea || demo.program
+      stage: firstProfileValue(u.academicStage, u.stage, demo.stage),
+      institution: firstProfileValue(u.institution, demo.institution),
+      program: firstProfileValue(u.program, u.researchArea, demo.program)
     };
   }
 
