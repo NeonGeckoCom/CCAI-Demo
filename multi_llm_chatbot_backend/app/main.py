@@ -26,6 +26,7 @@ from app.api.routes.phd_canvas import router as phd_canvas_router
 from app.api.routes.preferences import router as preferences_router
 from app.api.routes.advisor_skills import router as advisor_skills_router
 from app.api.routes.discovery import router as discovery_router
+from app.api.routes.defense import router as defense_router
 
 import logging
 
@@ -70,6 +71,7 @@ app.include_router(phd_canvas_router, prefix="/api", tags=["phd-canvas"])
 app.include_router(preferences_router, prefix="/api", tags=["preferences"])
 app.include_router(advisor_skills_router, prefix="/api", tags=["advisor-skills"])
 app.include_router(discovery_router, prefix="/api", tags=["discovery"])
+app.include_router(defense_router, prefix="/api", tags=["defense"])
 
 # Serve bundled avatar images
 _avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"

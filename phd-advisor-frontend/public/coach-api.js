@@ -232,10 +232,43 @@
     return jsonOrThrow(res);
   }
 
+  async function resolveDefenseMemberProfile(member) {
+    const res = await fetch(`${base()}/api/defense/member-profile`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({ member })
+    });
+    return jsonOrThrow(res);
+  }
+
+  async function parseDefenseMaterial(file) {
+    const form = new FormData();
+    form.append("file", file, file?.name || "defense-material");
+    const res = await fetch(`${base()}/api/defense/materials/parse`, {
+      method: "POST", headers: authHeaders(false), body: form
+    });
+    return jsonOrThrow(res);
+  }
+
+  async function generateDefenseQuestions({ format, thesisTitle, researchSummary, materials, committeeMembers, questionCount = 6 }) {
+    const res = await fetch(`${base()}/api/defense/questions`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        format: format || "defense",
+        thesis_title: thesisTitle || "",
+        research_summary: researchSummary || "",
+        materials: materials || [],
+        committee_members: committeeMembers || [],
+        question_count: questionCount
+      })
+    });
+    return jsonOrThrow(res);
+  }
+
   window.CoachAPI = {
     base, token, isAuthed, setAuth, clearAuth, getUser, getRawUser: rawUser, initialsFor,
     login, signup, demoAuth, getConfig,
     listSessions, createSession, getSession, renameSession, deleteSession, truncateMessages, uploadDocument, saveMessage, switchChat, newChat,
-    streamChat, replyToAdvisor
+    streamChat, replyToAdvisor,
+    resolveDefenseMemberProfile, parseDefenseMaterial, generateDefenseQuestions
   };
 })();
