@@ -90,13 +90,13 @@ function CreateSkillModal({ onClose, onCreate }) {
   const can = name.trim() && desc.trim();
   return (
     <div className="backdrop" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="create-skill-title" onClick={e => e.stopPropagation()}>
         <div className="modal-h">
           <div style={{ display: "flex", gap: 12 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--primary-soft)", color: "var(--primary-deep)", display: "grid", placeItems: "center", flexShrink: 0 }}><IcoK name="Wand2" size={18} /></div>
-            <div><h2 className="display">Create a skill</h2><p>No code needed. Describe the task in plain words — we'll tune a specialized assistant for it.</p></div>
+            <div><h2 className="display" id="create-skill-title">Create a skill</h2><p>No code needed. Describe the task in plain words — we'll tune a specialized assistant for it.</p></div>
           </div>
-          <button className="modal-x" onClick={onClose}><IcoK name="X" size={14} /></button>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><IcoK name="X" size={14} /></button>
         </div>
         <div className="modal-b">
           <div className="field"><label>Skill name</label><div className="wrap" style={{ paddingLeft: 0 }}>
@@ -200,7 +200,7 @@ function CoachSkills({ roadmap, onNav }) {
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
         <div className="field" data-ptour="sk-search" style={{ margin: 0, flex: 1, minWidth: 200 }}>
           <div className="wrap"><span className="fi"><IcoK name="Search" size={15} /></span>
-            <input placeholder="Search skills…" value={q} onChange={e => setQ(e.target.value)} /></div>
+            <input placeholder="Search skills…" aria-label="Search skills" value={q} onChange={e => setQ(e.target.value)} /></div>
         </div>
         <button className="btn primary" data-ptour="sk-create" onClick={() => setCreating(true)}><IcoK name="Plus" size={15} color="#fff" /> Create a skill</button>
       </div>
