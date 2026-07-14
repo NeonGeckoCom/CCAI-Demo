@@ -25,6 +25,15 @@
 
   const wordCount = (s) => (s || "").trim().split(/\s+/).filter(Boolean).length;
   const fmtDur = (secs) => { const s = Math.max(0, Math.round(secs)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")}`; };
+  const normalizeDeckSlides = (slides) => (Array.isArray(slides) ? slides : []).map((s, i) => ({
+    index: Number.isFinite(Number(s.index)) ? Number(s.index) : i,
+    title: String(s.title || "").trim(),
+    text: String(s.text || "").trim(),
+    notes: String(s.notes || "").trim(),
+    bullets: Array.isArray(s.bullets) ? s.bullets.map(b => String(b || "").trim()).filter(Boolean) : [],
+    thumbnail: String(s.thumbnail || "").trim(),
+    seconds: Number(s.seconds || 0)
+  }));
 
   // ==========================================================================
   // OFFLINE QUESTION FALLBACK
@@ -372,24 +381,25 @@
   //       return { "questions": [ {persona_id, tag, q}, ... ] }  # 5-6 items
   // ==========================================================================
   const DefensePresent = {
-    // Split an uploaded deck into slides. REAL: POST the file to /api/defense/deck.
-    // DEMO: we can't parse client-side, so we return `count` blank slide stubs and
-    // preview the raw file (PDFs page-jump via #page=N in the browser viewer).
+    // Split an uploaded deck into slides. PowerPoint decks go through the
+    // backend so the original slide art can be rendered when PowerPoint is
+    // available locally; PDFs keep a browser page preview.
     async parseDeck({ file, dataUrl, count }) {
-      /* REAL:
-      const fd = new FormData(); fd.append("file", file);
-      const res = await fetch("/api/defense/deck", { method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("phd-auth-token")}` }, body: fd });
-      const { slides } = await res.json();   // [{ index, thumbnail, text }]
-      return slides;
-      */
-      const n = Math.max(1, count || 8);
       const isPdf = (file && file.type === "application/pdf") || /\.pdf$/i.test(file?.name || "");
+      const isPptx = (file && file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation") || /\.pptx$/i.test(file?.name || "");
+      if (isPptx && window.CoachAPI?.parseDefenseDeck) {
+        const parsed = await window.CoachAPI.parseDefenseDeck(file, { renderSlides: true });
+        const slides = normalizeDeckSlides(parsed?.slides || []);
+        if (slides.length) return slides;
+        throw new Error("No readable slides were returned from the deck parser.");
+      }
+
+      const n = Math.max(1, count || 8);
       return Array.from({ length: n }, (_, i) => ({
         index: i,
         // For PDFs the browser viewer honors #page=N, so each stub previews its page.
         thumbnail: isPdf && dataUrl ? `${dataUrl}#page=${i + 1}&toolbar=0&navpanes=0` : null,
-        text: ""   // BACKEND fills this from the parsed slide; drives coverage scoring
+        text: ""
       }));
     },
 
@@ -859,7 +869,9 @@
     const addDeck = (fileList) => {
       const file = fileList && fileList[0];
       if (!file) return;
-      const kind = (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) ? "pdf" : "other";
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      const isPptx = file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || /\.pptx$/i.test(file.name);
+      const kind = isPdf ? "pdf" : isPptx ? "pptx" : "other";
       const finish = (dataUrl) => setDeck({ name: file.name, dataUrl: dataUrl || "", kind, file });
       if (kind === "pdf") { const r = new FileReader(); r.onload = () => finish(r.result); r.onerror = () => finish(""); r.readAsDataURL(file); }
       else finish("");
@@ -1110,8 +1122,20 @@
 
     // ---- Presentation flow ---------------------------------------------------
     const startPresent = async () => {
-      const parsed = await DefensePresent.parseDeck({ file: deck?.file, dataUrl: deck?.dataUrl, count: slideCount });
+      let parsed = [];
+      try {
+        parsed = await DefensePresent.parseDeck({ file: deck?.file, dataUrl: deck?.dataUrl, count: slideCount });
+      } catch (e) {
+        const detail = typeof e?.data?.detail === "string" ? e.data.detail : e?.message || "";
+        if (onToast) onToast(detail || "Could not read this deck for slide-by-slide presentation.");
+        return;
+      }
+      if (!parsed.length) {
+        if (onToast) onToast("No readable slides were found in this deck.");
+        return;
+      }
       setSlides(parsed);
+      setSlideCount(parsed.length);
       setSlideIdx(0);
       setPresentLog([]);
       setRecordedUrl("");
@@ -1632,8 +1656,21 @@
           <div className="def-present-stage">
             {/* The slide */}
             <div className="def-slide">
-              {slide?.thumbnail ? (
+              {slide?.thumbnail && String(slide.thumbnail).startsWith("data:image/") ? (
+                <img alt={`Slide ${slideIdx + 1}`} src={slide.thumbnail} />
+              ) : slide?.thumbnail ? (
                 <iframe title={`Slide ${slideIdx + 1}`} src={slide.thumbnail} />
+              ) : (slide?.title || slide?.text || slide?.notes) ? (
+                <div className="def-slide-text">
+                  <div className="def-slide-kicker">Slide {slideIdx + 1}</div>
+                  {slide?.title && <h2>{slide.title}</h2>}
+                  {slide?.bullets?.length ? (
+                    <ul>{slide.bullets.slice(0, 8).map((line, i) => <li key={i}>{line}</li>)}</ul>
+                  ) : slide?.text ? (
+                    <p>{slide.text}</p>
+                  ) : null}
+                  {slide?.notes && <div className="def-slide-notes"><IcoD name="StickyNote" size={13} /> {slide.notes}</div>}
+                </div>
               ) : (
                 <div className="def-slide-blank">
                   <IcoD name="Presentation" size={30} />
