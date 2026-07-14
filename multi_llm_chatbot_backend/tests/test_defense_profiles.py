@@ -1,6 +1,8 @@
 import json
 import os
 import unittest
+import zipfile
+from io import BytesIO
 
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
 
@@ -15,10 +17,13 @@ from app.api.routes.defense import (
     DefenseQuestionsRequest,
     PublicProfileResource,
     _candidate_question_count,
+    MAX_DEFENSE_MATERIAL_BYTES,
     _normalize_llm_questions,
     _best_openalex_author,
     _question_evidence_text,
+    analyze_defense_presentation,
     llm_profile_questions,
+    parse_defense_deck,
     parse_defense_material,
     resolve_committee_profile,
 )
@@ -86,6 +91,36 @@ class FakePlainTextQuestionLLM:
         return "I apologize, but I'm unable to generate a response right now. Please try again."
 
 
+class FakePlainTextListQuestionLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        return "\n".join(
+            [
+                "1. What robotic manipulation evidence supports your central policy claim?",
+                "2. How would you defend the evaluation design for robotic manipulation?",
+            ]
+        )
+
+
+class FakePresentationMultimodalLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def generate_multimodal(self, **kwargs):
+        self.calls.append(kwargs)
+        return json.dumps(
+            {
+                "transcript": "The student said the system uses long and short memory for embodied agents.",
+                "summary": "The talk connected slide claims to navigation and embodied AI memory.",
+                "question_seed": "Ask about how the memory mechanism is evaluated and where the slides were underexplained.",
+                "delivery_notes": ["Slide 2 moved quickly."],
+            }
+        )
+
+
 class FakeRetryQuestionLLM:
     def __init__(self):
         self.calls = []
@@ -139,6 +174,96 @@ class FakeMixedPanelQuestionLLM:
                         "member_name": "Theorist",
                         "grounded_in": ["conceptual framing"],
                     },
+                ]
+            }
+        )
+
+
+class FakeMissingCommitteeCoverageLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        return json.dumps(
+            {
+                "questions": [
+                    {
+                        "tag": "Methods",
+                        "q": "What validity threat would most weaken the dissertation's central claim?",
+                        "member_id": "methodologist",
+                        "member_name": "Methodologist",
+                        "grounded_in": ["validity threats"],
+                    },
+                    {
+                        "tag": "Methods",
+                        "q": "How would you defend the evaluation design for the dissertation?",
+                        "member_id": "methodologist",
+                        "member_name": "Methodologist",
+                        "grounded_in": ["evaluation design"],
+                    },
+                    {
+                        "tag": "Theory",
+                        "q": "Which theoretical construct carries the dissertation's central argument?",
+                        "member_id": "theorist",
+                        "member_name": "Theorist",
+                        "grounded_in": ["theoretical constructs"],
+                    },
+                    {
+                        "tag": "Theory",
+                        "q": "What alternative explanation should the committee consider?",
+                        "member_id": "theorist",
+                        "member_name": "Theorist",
+                        "grounded_in": ["alternative explanations"],
+                    },
+                    {
+                        "tag": "Contribution",
+                        "q": "How would you state the dissertation contribution in one sentence?",
+                        "member_id": "methodologist",
+                        "member_name": "Methodologist",
+                        "grounded_in": ["dissertation contribution"],
+                    },
+                    {
+                        "tag": "Limitations",
+                        "q": "Which limitation should be acknowledged before broader claims?",
+                        "member_id": "theorist",
+                        "member_name": "Theorist",
+                        "grounded_in": ["limitations"],
+                    },
+                ]
+            }
+        )
+
+
+class FakePartiallyRejectedQuestionLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        return json.dumps(
+            {
+                "questions": [
+                    {
+                        "tag": "Methods",
+                        "q": f"What robotic manipulation evidence supports policy claim {index}?",
+                        "member_id": "real-1",
+                        "member_name": "Committee Member",
+                        "grounded_in": ["robotic manipulation policy evaluation"],
+                    }
+                    for index in range(5)
+                ]
+                + [
+                    {
+                        "tag": "Methods",
+                        "q": (
+                            "How did the proximity sensors validate the manipulation "
+                            "policy in crowded human-robot workcells?"
+                        ),
+                        "member_id": "real-1",
+                        "member_name": "Committee Member",
+                        "grounded_in": ["unsupported proximity sensor premise"],
+                    }
                 ]
             }
         )
@@ -298,6 +423,152 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("sparse demonstrations", result.text)
         self.assertGreater(result.word_count, 5)
 
+    async def test_defense_deck_parser_splits_pptx_slides(self):
+        buf = BytesIO()
+        slide_template = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp><p:txBody><a:p><a:r><a:t>{title}</a:t></a:r></a:p></p:txBody></p:sp>
+    <p:sp><p:txBody>{body}</p:txBody></p:sp>
+  </p:spTree></p:cSld>
+</p:sld>"""
+        body_one = (
+            "<a:p><a:r><a:t>Low-cost bimanual manipulation</a:t></a:r></a:p>"
+            "<a:p><a:r><a:t>Power integrity findings</a:t></a:r></a:p>"
+        )
+        body_two = (
+            "<a:p><a:r><a:t>Task success rate</a:t></a:r></a:p>"
+            "<a:p><a:r><a:t>Failure modes</a:t></a:r></a:p>"
+        )
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("ppt/slides/slide1.xml", slide_template.format(title="Thesis Claim", body=body_one))
+            archive.writestr("ppt/slides/slide2.xml", slide_template.format(title="Evaluation", body=body_two))
+
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        result = await parse_defense_deck(
+            FakeUpload(
+                "defense.pptx",
+                buf.getvalue(),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+            current_user=user,
+        )
+
+        self.assertEqual(result.slide_count, 2)
+        self.assertEqual(result.slides[0].title, "Thesis Claim")
+        self.assertIn("Low-cost bimanual manipulation", result.slides[0].text)
+        self.assertEqual(result.slides[1].title, "Evaluation")
+
+    async def test_defense_deck_parser_accepts_image_heavy_pptx_over_material_limit(self):
+        buf = BytesIO()
+        slide_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp><p:txBody><a:p><a:r><a:t>Large Deck Slide</a:t></a:r></a:p></p:txBody></p:sp>
+  </p:spTree></p:cSld>
+</p:sld>"""
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("ppt/slides/slide1.xml", slide_xml)
+            archive.writestr(
+                "ppt/media/image1.bin",
+                b"0" * (MAX_DEFENSE_MATERIAL_BYTES + 1024),
+                compress_type=zipfile.ZIP_STORED,
+            )
+
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        result = await parse_defense_deck(
+            FakeUpload(
+                "large-defense.pptx",
+                buf.getvalue(),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+            current_user=user,
+        )
+
+        self.assertGreater(len(buf.getvalue()), MAX_DEFENSE_MATERIAL_BYTES)
+        self.assertEqual(result.slide_count, 1)
+        self.assertEqual(result.slides[0].title, "Large Deck Slide")
+
+    async def test_defense_deck_parser_can_attach_rendered_slide_images(self):
+        buf = BytesIO()
+        slide_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp><p:txBody><a:p><a:r><a:t>Rendered Slide</a:t></a:r></a:p></p:txBody></p:sp>
+  </p:spTree></p:cSld>
+</p:sld>"""
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("ppt/slides/slide1.xml", slide_xml)
+
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        original_renderer = defense_route._render_pptx_slide_images
+        defense_route._render_pptx_slide_images = lambda _: ["data:image/jpeg;base64,abc123"]
+        try:
+            result = await parse_defense_deck(
+                FakeUpload(
+                    "rendered-defense.pptx",
+                    buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                ),
+                render_slides=True,
+                current_user=user,
+            )
+        finally:
+            defense_route._render_pptx_slide_images = original_renderer
+
+        self.assertEqual(result.slide_count, 1)
+        self.assertEqual(result.slides[0].thumbnail, "data:image/jpeg;base64,abc123")
+
+    async def test_presentation_analysis_sends_deck_file_and_recording_to_multimodal_llm(self):
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        pptx_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        fake_llm = FakePresentationMultimodalLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            result = await analyze_defense_presentation(
+                deck=FakeUpload("Defense Talk.pptx", b"fake-pptx", pptx_mime),
+                media=FakeUpload("talk.webm", b"fake-webm", "video/webm"),
+                deck_name="Defense Talk.pptx",
+                current_user=user,
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+
+        self.assertEqual(result.generation_method, "multimodal_llm")
+        self.assertIn("long and short memory", result.transcript)
+        self.assertIn("Slide deck file", result.material.text)
+        self.assertIn("Recording transcript", result.material.text)
+        self.assertNotIn("slides_json", fake_llm.calls[0])
+        media_parts = fake_llm.calls[0]["media_parts"]
+        self.assertEqual(media_parts[0]["bytes"], b"fake-pptx")
+        self.assertEqual(media_parts[0]["mime_type"], pptx_mime)
+        self.assertEqual(media_parts[1]["bytes"], b"fake-webm")
+        self.assertEqual(media_parts[1]["mime_type"], "video/webm")
+
     async def test_llm_questions_receive_format_specific_prompt_directives(self):
         profile = AcademicProfile(
             id="real-1",
@@ -371,6 +642,46 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.diagnostics.accepted_count, 1)
         self.assertEqual(result.questions[0].q, "What is the main robotic manipulation claim?")
 
+    async def test_defense_questions_begin_with_partial_usable_llm_set(self):
+        profile = AcademicProfile(
+            id="real-1",
+            name="Committee Member",
+            source_status="web",
+            research_areas=["robotic manipulation"],
+            question_angles=["robotic manipulation policy evaluation"],
+        )
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        fake_llm = FakePartiallyRejectedQuestionLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="defense",
+                    thesis_title="Learning robust manipulation policies",
+                    research_summary="This project studies robotic manipulation policy evaluation.",
+                    committee_members=[
+                        CommitteeMemberRequest(name="Committee Member", profile=profile)
+                    ],
+                    question_count=6,
+                    use_llm=True,
+                ),
+                current_user=user,
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+
+        self.assertEqual(result.generation_method, "llm")
+        self.assertEqual(len(result.questions), 5)
+        self.assertEqual(result.diagnostics.accepted_count, 5)
+        self.assertEqual(result.diagnostics.rejected_count, 1)
+        self.assertEqual(result.diagnostics.failure_reason, "")
+
     async def test_question_generation_retries_after_non_json_llm_response(self):
         profile = AcademicProfile(
             id="real-1",
@@ -404,6 +715,38 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         first_payload = json.loads(fake_llm.calls[0]["context"][0]["content"])
         second_payload = json.loads(fake_llm.calls[1]["context"][0]["content"])
         self.assertGreater(first_payload["question_count"], second_payload["question_count"])
+        self.assertIn("repair_instruction", second_payload)
+
+    async def test_question_generation_recovers_plain_text_question_list(self):
+        profile = AcademicProfile(
+            id="real-1",
+            name="Committee Member",
+            source_status="web",
+            research_areas=["robotic manipulation"],
+        )
+        fake_llm = FakePlainTextListQuestionLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            questions, diagnostics = await llm_profile_questions(
+                DefenseQuestionsRequest(
+                    format="defense",
+                    thesis_title="Learning robust manipulation policies",
+                    research_summary="This project studies robotic manipulation policy evaluation.",
+                    committee_members=[
+                        CommitteeMemberRequest(name="Committee Member", profile=profile)
+                    ],
+                    question_count=2,
+                    use_llm=True,
+                ),
+                [profile],
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+
+        self.assertEqual(len(questions), 2)
+        self.assertEqual(diagnostics.accepted_count, 2)
+        self.assertTrue(questions[0].q.startswith("What robotic manipulation evidence"))
 
     async def test_saved_profile_sources_do_not_need_page_text(self):
         profile = AcademicProfile(
@@ -517,6 +860,88 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
             {"methodologist": 1, "theorist": 1},
         )
         self.assertIn("selected advisor persona facts", fake_llm.calls[0]["system_prompt"])
+
+    async def test_missing_selected_member_coverage_is_repaired(self):
+        methodologist = AcademicProfile(
+            id="methodologist",
+            name="Methodologist",
+            title="Research Methodology Expert",
+            profile_url="persona://methodologist",
+            source_status="persona",
+            research_areas=["research methodology", "validity threats"],
+            question_angles=["validity threats and evaluation design"],
+            sources=[
+                AcademicProfileSource(
+                    title="Methodologist selected advisor persona",
+                    url="persona://methodologist",
+                    kind="advisor_persona",
+                )
+            ],
+        )
+        theorist = AcademicProfile(
+            id="theorist",
+            name="Theorist",
+            title="Theoretical Frameworks Specialist",
+            profile_url="persona://theorist",
+            source_status="persona",
+            research_areas=["theoretical framing", "conceptual constructs"],
+            question_angles=["definitions, constructs, and alternative explanations"],
+            sources=[
+                AcademicProfileSource(
+                    title="Theorist selected advisor persona",
+                    url="persona://theorist",
+                    kind="advisor_persona",
+                )
+            ],
+        )
+        danfei = AcademicProfile(
+            id="real-danfei",
+            name="Danfei Xu",
+            title="Assistant Professor",
+            institution="Georgia Tech",
+            source_status="web",
+            research_areas=["artificial intelligence", "computer vision", "robotics"],
+            question_angles=["generalization and evidence for embodied AI systems"],
+            sources=[
+                AcademicProfileSource(
+                    title="Danfei Xu faculty profile",
+                    url="https://example.edu/danfei-xu",
+                    kind="profile",
+                )
+            ],
+        )
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        fake_llm = FakeMissingCommitteeCoverageLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="defense",
+                    thesis_title="Learning robust manipulation policies",
+                    research_summary="This project studies robotic manipulation policy evaluation.",
+                    committee_members=[
+                        CommitteeMemberRequest(name="Methodologist", profile=methodologist),
+                        CommitteeMemberRequest(name="Theorist", profile=theorist),
+                        CommitteeMemberRequest(name="Danfei Xu", profile=danfei),
+                    ],
+                    question_count=6,
+                    use_llm=True,
+                ),
+                current_user=user,
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+
+        self.assertEqual(result.generation_method, "llm_coverage_repaired")
+        self.assertEqual(len(result.questions), 6)
+        self.assertIn("real-danfei", {question.member_id for question in result.questions})
+        self.assertEqual(result.diagnostics.missing_member_names, [])
 
     async def test_use_llm_false_is_rejected_instead_of_falling_back(self):
         user = User(
@@ -786,23 +1211,23 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         original_llm = defense_route.chat_orchestrator.llm_client
         defense_route.chat_orchestrator.llm_client = FakeEmptyQuestionLLM()
         try:
-            with self.assertRaises(HTTPException) as raised:
-                await defense_route.defense_questions(
-                    DefenseQuestionsRequest(
-                        format="defense",
-                        committee_members=[
-                            CommitteeMemberRequest(name="Committee Member", profile=profile)
-                        ],
-                        question_count=1,
-                        use_llm=True,
-                    ),
-                    current_user=user,
-                )
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="defense",
+                    committee_members=[
+                        CommitteeMemberRequest(name="Committee Member", profile=profile)
+                    ],
+                    question_count=1,
+                    use_llm=True,
+                ),
+                current_user=user,
+            )
         finally:
             defense_route.chat_orchestrator.llm_client = original_llm
 
-        self.assertEqual(raised.exception.status_code, 422)
-        self.assertEqual(raised.exception.detail["reason"], "empty_llm_response")
+        self.assertEqual(result.generation_method, "profile_grounded_recovery")
+        self.assertEqual(len(result.questions), 1)
+        self.assertEqual(result.diagnostics.failure_reason, "llm_provider_recovered_with_profile_questions")
 
     async def test_plain_text_llm_response_returns_diagnostic_with_preview(self):
         profile = AcademicProfile(
@@ -820,25 +1245,24 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         original_llm = defense_route.chat_orchestrator.llm_client
         defense_route.chat_orchestrator.llm_client = FakePlainTextQuestionLLM()
         try:
-            with self.assertRaises(HTTPException) as raised:
-                await defense_route.defense_questions(
-                    DefenseQuestionsRequest(
-                        format="defense",
-                        committee_members=[
-                            CommitteeMemberRequest(name="Committee Member", profile=profile)
-                        ],
-                        question_count=1,
-                        use_llm=True,
-                    ),
-                    current_user=user,
-                )
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="defense",
+                    committee_members=[
+                        CommitteeMemberRequest(name="Committee Member", profile=profile)
+                    ],
+                    question_count=1,
+                    use_llm=True,
+                ),
+                current_user=user,
+            )
         finally:
             defense_route.chat_orchestrator.llm_client = original_llm
 
-        self.assertEqual(raised.exception.status_code, 422)
-        self.assertEqual(raised.exception.detail["reason"], "non_json_llm_response")
-        rejection = raised.exception.detail["diagnostics"]["rejections"][0]
-        self.assertIn("unable to generate", rejection["q"])
+        self.assertEqual(result.generation_method, "profile_grounded_recovery")
+        self.assertEqual(len(result.questions), 1)
+        rejection = result.diagnostics.rejections[0]
+        self.assertIn("unable to generate", rejection.q)
 
 
 if __name__ == "__main__":

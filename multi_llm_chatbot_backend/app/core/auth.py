@@ -111,6 +111,8 @@ def create_user_response(user: User) -> UserResponse:
         lastName=user.lastName,
         email=user.email,
         academicStage=user.academicStage,
+        institution=user.institution,
+        program=user.program,
         researchArea=user.researchArea,
         created_at=user.created_at,
         last_login=user.last_login

@@ -1089,7 +1089,9 @@ function UnlockPopup({ id, onDismiss, onAct, onKeepHidden }) {
 // ROOT
 // ============================================================================
 function CoachRoot() {
-  const [roadmap, setRoadmap] = useS2(() => H.loadJSON(H.RM_KEY, null));
+  const [roadmap, setRoadmap] = useS2(() => H.normalizeStoredRoadmap
+    ? H.normalizeStoredRoadmap(H.loadJSON(H.RM_KEY, null))
+    : H.loadJSON(H.RM_KEY, null));
   // Auth is backed by the real backend (window.CoachAPI): the JWT lives in
   // localStorage['authToken']. Keep the displayed identity (window.MOCK_USER)
   // in sync with the signed-in user so the rail/dashboard/settings show it.
@@ -1205,6 +1207,13 @@ function CoachRoot() {
     setAuthed(true);
     setView("home");
   };
+  const handleAuthExpired = () => {
+    if (window.CoachAPI) window.CoachAPI.clearAuth();
+    setAuthMode("login");
+    setGate("login");
+    setAuthed(false);
+    setView("home");
+  };
   if (!authed) {
     if (gate === "login") {
       return <window.CoachLogin
@@ -1219,7 +1228,9 @@ function CoachRoot() {
 
   // 2) Signed in, no plan yet → onboarding (onboarding hands up density/model prefs)
   if (!roadmap) {
-    return <window.CoachOnboarding onComplete={(rm, p) => { setRoadmap(rm); if (p) setPrefs(prev => ({ ...prev, ...p })); setView("home"); }} />;
+    return <window.CoachOnboarding
+      onAuthExpired={handleAuthExpired}
+      onComplete={(rm, p) => { setRoadmap(rm); if (p) setPrefs(prev => ({ ...prev, ...p })); setView("home"); }} />;
   }
 
   const signOut = () => { if (window.CoachAPI) window.CoachAPI.clearAuth(); setAuthed(false); setGate("landing"); setView("home"); };

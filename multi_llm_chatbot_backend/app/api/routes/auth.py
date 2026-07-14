@@ -51,7 +51,9 @@ async def signup(user_data: UserCreate):
             email=user_data.email,
             hashed_password=hashed_password,
             academicStage=user_data.academicStage,
-            researchArea=user_data.researchArea,
+            institution=user_data.institution,
+            program=user_data.program or user_data.researchArea,
+            researchArea=user_data.researchArea or user_data.program,
             created_at=datetime.utcnow(),
             is_active=True
         )

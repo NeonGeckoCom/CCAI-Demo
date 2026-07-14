@@ -25,6 +25,14 @@
 
   const wordCount = (s) => (s || "").trim().split(/\s+/).filter(Boolean).length;
   const fmtDur = (secs) => { const s = Math.max(0, Math.round(secs)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")}`; };
+  const normalizeDeckSlides = (slides) => (Array.isArray(slides) ? slides : []).map((s, i) => ({
+    index: Number.isFinite(Number(s.index)) ? Number(s.index) : i,
+    title: String(s.title || "").trim(),
+    text: String(s.text || "").trim(),
+    notes: String(s.notes || "").trim(),
+    bullets: Array.isArray(s.bullets) ? s.bullets.map(b => String(b || "").trim()).filter(Boolean) : [],
+    thumbnail: String(s.thumbnail || "").trim()
+  }));
 
   // Real committee members the student adds by name/title. Stored locally so the
   // roster survives reloads; the backend resolves public academic profiles when
@@ -156,17 +164,16 @@
   //       return { "questions": [ {persona_id, tag, q}, ... ] }  # 5-6 items
   // ==========================================================================
   const DefensePresent = {
-    // Split an uploaded deck into slides. REAL: POST the file to /api/defense/deck.
-    // DEMO: we can't parse client-side, so we return `count` blank slide stubs and
-    // preview the raw file (PDFs page-jump via #page=N in the browser viewer).
-    async parseDeck({ file, dataUrl, count }) {
-      /* REAL:
-      const fd = new FormData(); fd.append("file", file);
-      const res = await fetch("/api/defense/deck", { method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("phd-auth-token")}` }, body: fd });
-      const { slides } = await res.json();   // [{ index, thumbnail, text }]
-      return slides;
-      */
+    // Split an uploaded deck into slides. PPTX is parsed by the backend; PDFs
+    // use the browser PDF viewer page-jump path.
+    async parseDeck({ file, dataUrl, count, parsedSlides }) {
+      if (parsedSlides && parsedSlides.length) return normalizeDeckSlides(parsedSlides);
+      const isPptx = /\.pptx$/i.test(file?.name || "") || file?.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+      if (isPptx && window.CoachAPI?.parseDefenseDeck) {
+        const parsed = await window.CoachAPI.parseDefenseDeck(file);
+        const slides = normalizeDeckSlides(parsed?.slides || []);
+        if (slides.length) return slides;
+      }
       const n = Math.max(1, count || 8);
       const isPdf = (file && file.type === "application/pdf") || /\.pdf$/i.test(file?.name || "");
       return Array.from({ length: n }, (_, i) => ({
@@ -218,6 +225,7 @@
 
     // ---- Presentation mode state --------------------------------------------
     const [deck, setDeck] = useState(null);             // { name, dataUrl, kind }
+    const [deckParsing, setDeckParsing] = useState(false);
     const [slideCount, setSlideCount] = useState(8);    // stand-in until backend parses the deck
     const [slides, setSlides] = useState([]);           // [{ index, thumbnail, text }]
     const [slideIdx, setSlideIdx] = useState(0);
@@ -232,11 +240,16 @@
     const fileRef = useRef(null);
     const deckRef = useRef(null);
     const recRef = useRef(null);       // SpeechRecognition (answers)
+    const recSeqRef = useRef(0);       // invalidates late SpeechRecognition callbacks
+    const liveQuestionRef = useRef({ stage: "setup", qIdx: 0 });
+    const answerRef = useRef("");
     const spokeRef = useRef(false);    // any part of this answer came in by voice
     const videoRef = useRef(null);     // live webcam preview
     const streamRef = useRef(null);    // MediaStream
     const mediaRecRef = useRef(null);  // MediaRecorder (presentation take)
     const chunksRef = useRef([]);      // recorded chunks
+    const recordingBlobRef = useRef(null);
+    const recordingStopResolverRef = useRef(null);
     const slideStartRef = useRef(0);   // timestamp the current slide began
 
     const questionCount = QUESTION_COUNT[format] || 6;
@@ -271,10 +284,19 @@
       if (stage === "live" && voice && current) DefenseAudio.speakQuestion({ text: current.q, personaId: asker.id });
       return () => DefenseAudio.stopSpeaking();
     }, [stage, qIdx, voice]);
+    useEffect(() => { liveQuestionRef.current = { stage, qIdx }; }, [stage, qIdx]);
+    useEffect(() => { answerRef.current = answer; }, [answer]);
 
     // Audio in: push-to-talk transcription into the answer box.
     const stopListening = () => {
-      try { recRef.current && recRef.current.stop(); } catch (e) {}
+      recSeqRef.current += 1;
+      const rec = recRef.current;
+      if (rec) {
+        rec.onresult = null;
+        rec.onend = null;
+        rec.onerror = null;
+      }
+      try { rec && rec.stop(); } catch (e) {}
       recRef.current = null;
       setListening(false);
     };
@@ -282,11 +304,17 @@
       if (!SpeechRec || recRef.current) return;
       DefenseAudio.stopSpeaking(); // don't transcribe our own TTS
       const rec = new SpeechRec();
+      const seq = recSeqRef.current + 1;
+      const questionAtStart = qIdx;
+      const stageAtStart = stage;
+      recSeqRef.current = seq;
       rec.continuous = true;
       rec.interimResults = true;
       rec.lang = "en-US";
-      const base = answer.trim() ? answer.trim() + " " : "";
+      const base = answerRef.current.trim() ? answerRef.current.trim() + " " : "";
       rec.onresult = (e) => {
+        const live = liveQuestionRef.current;
+        if (seq !== recSeqRef.current || recRef.current !== rec || live.qIdx !== questionAtStart || live.stage !== stageAtStart) return;
         let finalTxt = "", interim = "";
         for (let i = 0; i < e.results.length; i++) {
           const r = e.results[i];
@@ -296,13 +324,14 @@
         spokeRef.current = true;
         setAnswer((base + finalTxt + interim).replace(/\s+/g, " ").trimStart());
       };
-      rec.onend = () => { recRef.current = null; setListening(false); };
-      rec.onerror = () => { recRef.current = null; setListening(false); };
+      rec.onend = () => { if (seq === recSeqRef.current && recRef.current === rec) { recRef.current = null; setListening(false); } };
+      rec.onerror = () => { if (seq === recSeqRef.current && recRef.current === rec) { recRef.current = null; setListening(false); } };
       recRef.current = rec;
       try { rec.start(); setListening(true); } catch (e) { recRef.current = null; }
     };
     useEffect(() => stopListening, []);            // mic off on unmount
     useEffect(() => { stopListening(); }, [qIdx, stage]); // and between questions/stages
+    useEffect(() => { setAnswer(""); spokeRef.current = false; }, [qIdx]);
 
     // ---- Camera + recorder lifecycle for the presentation stage --------------
     const stopStream = () => {
@@ -325,18 +354,35 @@
           setCamReady(true); setCamError("");
           // Record the whole take; per-slide timing comes from the marks we log.
           chunksRef.current = [];
-          const rec = new MediaRecorder(stream);
+          recordingBlobRef.current = null;
+          const pickRecorderMime = () => {
+            const supported = (type) => window.MediaRecorder?.isTypeSupported?.(type);
+            const candidates = wantsVideo
+              ? (wantsAudio ? ["video/webm;codecs=vp8,opus", "video/webm"] : ["video/webm;codecs=vp8", "video/webm"])
+              : ["audio/webm;codecs=opus", "audio/webm"];
+            return candidates.find(supported) || "";
+          };
+          const mimeType = pickRecorderMime();
+          const recorderOptions = {};
+          if (mimeType) recorderOptions.mimeType = mimeType;
+          if (wantsVideo) recorderOptions.videoBitsPerSecond = 450000;
+          if (wantsAudio) recorderOptions.audioBitsPerSecond = 64000;
+          const rec = new MediaRecorder(stream, recorderOptions);
           rec.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
           rec.onstop = () => {
+            let blob = null;
             try {
-              const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "video/webm" });
+              blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "video/webm" });
+              recordingBlobRef.current = blob;
               setRecordedUrl(URL.createObjectURL(blob));
-              // BACKEND: also POST `blob` (+ the per-slide marks) to /api/defense/present
-              // via DefensePresent.analyzeSlide to get transcripts + delivery scores.
             } catch (e) {}
+            if (recordingStopResolverRef.current) {
+              recordingStopResolverRef.current(blob);
+              recordingStopResolverRef.current = null;
+            }
           };
           mediaRecRef.current = rec;
-          rec.start();
+          rec.start(1000);
           setRecording(true);
           slideStartRef.current = Date.now();
         } catch (err) {
@@ -403,14 +449,45 @@
       }));
     };
 
-    // Deck upload for presentation mode. We keep a data URL so PDFs can preview.
-    const addDeck = (fileList) => {
+    // Deck upload for presentation mode. PDFs keep a data URL preview; PPTX is
+    // parsed by the backend into ordered slide records.
+    const addDeck = async (fileList) => {
       const file = fileList && fileList[0];
       if (!file) return;
-      const kind = (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) ? "pdf" : "other";
-      const finish = (dataUrl) => setDeck({ name: file.name, dataUrl: dataUrl || "", kind, file });
-      if (kind === "pdf") { const r = new FileReader(); r.onload = () => finish(r.result); r.onerror = () => finish(""); r.readAsDataURL(file); }
-      else finish("");
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      const isPptx = file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || /\.pptx$/i.test(file.name);
+      const kind = isPdf ? "pdf" : isPptx ? "pptx" : "other";
+      const baseDeck = { name: file.name, dataUrl: "", kind, file, parsedSlides: [], status: isPptx ? "parsing" : "ready" };
+      const finish = (dataUrl) => setDeck({ ...baseDeck, dataUrl: dataUrl || "" });
+      if (isPdf) {
+        const r = new FileReader();
+        r.onload = () => finish(r.result);
+        r.onerror = () => finish("");
+        r.readAsDataURL(file);
+        return;
+      }
+
+      setDeck(baseDeck);
+      if (!isPptx) {
+        setSlideCount(8);
+        return;
+      }
+
+      setDeckParsing(true);
+      try {
+        const parsed = await window.CoachAPI?.parseDefenseDeck?.(file);
+        const parsedSlides = normalizeDeckSlides(parsed?.slides || []);
+        if (!parsedSlides.length) throw new Error("No slides returned");
+        setSlideCount(parsed?.slide_count || parsedSlides.length);
+        setDeck({ ...baseDeck, parsedSlides, status: "parsed", title: parsed?.title || "" });
+        if (onToast) onToast(`Loaded ${parsedSlides.length} PowerPoint slide${parsedSlides.length === 1 ? "" : "s"}.`);
+      } catch (e) {
+        setDeck({ ...baseDeck, status: "failed", error: "Could not parse PowerPoint slides" });
+        const detail = typeof e?.data?.detail === "string" ? e.data.detail : "";
+        if (onToast) onToast(detail || "Could not read this PowerPoint deck. Try saving it as a .pptx file.");
+      } finally {
+        setDeckParsing(false);
+      }
     };
 
     const addRealMember = async () => {
@@ -467,15 +544,41 @@
         buildDefenseSummary()
       ].filter(Boolean).join(" ");
     };
+    const buildPresentationMaterialPayload = (slideRecords) => {
+      const timingByIndex = new Map((slideRecords || []).map(s => [Number(s.index || 0), s.seconds || 0]));
+      return (slides || []).map((slide, i) => {
+        const text = [
+          slide.title ? `Title: ${slide.title}` : "",
+          slide.text ? `Slide text:\n${slide.text}` : "",
+          slide.notes ? `Speaker notes:\n${slide.notes}` : "",
+          timingByIndex.has(i) ? `Presentation timing: ${fmtDur(timingByIndex.get(i))}` : ""
+        ].filter(Boolean).join("\n\n");
+        return text ? { name: `${deck?.name || "Slide deck"} - Slide ${i + 1}`, text } : null;
+      }).filter(Boolean);
+    };
     const defenseGenerationError = (e) => {
       const detail = e?.data?.detail;
       if (detail && typeof detail === "object") {
-        const reason = detail.reason ? String(detail.reason).replace(/_/g, " ") : "";
-        const diagnostic = detail.diagnostics?.failure_reason
-          ? String(detail.diagnostics.failure_reason).replace(/_/g, " ")
+        const labelReason = (value) => {
+          const raw = String(value || "");
+          const labels = {
+            llm_provider_text_response: "AI service returned a retry message",
+            non_json_llm_response: "AI service returned text instead of JSON",
+            malformed_json_in_llm_response: "AI service returned malformed JSON",
+            empty_llm_response: "AI service returned an empty response",
+            no_usable_llm_questions: "No usable grounded questions were returned",
+            too_few_usable_llm_questions: "Too few usable grounded questions were returned",
+            missing_committee_member_coverage: "Questions did not cover every selected committee member"
+          };
+          return labels[raw] || raw.replace(/_/g, " ");
+        };
+        const reason = detail.reason ? labelReason(detail.reason) : "";
+        const diagnosticRaw = detail.diagnostics?.failure_reason || "";
+        const diagnostic = diagnosticRaw && diagnosticRaw !== detail.reason ? labelReason(diagnosticRaw) : "";
+        const usable = Number.isFinite(detail.accepted_count) && Number.isFinite(detail.minimum_usable_count)
+          ? `${detail.accepted_count}/${detail.minimum_usable_count} usable questions`
           : "";
-        const rejected = detail.diagnostics?.rejected_count ? `${detail.diagnostics.rejected_count} rejected` : "";
-        return [detail.message, reason, diagnostic, rejected].filter(Boolean).join(" - ");
+        return [detail.message, reason, diagnostic, usable].filter(Boolean).join(" - ");
       }
       return e?.message || "Question generation failed.";
     };
@@ -555,13 +658,14 @@
       setLog([]); setQIdx(0); setAnswer(""); spokeRef.current = false; setSessionQuestions(null);
       try {
         const hasUploadedMaterial = materialPayload.length > 0;
+        const requestedCount = questionCountOverride || QUESTION_COUNT[formatOverride] || questionCount;
         const result = await window.CoachAPI.generateDefenseQuestions({
           format: formatOverride,
           thesisTitle: hasUploadedMaterial ? "" : (thesisTitle || roadmap?.program?.name || ""),
           researchSummary: hasUploadedMaterial ? "" : (researchSummary || buildDefenseSummary()),
           materials: materialPayload,
           committeeMembers: selectedPanel,
-          questionCount: questionCountOverride || QUESTION_COUNT[formatOverride] || questionCount
+          questionCount: requestedCount
         });
         const generated = (result?.questions || []).map(q => ({
           tag: q.tag || "Committee question",
@@ -572,7 +676,18 @@
         })).filter(q => q.q);
         if (!generated.length) throw new Error("No generated questions returned.");
         setSessionQuestions(generated);
-        if (onToast) onToast(toastMessage);
+        if (onToast) {
+          const rejected = result?.diagnostics?.rejected_count || 0;
+          if (result?.generation_method === "profile_grounded_recovery") {
+            onToast(`Started with ${generated.length} committee-profile questions after the AI service failed to respond.`);
+          } else if (result?.generation_method === "llm_coverage_repaired") {
+            onToast(`Generated ${generated.length} grounded questions including every selected committee member.`);
+          } else if (generated.length < requestedCount) {
+            onToast(`Generated ${generated.length} grounded questions${rejected ? ` (${rejected} filtered out)` : ""}.`);
+          } else {
+            onToast(toastMessage);
+          }
+        }
         setStage("live");
         return true;
       } catch (e) {
@@ -608,11 +723,26 @@
 
     // ---- Presentation flow ---------------------------------------------------
     const startPresent = async () => {
-      const parsed = await DefensePresent.parseDeck({ file: deck?.file, dataUrl: deck?.dataUrl, count: slideCount });
+      let parsed = [];
+      try {
+        parsed = await DefensePresent.parseDeck({ file: deck?.file, dataUrl: deck?.dataUrl, count: slideCount, parsedSlides: deck?.parsedSlides });
+      } catch (e) {
+        if (onToast) onToast("Could not open this deck for slide-by-slide presentation.");
+        return;
+      }
+      if (!parsed.length) {
+        if (onToast) onToast("No readable slides were found in this deck.");
+        return;
+      }
       setSlides(parsed);
+      setSlideCount(parsed.length);
       setSlideIdx(0);
       setPresentLog([]);
       setRecordedUrl("");
+      chunksRef.current = [];
+      recordingBlobRef.current = null;
+      recordingStopResolverRef.current = null;
+      mediaRecRef.current = null;
       setStage("present");   // the effect above grabs the camera + starts recording
     };
     // Log how long the current slide took, then advance (or finish).
@@ -623,21 +753,65 @@
       const entry = { index: slideIdx, seconds, transcript: "", slideText };
       setPresentLog(p => [...p, entry]);
       slideStartRef.current = now;
-      // BACKEND: fire-and-forget DefensePresent.analyzeSlide({ blob, slideText, seconds })
-      // once per-slide chunks are available, then merge scores into presentLog.
       return entry;
     };
     const nextSlide = () => { markSlide(); setSlideIdx(i => i + 1); };
+    const stopRecordingAndGetBlob = async () => {
+      const rec = mediaRecRef.current;
+      if (!rec) return recordingBlobRef.current;
+      if (rec.state === "inactive") return recordingBlobRef.current;
+      return await new Promise(resolve => {
+        recordingStopResolverRef.current = resolve;
+        try {
+          rec.requestData && rec.requestData();
+        } catch (e) {}
+        try {
+          rec.stop();
+        } catch (e) {
+          recordingStopResolverRef.current = null;
+          resolve(recordingBlobRef.current);
+        }
+      });
+    };
     const finishPresent = async () => {
+      setLoadingQuestions(true);
       const finalEntry = markSlide();
-      try { mediaRecRef.current && mediaRecRef.current.state !== "inactive" && mediaRecRef.current.stop(); } catch (e) {}
+      const recordingBlob = await stopRecordingAndGetBlob();
       setRecording(false);
       stopStream();
       setPresented(true);
+      const slideRecords = [...presentLog, finalEntry];
+      let presentationMaterials = buildPresentationMaterialPayload(slideRecords);
+      try {
+        if (window.CoachAPI?.analyzeDefensePresentation) {
+          const analysis = await window.CoachAPI.analyzeDefensePresentation({
+            mediaBlob: recordingBlob,
+            deckFile: deck?.file || null,
+            deckName: deck?.name || "Slide deck"
+          });
+          if (analysis?.material?.text) {
+            presentationMaterials = [analysis.material];
+            setPresentLog(records => records.map(record => ({
+              ...record,
+              transcript: analysis.transcript || record.transcript || "",
+              one_fix: (analysis.delivery_notes || [])[0] || record.one_fix || ""
+            })));
+            if (onToast && analysis.generation_method === "multimodal_llm") {
+              onToast("Analyzed your recording and slide deck for committee questions.");
+            }
+          }
+        }
+      } catch (e) {
+        const detail = typeof e?.data?.detail === "string"
+          ? e.data.detail
+          : e?.data?.detail?.message || e?.message || "";
+        const suffix = detail ? `: ${detail}` : "";
+        if (onToast) onToast(`Could not analyze the recording${suffix}. Questions will use the slides and timing.`);
+      }
       await generateQuestionsForSession({
         formatOverride: "talk",
-        materialPayload: [],
-        researchSummary: buildPresentationSummary([...presentLog, finalEntry]),
+        materialPayload: presentationMaterials,
+        researchSummary: presentationMaterials.length ? "" : buildPresentationSummary(slideRecords),
         questionCountOverride: QUESTION_COUNT.talk,
         toastMessage: "Generated LLM questions for your presentation."
       });
@@ -730,13 +904,16 @@
           {isPresent ? (
             <>
               <div className="section-label"><span className="ic"><IcoD name="MonitorPlay" size={13} /></span> Your slide deck</div>
-              <input ref={deckRef} type="file" style={{ display: "none" }} accept=".pdf,.ppt,.pptx,.key"
+              <input ref={deckRef} type="file" style={{ display: "none" }} accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 onChange={e => { addDeck(e.target.files); e.target.value = ""; }} />
               <div className="def-materials" data-ptour="def-materials">
                 <button className="btn" onClick={() => deckRef.current?.click()}><IcoD name="Upload" size={14} /> {deck ? "Replace deck" : "Upload your slides"}</button>
                 {deck && (
                   <span className="def-mat">
-                    <IcoD name={deck.kind === "pdf" ? "FileText" : "Presentation"} size={12} /> {deck.name}
+                    <IcoD name={deck.status === "failed" ? "AlertTriangle" : deck.status === "parsing" ? "Loader2" : deck.kind === "pdf" ? "FileText" : "Presentation"} size={12} /> {deck.name}
+                    {deck.status === "parsing" && " - parsing"}
+                    {deck.status === "parsed" && deck.parsedSlides?.length ? ` - ${deck.parsedSlides.length} slides` : ""}
+                    {deck.status === "failed" && " - unreadable"}
                     <button className="def-mat-x" onClick={() => setDeck(null)} title="Remove"><IcoD name="X" size={11} /></button>
                   </span>
                 )}
@@ -744,8 +921,9 @@
               <div className="def-slidecount">
                 <label><IcoD name="Layers" size={13} /> Slides in your deck</label>
                 <input type="number" min="1" max="60" value={slideCount}
-                  onChange={e => setSlideCount(Math.max(1, Math.min(60, parseInt(e.target.value || "1", 10))))} />
-                <span className="def-note" style={{ margin: 0 }}><IcoD name="Info" size={12} /> The backend will read this straight from your file — this is just a stand-in for the demo.</span>
+                  onChange={e => setSlideCount(Math.max(1, Math.min(60, parseInt(e.target.value || "1", 10))))}
+                  disabled={deck?.kind === "pptx" && deck?.parsedSlides?.length} />
+                <span className="def-note" style={{ margin: 0 }}><IcoD name="Info" size={12} /> PowerPoint decks use the parsed slide count; PDFs use this page count.</span>
               </div>
 
               <div className="section-label"><span className="ic"><IcoD name="Video" size={13} /></span> What should we record?</div>
@@ -790,8 +968,8 @@
               <IcoD name={voice ? "Volume2" : "VolumeX"} size={14} /> Voice {voice ? "on" : "off"}
             </button>
             {isPresent ? (
-              <button className="btn primary lg" onClick={startPresent} disabled={!hasSelectedCommittee || !deck || loadingQuestions}>
-                <IcoD name="Play" size={15} color="#fff" /> Start presenting - {slideCount} slide{slideCount === 1 ? "" : "s"}
+              <button className="btn primary lg" onClick={startPresent} disabled={!hasSelectedCommittee || !deck || deckParsing || deck?.status === "failed" || loadingQuestions}>
+                <IcoD name={deckParsing ? "Loader2" : "Play"} size={15} color="#fff" /> {deckParsing ? "Reading deck..." : `Start presenting - ${slideCount} slide${slideCount === 1 ? "" : "s"}`}
               </button>
             ) : (
               <button className="btn primary lg" onClick={start} disabled={!hasSelectedCommittee || loadingQuestions || parsingMaterials}>
@@ -819,7 +997,7 @@
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span className={`def-rec-dot ${recording ? "on" : ""}`}><span /> {recording ? "Recording" : camReady ? "Ready" : "Recording off"}</span>
-              <button className="btn sm" onClick={() => finishPresent()}><IcoD name="Square" size={13} /> Finish</button>
+              <button className="btn sm" onClick={() => finishPresent()} disabled={loadingQuestions}><IcoD name={loadingQuestions ? "Loader2" : "Square"} size={13} /> {loadingQuestions ? "Analyzing..." : "Finish"}</button>
             </div>
           </div>
 
@@ -828,8 +1006,21 @@
           <div className="def-present-stage">
             {/* The slide */}
             <div className="def-slide">
-              {slide?.thumbnail ? (
+              {slide?.thumbnail && String(slide.thumbnail).startsWith("data:image/") ? (
+                <img alt={`Slide ${slideIdx + 1}`} src={slide.thumbnail} />
+              ) : slide?.thumbnail ? (
                 <iframe title={`Slide ${slideIdx + 1}`} src={slide.thumbnail} />
+              ) : (slide?.title || slide?.text || slide?.notes) ? (
+                <div className="def-slide-text">
+                  <div className="def-slide-kicker">Slide {slideIdx + 1}</div>
+                  {slide?.title && <h2>{slide.title}</h2>}
+                  {slide?.bullets?.length ? (
+                    <ul>{slide.bullets.slice(0, 8).map((line, i) => <li key={i}>{line}</li>)}</ul>
+                  ) : slide?.text ? (
+                    <p>{slide.text}</p>
+                  ) : null}
+                  {slide?.notes && <div className="def-slide-notes"><IcoD name="StickyNote" size={13} /> {slide.notes}</div>}
+                </div>
               ) : (
                 <div className="def-slide-blank">
                   <IcoD name="Presentation" size={30} />
@@ -863,8 +1054,8 @@
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {isLastSlide ? (
-                <button className="btn primary" onClick={() => finishPresent()}>
-                  Finish & take questions <IcoD name="ArrowRight" size={14} color="#fff" />
+                <button className="btn primary" onClick={() => finishPresent()} disabled={loadingQuestions}>
+                  {loadingQuestions ? "Analyzing recording..." : "Finish & take questions"} <IcoD name={loadingQuestions ? "Loader2" : "ArrowRight"} size={14} color="#fff" />
                 </button>
               ) : (
                 <button className="btn primary" onClick={nextSlide}>
@@ -986,7 +1177,7 @@
                 </div>
               ))}
             </div>
-            <div className="def-note" style={{ marginBottom: 18 }}><IcoD name="Sparkles" size={12} /> Once the backend is wired, each slide also gets a transcript, pace (words/min), filler-word count, and a one-line fix from the committee.</div>
+            <div className="def-note" style={{ marginBottom: 18 }}><IcoD name="Sparkles" size={12} /> Your recorded talk and slide text seed the committee questions for this practice round.</div>
           </>
         )}
 

@@ -127,7 +127,13 @@
       body: JSON.stringify({ firstName, lastName, email, password, academicStage, institution, program, researchArea: researchArea || program })
     });
     const data = await jsonOrThrow(res);
-    setAuth(data.access_token, data.user);
+    const user = {
+      ...(data.user || {}),
+      institution: firstProfileValue(data.user && data.user.institution, institution),
+      program: firstProfileValue(data.user && data.user.program, program, data.user && data.user.researchArea),
+      researchArea: firstProfileValue(data.user && data.user.researchArea, researchArea, program)
+    };
+    setAuth(data.access_token, user);
     return getUser();
   }
 
@@ -277,6 +283,28 @@
     return jsonOrThrow(res);
   }
 
+  async function parseDefenseDeck(file, { renderSlides = true } = {}) {
+    const form = new FormData();
+    form.append("file", file, file?.name || "defense-deck.pptx");
+    form.append("render_slides", renderSlides ? "true" : "false");
+    const res = await fetch(`${base()}/api/defense/deck`, {
+      method: "POST", headers: authHeaders(false), body: form
+    });
+    return jsonOrThrow(res);
+  }
+
+  async function analyzeDefensePresentation({ mediaBlob, deckFile, deckName, slides }) {
+    const form = new FormData();
+    if (deckFile) form.append("deck", deckFile, deckFile.name || deckName || "defense-deck.pptx");
+    if (mediaBlob) form.append("media", mediaBlob, mediaBlob.type?.startsWith("audio/") ? "presentation-audio.webm" : "presentation-video.webm");
+    if (!deckFile && slides) form.append("slides_json", JSON.stringify(slides || []));
+    form.append("deck_name", deckName || "Slide deck");
+    const res = await fetch(`${base()}/api/defense/presentation/analyze`, {
+      method: "POST", headers: authHeaders(false), body: form
+    });
+    return jsonOrThrow(res);
+  }
+
   async function generateDefenseQuestions({ format, thesisTitle, researchSummary, materials, committeeMembers, questionCount = 6 }) {
     const res = await fetch(`${base()}/api/defense/questions`, {
       method: "POST", headers: authHeaders(),
@@ -297,6 +325,6 @@
     login, signup, demoAuth, getConfig,
     listSessions, createSession, getSession, renameSession, deleteSession, truncateMessages, uploadDocument, saveMessage, switchChat, newChat,
     streamChat, replyToAdvisor,
-    resolveDefenseMemberProfile, parseDefenseMaterial, generateDefenseQuestions
+    resolveDefenseMemberProfile, parseDefenseMaterial, parseDefenseDeck, analyzeDefensePresentation, generateDefenseQuestions
   };
 })();

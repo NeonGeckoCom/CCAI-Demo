@@ -27,6 +27,8 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     academicStage: Optional[str] = None
+    institution: Optional[str] = None
+    program: Optional[str] = None
     researchArea: Optional[str] = None
 
 class UserLogin(BaseModel):
@@ -46,6 +48,8 @@ class User(BaseModel):
     email: EmailStr
     hashed_password: str
     academicStage: Optional[str] = None
+    institution: Optional[str] = None
+    program: Optional[str] = None
     researchArea: Optional[str] = None
     disabled_advisors: Optional[List[str]] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -58,6 +62,8 @@ class UserResponse(BaseModel):
     lastName: str
     email: str
     academicStage: Optional[str] = None
+    institution: Optional[str] = None
+    program: Optional[str] = None
     researchArea: Optional[str] = None
     created_at: datetime
     last_login: Optional[datetime] = None

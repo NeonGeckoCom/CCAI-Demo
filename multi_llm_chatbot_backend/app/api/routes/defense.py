@@ -1,15 +1,22 @@
 import asyncio
+import base64
 import html
 import json
 import logging
 import random
 import re
+import subprocess
 import time
+import tempfile
+import zipfile
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+from xml.etree import ElementTree
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_active_user
@@ -27,6 +34,8 @@ MAX_RESOURCE_TEXT_CHARS = 8000
 MAX_PROFILE_CONTEXT_CHARS = 24_000
 PROFILE_SEARCH_BUDGET_SECONDS = 24
 MAX_DEFENSE_MATERIAL_BYTES = 10 * 1024 * 1024
+MAX_DEFENSE_DECK_BYTES = 75 * 1024 * 1024
+MAX_PRESENTATION_MEDIA_BYTES = 75 * 1024 * 1024
 MAX_DEFENSE_MATERIAL_TEXT_CHARS = 60_000
 
 SEARCH_USER_AGENT = (
@@ -162,6 +171,32 @@ class DefenseMaterialParseResponse(BaseModel):
     word_count: int
 
 
+class DefenseDeckSlide(BaseModel):
+    index: int
+    title: str = ""
+    text: str = ""
+    notes: str = ""
+    bullets: List[str] = Field(default_factory=list)
+    thumbnail: str = ""
+    seconds: float = 0
+
+
+class DefenseDeckParseResponse(BaseModel):
+    name: str
+    title: str = ""
+    file_type: str
+    slide_count: int
+    slides: List[DefenseDeckSlide]
+
+
+class DefensePresentationAnalysisResponse(BaseModel):
+    material: DefenseMaterial
+    transcript: str = ""
+    summary: str = ""
+    delivery_notes: List[str] = Field(default_factory=list)
+    generation_method: Literal["multimodal_llm", "slides_only"]
+
+
 class DefenseProfileRequest(BaseModel):
     member: CommitteeMemberRequest
 
@@ -197,6 +232,8 @@ class DefenseGenerationDiagnostics(BaseModel):
     accepted_count: int = 0
     rejected_count: int = 0
     rejections: List[DefenseQuestionRejection] = Field(default_factory=list)
+    missing_member_ids: List[str] = Field(default_factory=list)
+    missing_member_names: List[str] = Field(default_factory=list)
     failure_reason: str = ""
 
 
@@ -204,7 +241,7 @@ class DefenseQuestionsResponse(BaseModel):
     format: str
     questions: List[DefenseQuestion]
     profiles: List[AcademicProfile]
-    generation_method: Literal["llm"]
+    generation_method: Literal["llm", "llm_coverage_repaired", "profile_grounded_recovery"]
     diagnostics: DefenseGenerationDiagnostics
 
 
@@ -807,10 +844,32 @@ class LLMJsonParseError(ValueError):
         self.preview = _compact_text(preview, 300)
 
 
+PROVIDER_TEXT_PREFIXES = (
+    "i apologize, but i'm unable to generate",
+    "i apologize, but i received an unexpected response",
+    "i apologize, but i couldn't generate",
+    "i'm experiencing issues connecting",
+    "the ai service is taking too long",
+    "i encountered an unexpected error",
+)
+
+
+def _provider_text_reason(raw: str) -> Optional[str]:
+    lowered = _compact_text(raw, 400).lower()
+    if not lowered:
+        return None
+    if any(lowered.startswith(prefix) for prefix in PROVIDER_TEXT_PREFIXES):
+        return "llm_provider_text_response"
+    return None
+
+
 def _parse_llm_json(raw: str) -> object:
     cleaned = re.sub(r"```(?:json)?", "", str(raw or "").strip(), flags=re.I).strip()
     if not cleaned:
         raise LLMJsonParseError("empty_llm_response")
+    provider_reason = _provider_text_reason(cleaned)
+    if provider_reason:
+        raise LLMJsonParseError(provider_reason, cleaned)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as exc:
@@ -821,6 +880,50 @@ def _parse_llm_json(raw: str) -> object:
             return json.loads(match.group(0))
         except json.JSONDecodeError as nested_exc:
             raise LLMJsonParseError("malformed_json_in_llm_response", cleaned) from nested_exc
+
+
+def _plain_text_question_payload(raw: str, profiles: List[AcademicProfile], limit: int) -> Optional[dict]:
+    if _provider_text_reason(raw):
+        return None
+    cleaned = re.sub(r"```.*?```", " ", str(raw or ""), flags=re.DOTALL)
+    candidates: List[str] = []
+    for line in cleaned.splitlines():
+        line = _compact_text(line, 800)
+        if not line or "?" not in line:
+            continue
+        line = re.sub(r"^\s*(?:[-*]|\d+[\).:]|Q\d+[\).:]?)\s*", "", line, flags=re.I)
+        line = re.sub(r"^(?:question|methods|framing|evidence|limitations|contribution|committee question)\s*[:\-]\s*", "", line, flags=re.I)
+        if line.endswith("?") and len(line) >= 24:
+            candidates.append(line)
+
+    if not candidates:
+        candidates = [
+            _compact_text(match.group(0), 800)
+            for match in re.finditer(r"[^?\n]{24,}\?", cleaned)
+        ]
+    if not candidates or not profiles:
+        return None
+
+    seen = set()
+    questions = []
+    for candidate in candidates:
+        key = candidate.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        profile = profiles[len(questions) % len(profiles)]
+        questions.append(
+            {
+                "tag": "Committee question",
+                "q": candidate,
+                "member_id": profile.id,
+                "member_name": profile.name,
+                "grounded_in": _profile_grounding(profile, "")[:2],
+            }
+        )
+        if len(questions) >= limit:
+            break
+    return {"questions": questions} if questions else None
 
 
 def _normalize_work_items(items: object, resources: List[PublicProfileResource]) -> List[AcademicWork]:
@@ -1008,6 +1111,435 @@ def _clean_material_text_for_questions(text: str) -> str:
     cleaned = re.sub(r"(?i)\bIndex Terms\b.*?(?=\bI\.?\s+INTRODUCTION\b|\bINTRODUCTION\b|$)", " ", cleaned)
     cleaned = re.sub(r"(?i)\bREFERENCES\b.*$", " ", cleaned)
     return _compact_text(cleaned, MAX_DEFENSE_MATERIAL_TEXT_CHARS)
+
+
+def _paragraph_text(paragraph: object) -> str:
+    runs = getattr(paragraph, "runs", []) or []
+    text = "".join(getattr(run, "text", "") for run in runs).strip()
+    if not text:
+        text = getattr(paragraph, "text", "")
+    return _compact_text(text, 700)
+
+
+def _shape_text_lines(shape: object) -> List[str]:
+    lines: List[str] = []
+    if getattr(shape, "has_text_frame", False):
+        for paragraph in getattr(shape.text_frame, "paragraphs", []) or []:
+            text = _paragraph_text(paragraph)
+            if text:
+                lines.append(text)
+    if getattr(shape, "has_table", False):
+        for row in getattr(shape.table, "rows", []) or []:
+            cells = [
+                _compact_text(getattr(cell, "text", ""), 300)
+                for cell in getattr(row, "cells", []) or []
+                if _compact_text(getattr(cell, "text", ""), 300)
+            ]
+            if cells:
+                lines.append(" | ".join(cells))
+    return lines
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _pptx_xml_text_lines(xml_bytes: bytes) -> List[str]:
+    try:
+        root = ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError:
+        return []
+    lines: List[str] = []
+    for paragraph in root.iter():
+        if _xml_local_name(paragraph.tag) != "p":
+            continue
+        parts = [
+            text_node.text or ""
+            for text_node in paragraph.iter()
+            if _xml_local_name(text_node.tag) == "t" and text_node.text
+        ]
+        text = _compact_text("".join(parts), 700)
+        if text:
+            lines.append(text)
+    if not lines:
+        lines = [
+            _compact_text(node.text, 700)
+            for node in root.iter()
+            if _xml_local_name(node.tag) == "t" and _compact_text(node.text, 700)
+        ]
+    return lines
+
+
+def _pptx_slide_number(path: str) -> int:
+    match = re.search(r"slide(\d+)\.xml$", path)
+    return int(match.group(1)) if match else 0
+
+
+def _dedupe_lines(lines: List[str]) -> List[str]:
+    seen = set()
+    unique = []
+    for line in lines:
+        clean = _compact_text(line, 700)
+        key = clean.casefold()
+        if not clean or key in seen:
+            continue
+        seen.add(key)
+        unique.append(clean)
+    return unique
+
+
+def _deck_slide_from_lines(index: int, lines: List[str], notes: str = "") -> DefenseDeckSlide:
+    clean_lines = _dedupe_lines(lines)
+    title = clean_lines[0] if clean_lines else ""
+    bullets = clean_lines[1:] if len(clean_lines) > 1 else []
+    return DefenseDeckSlide(
+        index=index,
+        title=_compact_text(title, 180),
+        text=_compact_text("\n".join(bullets), 3000),
+        notes=_compact_text(notes, 1200),
+        bullets=[_compact_text(line, 220) for line in bullets[:12]],
+    )
+
+
+def _parse_pptx_deck_xml(file_bytes: bytes) -> List[DefenseDeckSlide]:
+    slides: List[DefenseDeckSlide] = []
+    with zipfile.ZipFile(BytesIO(file_bytes)) as archive:
+        slide_paths = sorted(
+            [
+                name for name in archive.namelist()
+                if re.match(r"ppt/slides/slide\d+\.xml$", name)
+            ],
+            key=_pptx_slide_number,
+        )
+        for index, slide_path in enumerate(slide_paths):
+            slide_number = _pptx_slide_number(slide_path)
+            lines = _pptx_xml_text_lines(archive.read(slide_path))
+            notes_path = f"ppt/notesSlides/notesSlide{slide_number}.xml"
+            notes_lines = _pptx_xml_text_lines(archive.read(notes_path)) if notes_path in archive.namelist() else []
+            slides.append(_deck_slide_from_lines(index, lines, "\n".join(notes_lines)))
+    return slides
+
+
+def _parse_pptx_deck(file_bytes: bytes) -> List[DefenseDeckSlide]:
+    try:
+        from pptx import Presentation  # type: ignore
+    except ImportError:
+        return _parse_pptx_deck_xml(file_bytes)
+
+    prs = Presentation(BytesIO(file_bytes))
+    slides: List[DefenseDeckSlide] = []
+    for idx, slide in enumerate(prs.slides):
+        title = ""
+        lines: List[str] = []
+        title_shape = getattr(slide.shapes, "title", None)
+        if title_shape is not None:
+            title_candidates = _shape_text_lines(title_shape)
+            if title_candidates:
+                title = title_candidates[0]
+
+        for shape in slide.shapes:
+            shape_lines = _shape_text_lines(shape)
+            for line in shape_lines:
+                if not title:
+                    title = line
+                    continue
+                if line != title:
+                    lines.append(line)
+
+        notes = ""
+        if getattr(slide, "has_notes_slide", False):
+            try:
+                notes = _compact_text(slide.notes_slide.notes_text_frame.text.strip(), 1200)
+            except Exception:
+                notes = ""
+
+        slides.append(_deck_slide_from_lines(idx, [title, *lines] if title else lines, notes))
+    return slides
+
+
+def _rendered_slide_number(path: Path) -> int:
+    match = re.search(r"(\d+)", path.stem)
+    return int(match.group(1)) if match else 0
+
+
+def _render_pptx_slide_images(file_bytes: bytes) -> List[str]:
+    """Best-effort rendering of original PPTX slides through local PowerPoint."""
+    if not file_bytes:
+        return []
+    try:
+        import winreg  # type: ignore
+
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"PowerPoint.Application\CLSID"):
+            pass
+    except Exception:
+        logger.info("PowerPoint COM is not registered; using text-only slide fallback.")
+        return []
+
+    script = r"""
+param([string]$DeckPath, [string]$OutDir)
+$ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$ppt = $null
+$presentation = $null
+try {
+  $ppt = New-Object -ComObject PowerPoint.Application
+  $presentation = $ppt.Presentations.Open($DeckPath, $true, $false, $false)
+  $presentation.Export($OutDir, "JPG", 1280, 720)
+}
+finally {
+  if ($presentation -ne $null) {
+    $presentation.Close() | Out-Null
+    [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) | Out-Null
+  }
+  if ($ppt -ne $null) {
+    $ppt.Quit() | Out-Null
+    [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($ppt) | Out-Null
+  }
+}
+"""
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="defense-pptx-render-") as tmp:
+            tmp_path = Path(tmp)
+            deck_path = tmp_path / "deck.pptx"
+            out_dir = tmp_path / "slides"
+            script_path = tmp_path / "render.ps1"
+            deck_path.write_bytes(file_bytes)
+            script_path.write_text(script, encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script_path),
+                    str(deck_path),
+                    str(out_dir),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if result.returncode != 0:
+                logger.info(
+                    "PowerPoint slide render failed: %s",
+                    (result.stderr or result.stdout or "").strip()[:600],
+                )
+                return []
+
+            image_paths = sorted(
+                [
+                    path for path in out_dir.iterdir()
+                    if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
+                ],
+                key=_rendered_slide_number,
+            )
+            urls = []
+            for path in image_paths:
+                mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+                urls.append(f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}")
+            return urls
+    except Exception as exc:
+        logger.info("PowerPoint slide render was unavailable: %s", exc)
+        return []
+
+
+def _presentation_slides_from_json(raw_value: object) -> List[DefenseDeckSlide]:
+    if not raw_value:
+        return []
+    try:
+        payload = json.loads(str(raw_value))
+    except json.JSONDecodeError:
+        logger.info("Defense presentation slides JSON could not be parsed")
+        return []
+    if not isinstance(payload, list):
+        return []
+    slides: List[DefenseDeckSlide] = []
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict):
+            continue
+        item = dict(item)
+        item.setdefault("index", index)
+        try:
+            slides.append(DefenseDeckSlide.model_validate(item))
+        except Exception:
+            logger.info("Defense presentation slide record was invalid: %s", item)
+    return slides
+
+
+def _presentation_slide_context(slides: List[DefenseDeckSlide], limit: int = 18_000) -> str:
+    chunks = []
+    used = 0
+    for slide in slides:
+        pieces = [
+            f"Slide {slide.index + 1}",
+            f"Title: {slide.title}" if slide.title else "",
+            f"Text: {slide.text}" if slide.text else "",
+            f"Speaker notes: {slide.notes}" if slide.notes else "",
+            f"Timing: {slide.seconds:.1f} seconds" if slide.seconds else "",
+        ]
+        chunk = "\n".join(piece for piece in pieces if piece)
+        if not chunk:
+            continue
+        remaining = limit - used
+        if remaining <= 0:
+            break
+        chunks.append(chunk[:remaining])
+        used += min(len(chunk), remaining)
+    return "\n\n".join(chunks)
+
+
+def _presentation_deck_mime_type(file: UploadFile) -> str:
+    supplied = (file.content_type or "").strip()
+    if supplied and supplied != "application/octet-stream":
+        return supplied
+    name = (file.filename or "").lower()
+    if name.endswith(".pptx"):
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    if name.endswith(".pdf"):
+        return "application/pdf"
+    return supplied or "application/octet-stream"
+
+
+def _presentation_analysis_material(
+    deck_name: str,
+    slides: List[DefenseDeckSlide],
+    analysis: Optional[dict] = None,
+) -> DefenseMaterial:
+    analysis = analysis or {}
+    transcript = _compact_text(analysis.get("transcript"), 12_000)
+    summary = _compact_text(analysis.get("summary"), 3000)
+    question_seed = _compact_text(analysis.get("question_seed"), 3000)
+    delivery_notes_raw = analysis.get("delivery_notes") or []
+    if not isinstance(delivery_notes_raw, list):
+        delivery_notes_raw = [str(delivery_notes_raw)]
+    delivery_notes = [
+        _compact_text(note, 500)
+        for note in delivery_notes_raw
+        if _compact_text(note, 500)
+    ][:6]
+
+    slide_context = _presentation_slide_context(slides)
+    parts = [
+        f"Presented deck: {deck_name or 'Uploaded slide deck'}",
+        "Slide deck file: analyzed directly from the uploaded file." if analysis and not slides else "",
+        f"Slide count: {len(slides)}" if slides else "",
+        "Slide content and timing:\n" + slide_context if slide_context else "",
+        "Recording transcript:\n" + transcript if transcript else "",
+        "Recording summary:\n" + summary if summary else "",
+        "Question seed from recorded talk:\n" + question_seed if question_seed else "",
+        "Delivery notes:\n" + "\n".join(f"- {note}" for note in delivery_notes) if delivery_notes else "",
+    ]
+    text = _compact_text("\n\n".join(part for part in parts if part), MAX_DEFENSE_MATERIAL_TEXT_CHARS)
+    return DefenseMaterial(
+        name=f"{deck_name or 'Slide deck'} - recorded presentation",
+        text=text,
+    )
+
+
+def _presentation_analysis_system_prompt() -> str:
+    return """You analyze a PhD presentation recording and its original slide deck file for a defense-practice system.
+
+Use the uploaded audio/video as evidence of what the student actually said. Use the attached slide deck file as the structure and visual/text evidence for the talk.
+Return only JSON. Do not invent technical claims not present in the recording or deck."""
+
+
+def _presentation_analysis_user_prompt(deck_name: str, has_deck: bool, has_recording: bool) -> str:
+    return json.dumps(
+        {
+            "task": (
+                "Analyze the attached recording and slide deck file. Produce material that a dissertation committee "
+                "can use to ask grounded questions about the talk."
+            ),
+            "deck_name": deck_name,
+            "attachments": {
+                "slide_deck_file": "attached" if has_deck else "not attached",
+                "recording": "attached" if has_recording else "not attached",
+            },
+            "important": (
+                "Use the attached slide deck file directly. The application is not providing parsed slide text "
+                "in this prompt."
+            ),
+            "required_json_schema": {
+                "transcript": "concise transcript or detailed spoken-content summary from the recording",
+                "summary": "what the student argued in the talk, grounded in the slide deck file and recording",
+                "question_seed": "specific claims, methods, assumptions, evidence, limitations, and unclear points to question",
+                "delivery_notes": ["short observations about pacing, clarity, skipped/underexplained material"],
+            },
+        },
+        ensure_ascii=True,
+    )
+
+
+async def _analyze_presentation_recording(
+    *,
+    deck_name: str,
+    slides: Optional[List[DefenseDeckSlide]] = None,
+    deck_bytes: bytes = b"",
+    deck_mime_type: str = "",
+    media_bytes: bytes = b"",
+    media_mime_type: str = "",
+) -> tuple[DefenseMaterial, str, str, List[str], str]:
+    slides = slides or []
+    llm_client = chat_orchestrator.llm_client
+    multimodal = getattr(llm_client, "generate_multimodal", None) if llm_client is not None else None
+    media_parts: List[Dict[str, Any]] = []
+    if deck_bytes:
+        media_parts.append(
+            {
+                "name": deck_name or "slide deck",
+                "bytes": deck_bytes,
+                "mime_type": deck_mime_type or "application/octet-stream",
+            }
+        )
+    if media_bytes:
+        media_parts.append(
+            {
+                "name": "presentation recording",
+                "bytes": media_bytes,
+                "mime_type": media_mime_type or "video/webm",
+            }
+        )
+    if not media_parts or multimodal is None:
+        material = _presentation_analysis_material(deck_name, slides)
+        return material, "", "", [], "slides_only"
+
+    raw = await multimodal(
+        system_prompt=_presentation_analysis_system_prompt(),
+        text_prompt=_presentation_analysis_user_prompt(deck_name, bool(deck_bytes), bool(media_bytes)),
+        media_parts=media_parts,
+        temperature=0.15,
+        max_tokens=5000,
+        response_mime_type="application/json",
+    )
+    try:
+        parsed = _parse_llm_json(raw)
+    except LLMJsonParseError as exc:
+        logger.info("Defense presentation recording analysis returned %s; using slides only.", exc.reason)
+        material = _presentation_analysis_material(deck_name, slides)
+        return material, "", "", [], "slides_only"
+    if not isinstance(parsed, dict):
+        material = _presentation_analysis_material(deck_name, slides)
+        return material, "", "", [], "slides_only"
+
+    material = _presentation_analysis_material(deck_name, slides, parsed)
+    delivery_notes_raw = parsed.get("delivery_notes") or []
+    if not isinstance(delivery_notes_raw, list):
+        delivery_notes_raw = [str(delivery_notes_raw)]
+    delivery_notes = [
+        _compact_text(note, 500)
+        for note in delivery_notes_raw
+        if _compact_text(note, 500)
+    ][:6]
+    return (
+        material,
+        _compact_text(parsed.get("transcript"), 12_000),
+        _compact_text(parsed.get("summary"), 3000),
+        delivery_notes,
+        "multimodal_llm",
+    )
 
 
 GROUNDING_STOP_TERMS = {
@@ -1389,8 +1921,194 @@ def _candidate_question_attempt_counts(requested_count: int) -> List[int]:
     return unique_counts
 
 
+def _minimum_usable_question_count(requested_count: int) -> int:
+    if requested_count <= 3:
+        return requested_count
+    return max(3, (requested_count * 2 + 2) // 3)
+
+
+def _committee_member_coverage_required(profiles: List[AcademicProfile], limit: int) -> bool:
+    return len(profiles) > 1 and limit >= len(profiles)
+
+
+def _missing_profile_coverage(
+    questions: List[DefenseQuestion],
+    profiles: List[AcademicProfile],
+    limit: int,
+) -> List[AcademicProfile]:
+    if not _committee_member_coverage_required(profiles, limit):
+        return []
+    covered_ids = {question.member_id for question in questions}
+    return [profile for profile in profiles if profile.id not in covered_ids]
+
+
+def _question_set_rank(
+    questions: List[DefenseQuestion],
+    diagnostics: DefenseGenerationDiagnostics,
+    profiles: List[AcademicProfile],
+    limit: int,
+) -> tuple[int, int, int]:
+    missing_count = len(_missing_profile_coverage(questions, profiles, limit))
+    return (0 if missing_count else 1, len(questions), diagnostics.accepted_count)
+
+
 def _question_generation_token_budget(candidate_count: int) -> int:
     return min(4200, max(1800, 1100 + candidate_count * 180))
+
+
+def _profile_recovery_focus(request: DefenseQuestionsRequest) -> str:
+    material_context = _material_context(request.materials)
+    raw_focus = _compact_text(material_context or request.research_summary or request.thesis_title, 260)
+    generic_markers = (
+        "student needs practice",
+        "practice dissertation defense",
+        "defending the research framing",
+        "phd in ",
+        "phd, ",
+    )
+    focus = "" if any(marker in raw_focus.lower() for marker in generic_markers) else raw_focus
+    if len(focus) > 180:
+        focus = _compact_text(focus[:180].rsplit(" ", 1)[0], 180)
+    return focus or "your dissertation's central claim"
+
+
+def _profile_recovery_fact(profile: AcademicProfile, index: int = 0) -> str:
+    candidates = (
+        list(profile.question_angles or [])
+        + list(profile.research_areas or [])
+        + list(profile.questioning_style or [])
+        + [work.title for work in (profile.publications or [])[:3]]
+        + [work.title for work in (profile.talks or [])[:2]]
+    )
+    cleaned = [_compact_text(candidate, 140) for candidate in candidates if _compact_text(candidate, 140)]
+    if not cleaned:
+        return profile.title or profile.name or "committee perspective"
+    return cleaned[index % len(cleaned)]
+
+
+def _profile_grounded_recovery_questions(
+    request: DefenseQuestionsRequest,
+    profiles: List[AcademicProfile],
+    limit: int,
+) -> List[DefenseQuestion]:
+    if not profiles or limit <= 0:
+        return []
+    focus = _profile_recovery_focus(request)
+    distribution = _question_distribution(profiles, limit)
+    coverage_tags = question_format_directive(request.format)["coverage_tags"] or ["Committee question"]
+    questions: List[DefenseQuestion] = []
+
+    for profile_index, profile in enumerate(profiles):
+        target = max(1, distribution.get(profile.id, 0))
+        profile_key = f"{profile.id} {profile.name} {profile.title}".lower()
+        for local_index in range(target):
+            fact = _profile_recovery_fact(profile, local_index)
+            tag = coverage_tags[(len(questions) + local_index) % len(coverage_tags)]
+            if "method" in profile_key:
+                variants = [
+                    (
+                        f"From a methodology perspective, what validity threat would most weaken {focus}, "
+                        "and how would you defend your design against it?"
+                    ),
+                    (
+                        f"What evidence would show that the methods behind {focus} support the strength "
+                        "of the claims rather than only the plausibility of the story?"
+                    ),
+                    (
+                        f"If a committee member challenged your controls, sampling, or measurement choices, "
+                        f"which part of the design for {focus} would you defend first?"
+                    ),
+                ]
+                question = variants[local_index % len(variants)]
+                tag = "Methods"
+            elif "theor" in profile_key:
+                variants = [
+                    (
+                        f"Which central construct in {focus} carries the most theoretical weight, "
+                        "and what alternative explanation should the committee not overlook?"
+                    ),
+                    (
+                        f"What would change in your argument if the committee accepted the evidence for "
+                        f"{focus} but rejected your theoretical framing?"
+                    ),
+                    (
+                        f"How would you explain the contribution of {focus} to someone who agrees with "
+                        "your findings but questions the conceptual vocabulary?"
+                    ),
+                ]
+                question = variants[local_index % len(variants)]
+                tag = "Theory"
+            else:
+                variants = [
+                    (
+                        f"Given your expertise in {fact}, what evidence would convince you that {focus} "
+                        "generalizes beyond its current setting?"
+                    ),
+                    (
+                        f"From the perspective of {fact}, what limitation in {focus} would you want the "
+                        "student to acknowledge before claiming broader impact?"
+                    ),
+                    (
+                        f"What future experiment or analysis connected to {fact} would most strengthen "
+                        f"the next version of {focus}?"
+                    ),
+                ]
+                question = variants[local_index % len(variants)]
+            questions.append(
+                DefenseQuestion(
+                    tag=_compact_text(tag, 80),
+                    q=_compact_text(question, 700),
+                    member_id=profile.id,
+                    member_name=profile.name,
+                    grounded_in=[entry for entry in [_profile_recovery_fact(profile, local_index), focus] if entry],
+                    source_urls=_source_urls(profile),
+                )
+            )
+            if len(questions) >= limit:
+                return questions
+
+    while len(questions) < limit:
+        profile = profiles[len(questions) % len(profiles)]
+        fact = _profile_recovery_fact(profile, len(questions))
+        questions.append(
+            DefenseQuestion(
+                tag=coverage_tags[len(questions) % len(coverage_tags)],
+                q=_compact_text(
+                    f"What is the strongest objection someone from {fact} might raise about {focus}, "
+                    "and how would you answer it in the room?",
+                    700,
+                ),
+                member_id=profile.id,
+                member_name=profile.name,
+                grounded_in=[fact, focus],
+                source_urls=_source_urls(profile),
+            )
+        )
+    return questions
+
+
+def _repair_missing_profile_coverage(
+    request: DefenseQuestionsRequest,
+    questions: List[DefenseQuestion],
+    profiles: List[AcademicProfile],
+    limit: int,
+) -> List[DefenseQuestion]:
+    missing_profiles = _missing_profile_coverage(questions, profiles, limit)
+    if not missing_profiles:
+        return questions[:limit]
+    repair_questions = _profile_grounded_recovery_questions(
+        request,
+        missing_profiles,
+        len(missing_profiles),
+    )
+    if not repair_questions:
+        return questions[:limit]
+    return _sample_grounded_questions(
+        questions + repair_questions,
+        profiles,
+        limit,
+        _question_distribution(profiles, limit),
+    )
 
 
 def _sample_grounded_questions(
@@ -1499,10 +2217,15 @@ def _normalize_llm_questions(
         limit,
         target_distribution,
     )
+    missing_profiles = _missing_profile_coverage(selected_questions, profiles, limit)
+    diagnostics.missing_member_ids = [profile.id for profile in missing_profiles]
+    diagnostics.missing_member_names = [profile.name for profile in missing_profiles]
     diagnostics.accepted_count = len(questions)
     diagnostics.rejected_count = len(diagnostics.rejections)
     if not selected_questions:
         diagnostics.failure_reason = "no_usable_llm_questions"
+    elif missing_profiles:
+        diagnostics.failure_reason = "missing_committee_member_coverage"
     elif len(selected_questions) < limit:
         diagnostics.failure_reason = "too_few_usable_llm_questions"
     return selected_questions, diagnostics
@@ -1577,12 +2300,18 @@ async def llm_profile_questions(
     directive = question_format_directive(request.format)
     material_context = _material_context(request.materials)
     evidence_text = _question_evidence_text(request, profiles)
-    target_distribution = _question_distribution(profiles, request.question_count)
     best_questions: List[DefenseQuestion] = []
     best_diagnostics: Optional[DefenseGenerationDiagnostics] = None
     retry_rejections: List[DefenseQuestionRejection] = []
+    coverage_repair_missing: List[str] = []
+    minimum_usable = _minimum_usable_question_count(request.question_count)
+    attempt_counts = _candidate_question_attempt_counts(request.question_count)
+    if minimum_usable < request.question_count and minimum_usable not in attempt_counts:
+        attempt_counts.append(minimum_usable)
 
-    for attempt_index, candidate_count in enumerate(_candidate_question_attempt_counts(request.question_count)):
+    for attempt_index, candidate_count in enumerate(attempt_counts):
+        accepted_target = min(candidate_count, request.question_count, minimum_usable)
+        target_distribution = _question_distribution(profiles, accepted_target)
         user_payload = {
             "format": request.format,
             "source_priority": "uploaded_materials_primary" if material_context else "summary_and_profile",
@@ -1598,38 +2327,61 @@ async def llm_profile_questions(
             "research_summary": _compact_text(request.research_summary, MAX_SUMMARY_CHARS),
             "materials": material_context,
             "question_count": candidate_count,
-            "minimum_accepted_questions": request.question_count,
+            "minimum_accepted_questions": accepted_target,
             "target_question_distribution": target_distribution,
+            "coverage_requirement": (
+                "Every selected committee profile must have at least one usable question "
+                "when the requested count is at least the number of profiles."
+            ),
             "profiles": _llm_profile_payload(profiles),
         }
+        if retry_rejections:
+            user_payload["repair_instruction"] = (
+                "The previous response was not valid JSON for this endpoint. "
+                "Return only a JSON object with a `questions` array. Do not include apologies, "
+                "markdown fences, commentary, or prose outside JSON."
+            )
+        if candidate_count < request.question_count:
+            user_payload["emergency_mode"] = (
+                f"Generate exactly {candidate_count} highly grounded questions so the practice "
+                "round can start with a shorter set."
+            )
+        if coverage_repair_missing:
+            user_payload["coverage_repair_instruction"] = (
+                "The previous usable response omitted selected committee members: "
+                f"{', '.join(coverage_repair_missing)}. Regenerate so each omitted member has "
+                "at least one question tied to their supplied profile evidence."
+            )
 
         raw = await llm_client.generate(
             system_prompt=_llm_question_system_prompt(request.format),
             context=[{"role": "user", "content": json.dumps(user_payload, ensure_ascii=True)}],
-            temperature=0.35 if attempt_index == 0 else 0.2,
+            temperature=0.35 if attempt_index == 0 else 0.1,
             max_tokens=_question_generation_token_budget(candidate_count),
-            response_mime_type="application/json",
+            response_mime_type=None if retry_rejections and candidate_count <= minimum_usable else "application/json",
         )
         try:
             parsed = _parse_llm_json(raw)
         except LLMJsonParseError as exc:
-            logger.info(
-                "Defense question LLM attempt %s returned %s; retrying with a smaller candidate pool if available.",
-                attempt_index + 1,
-                exc.reason,
-            )
-            if exc.preview:
-                retry_rejections.append(
-                    DefenseQuestionRejection(q=exc.preview, reason=exc.reason)
+            parsed = _plain_text_question_payload(raw, profiles, candidate_count)
+            if parsed is None:
+                logger.info(
+                    "Defense question LLM attempt %s returned %s; retrying with a smaller candidate pool if available.",
+                    attempt_index + 1,
+                    exc.reason,
                 )
-            if best_diagnostics is None:
-                best_diagnostics = DefenseGenerationDiagnostics(
-                    requested_count=request.question_count,
-                    failure_reason=exc.reason,
-                    rejections=list(retry_rejections),
-                )
-                best_diagnostics.rejected_count = len(best_diagnostics.rejections)
-            continue
+                if exc.preview:
+                    retry_rejections.append(
+                        DefenseQuestionRejection(q=exc.preview, reason=exc.reason)
+                    )
+                if best_diagnostics is None:
+                    best_diagnostics = DefenseGenerationDiagnostics(
+                        requested_count=request.question_count,
+                        failure_reason=exc.reason,
+                        rejections=list(retry_rejections),
+                    )
+                    best_diagnostics.rejected_count = len(best_diagnostics.rejections)
+                continue
 
         questions, diagnostics = _normalize_llm_questions(
             parsed,
@@ -1638,14 +2390,16 @@ async def llm_profile_questions(
             evidence_text,
             target_distribution,
         )
-        if (
-            best_diagnostics is None
-            or len(questions) > len(best_questions)
-            or diagnostics.accepted_count > best_diagnostics.accepted_count
-        ):
+        if best_diagnostics is None or _question_set_rank(
+            questions,
+            diagnostics,
+            profiles,
+            request.question_count,
+        ) > _question_set_rank(best_questions, best_diagnostics, profiles, request.question_count):
             best_questions = questions
             best_diagnostics = diagnostics
-        if len(questions) >= request.question_count:
+        coverage_repair_missing = list(diagnostics.missing_member_names)
+        if len(questions) >= request.question_count and not coverage_repair_missing:
             return questions, diagnostics
 
     if best_diagnostics is None:
@@ -1720,6 +2474,104 @@ async def parse_defense_material(
         file_type=resolve_file_type(file.content_type, file.filename),
         character_count=len(text),
         word_count=len(re.findall(r"\S+", text)),
+    )
+
+
+@router.post("/defense/deck", response_model=DefenseDeckParseResponse)
+async def parse_defense_deck(
+    file: UploadFile = File(...),
+    render_slides: bool = Form(False),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Split a PowerPoint deck into ordered slide text for presentation practice."""
+    _ = current_user
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded deck is empty.")
+    if len(file_bytes) > MAX_DEFENSE_DECK_BYTES:
+        limit_mb = MAX_DEFENSE_DECK_BYTES // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"Deck exceeds the {limit_mb}MB limit.")
+
+    file_type = resolve_file_type(file.content_type, file.filename)
+    if file_type != "pptx":
+        raise HTTPException(
+            status_code=415,
+            detail="Defense slide presentation currently supports PowerPoint .pptx decks.",
+        )
+
+    try:
+        slides = _parse_pptx_deck(file_bytes)
+    except Exception as exc:
+        logger.info("Defense deck parse failed for %s: %s", file.filename, exc)
+        raise HTTPException(status_code=400, detail="Could not parse this PowerPoint deck.")
+
+    if not slides:
+        raise HTTPException(status_code=400, detail="No readable slides found in this deck.")
+
+    if render_slides:
+        rendered_urls = await asyncio.to_thread(_render_pptx_slide_images, file_bytes)
+        for index, thumbnail in enumerate(rendered_urls):
+            if index < len(slides):
+                slides[index].thumbnail = thumbnail
+
+    title = next((slide.title for slide in slides if slide.title), "")
+    return DefenseDeckParseResponse(
+        name=file.filename or "Uploaded deck",
+        title=title,
+        file_type=file_type,
+        slide_count=len(slides),
+        slides=slides,
+    )
+
+
+@router.post("/defense/presentation/analyze", response_model=DefensePresentationAnalysisResponse)
+async def analyze_defense_presentation(
+    media: Optional[UploadFile] = File(None),
+    deck: Optional[UploadFile] = File(None),
+    slides_json: str = Form("[]"),
+    deck_name: str = Form("Slide deck"),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Analyze a recorded talk together with the original uploaded slide deck file."""
+    _ = current_user
+    slides = _presentation_slides_from_json(slides_json)
+    deck_bytes = b""
+    deck_mime_type = ""
+    if deck is not None:
+        deck_bytes = await deck.read()
+        deck_mime_type = _presentation_deck_mime_type(deck)
+        if len(deck_bytes) > MAX_DEFENSE_DECK_BYTES:
+            limit_mb = MAX_DEFENSE_DECK_BYTES // (1024 * 1024)
+            raise HTTPException(status_code=413, detail=f"Slide deck exceeds the {limit_mb}MB limit.")
+        if deck.filename and (not deck_name or deck_name == "Slide deck"):
+            deck_name = deck.filename
+
+    media_bytes = b""
+    media_mime_type = ""
+    if media is not None:
+        media_bytes = await media.read()
+        media_mime_type = media.content_type or "video/webm"
+        if len(media_bytes) > MAX_PRESENTATION_MEDIA_BYTES:
+            limit_mb = MAX_PRESENTATION_MEDIA_BYTES // (1024 * 1024)
+            raise HTTPException(status_code=413, detail=f"Presentation recording exceeds the {limit_mb}MB limit.")
+
+    if not deck_bytes and not slides and not media_bytes:
+        raise HTTPException(status_code=400, detail="No slide deck or presentation recording was provided.")
+
+    material, transcript, summary, delivery_notes, generation_method = await _analyze_presentation_recording(
+        deck_name=deck_name,
+        slides=slides,
+        deck_bytes=deck_bytes,
+        deck_mime_type=deck_mime_type,
+        media_bytes=media_bytes,
+        media_mime_type=media_mime_type,
+    )
+    return DefensePresentationAnalysisResponse(
+        material=material,
+        transcript=transcript,
+        summary=summary,
+        delivery_notes=delivery_notes,
+        generation_method=generation_method,
     )
 
 
@@ -1800,18 +2652,106 @@ async def defense_questions(
             },
         )
 
-    if not questions or len(questions) < request.question_count:
+    minimum_usable = _minimum_usable_question_count(request.question_count)
+    provider_failure_reasons = {
+        "llm_provider_text_response",
+        "empty_llm_response",
+        "non_json_llm_response",
+        "malformed_json_in_llm_response",
+    }
+    if len(questions) < minimum_usable and diagnostics.failure_reason in provider_failure_reasons:
+        recovered_questions = _profile_grounded_recovery_questions(
+            request,
+            profiles,
+            request.question_count,
+        )
+        if len(recovered_questions) >= minimum_usable:
+            logger.info(
+                "Defense Room using profile-grounded recovery questions after LLM provider failure: %s",
+                diagnostics.failure_reason,
+            )
+            recovery_diagnostics = diagnostics.model_copy(deep=True)
+            recovery_diagnostics.accepted_count = len(recovered_questions)
+            recovery_diagnostics.failure_reason = "llm_provider_recovered_with_profile_questions"
+            return DefenseQuestionsResponse(
+                format=request.format,
+                questions=recovered_questions[: request.question_count],
+                profiles=profiles,
+                generation_method="profile_grounded_recovery",
+                diagnostics=recovery_diagnostics,
+            )
+
+    missing_profiles = _missing_profile_coverage(questions, profiles, request.question_count)
+    if len(questions) >= minimum_usable and missing_profiles:
+        repaired_questions = _repair_missing_profile_coverage(
+            request,
+            questions,
+            profiles,
+            request.question_count,
+        )
+        repaired_missing = _missing_profile_coverage(
+            repaired_questions,
+            profiles,
+            request.question_count,
+        )
+        if len(repaired_questions) >= minimum_usable and not repaired_missing:
+            logger.info(
+                "Defense Room repaired missing committee-member coverage for: %s",
+                ", ".join(profile.name for profile in missing_profiles),
+            )
+            repaired_diagnostics = diagnostics.model_copy(deep=True)
+            repaired_diagnostics.missing_member_ids = []
+            repaired_diagnostics.missing_member_names = []
+            repaired_diagnostics.failure_reason = ""
+            return DefenseQuestionsResponse(
+                format=request.format,
+                questions=repaired_questions[: request.question_count],
+                profiles=profiles,
+                generation_method="llm_coverage_repaired",
+                diagnostics=repaired_diagnostics,
+            )
+
+    remaining_missing_profiles = _missing_profile_coverage(questions, profiles, request.question_count)
+    if len(questions) >= minimum_usable and remaining_missing_profiles:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": "missing_committee_member_coverage",
+                "message": (
+                    "The generated questions did not cover every selected committee member. "
+                    "No incomplete practice round was started."
+                ),
+                "accepted_count": len(questions),
+                "minimum_usable_count": minimum_usable,
+                "missing_members": [profile.name for profile in remaining_missing_profiles],
+                "diagnostics": diagnostics.model_dump(),
+            },
+        )
+
+    if not questions or len(questions) < minimum_usable:
         raise HTTPException(
             status_code=422,
             detail={
                 "reason": diagnostics.failure_reason or "question_generation_incomplete",
                 "message": (
-                    "The LLM did not return enough grounded questions. "
+                    "The LLM did not return enough grounded questions to begin the practice round. "
                     "No fallback questions were used."
                 ),
+                "accepted_count": len(questions),
+                "minimum_usable_count": minimum_usable,
+                "missing_members": diagnostics.missing_member_names,
                 "diagnostics": diagnostics.model_dump(),
             },
         )
+
+    if len(questions) < request.question_count:
+        logger.info(
+            "Defense Room beginning with %d/%d grounded questions after %d rejected candidate(s)",
+            len(questions),
+            request.question_count,
+            diagnostics.rejected_count,
+        )
+        diagnostics.failure_reason = ""
 
     return DefenseQuestionsResponse(
         format=request.format,

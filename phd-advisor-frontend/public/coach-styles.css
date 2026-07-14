@@ -1454,6 +1454,13 @@ button, input, textarea, select { font-family: inherit; }
 @media (max-width: 860px) { .def-present-stage { grid-template-columns: 1fr; } }
 .def-slide { position: relative; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16 / 9; }
 .def-slide iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.def-slide img { width: 100%; height: 100%; object-fit: contain; display: block; background: #fff; }
+.def-slide-text { height: 100%; overflow: auto; padding: 34px; background: #fffdf8; color: #1f1b16; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.def-slide-kicker { font-size: 11px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; color: var(--primary); }
+.def-slide-text h2 { margin: 0; font-family: var(--serif); font-size: 34px; line-height: 1.08; color: #22170f; overflow-wrap: anywhere; }
+.def-slide-text ul { margin: 4px 0 0; padding-left: 22px; display: grid; gap: 7px; font-size: 16px; line-height: 1.35; }
+.def-slide-text p { margin: 0; white-space: pre-wrap; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+.def-slide-notes { margin-top: 6px; display: flex; align-items: flex-start; gap: 7px; border-top: 1px solid #eadfd2; padding-top: 10px; color: #6f6258; font-size: 12px; line-height: 1.35; }
 .def-slide-blank { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-3); padding: 24px; text-align: center; }
 .def-slide-n { font-size: 20px; font-weight: 700; color: var(--text-2); }
 .def-slide-hint { font-size: 12.5px; color: var(--text-3); max-width: 320px; line-height: 1.45; }

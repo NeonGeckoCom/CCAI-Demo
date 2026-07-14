@@ -363,12 +363,50 @@
     out.degree = out.degree || program || "PhD program";
     out.institution = out.institution || institution || "your institution";
     out.discoveryMode = out.discoveryMode || mode || "fallback";
+    const sourceFallback = out.extractionMethod === "llm_direct_plan" ? "" : (defaultSource || "Discovery result");
     out.deliverables = dedupeDeliverables((out.deliverables || []).map((item) => ({
       name: cleanText(item.name),
-      when: cleanText(item.when) || "Program-specific",
-      source: normalizeSource(item.source, defaultSource || "Discovery result")
+      when: cleanText(item.when) || (out.extractionMethod === "llm_direct_plan" ? "" : "Program-specific"),
+      source: normalizeSource(item.source, sourceFallback)
     })));
+    if (Array.isArray(out.steps)) out.steps = normalizeGeneratedSteps(out.steps);
     return out;
+  }
+
+  function normalizeToolIds(ids) {
+    const raw = Array.isArray(ids) ? ids : (ids ? [ids] : []);
+    return raw.map(cleanText).filter(id => FEATURES[id]);
+  }
+
+  function normalizeGeneratedSteps(steps) {
+    const used = new Set();
+    return (steps || []).map((step, index) => {
+      const title = cleanText(step.title || step.name);
+      const subtasks = (Array.isArray(step.subtasks) ? step.subtasks : [])
+        .map(cleanText)
+        .filter(Boolean)
+        .slice(0, 8);
+      if (!title || subtasks.length === 0) return null;
+      const source = cleanText(step.source || step.deliverableSource);
+      const node = {
+        id: uniqueStepId(`handbook-${title || index + 1}`, used),
+        phase: cleanText(step.phase),
+        title,
+        icon: cleanText(step.icon) || "Flag",
+        objective: cleanText(step.objective),
+        estimate: cleanText(step.estimate || step.when),
+        gate: step.gate !== false,
+        deliverable: cleanText(step.deliverable || title),
+        deliverableSource: source,
+        source,
+        handbookDerived: true,
+        subtasks,
+        add: normalizeToolIds(step.add || step.tools || step.toolIds || step.tool_ids),
+        retire: normalizeToolIds(step.retire),
+        status: "locked"
+      };
+      return node;
+    }).filter(Boolean);
   }
 
   function localTemplateDeliverables(program, institution) {
@@ -441,6 +479,38 @@
     return "http://localhost:8000";
   }
 
+  function normalizeBackendBase(value) {
+    return cleanText(value).replace(/\/+$/, "");
+  }
+
+  function backendCandidates() {
+    const seen = new Set();
+    const out = [];
+    const add = (value) => {
+      const base = normalizeBackendBase(value);
+      if (base && !seen.has(base)) {
+        seen.add(base);
+        out.push(base);
+      }
+    };
+    add(backendBase());
+    if (window.location && /^https?:$/.test(window.location.protocol)) {
+      const proto = window.location.protocol;
+      const host = window.location.hostname;
+      add(`${proto}//${host}:8000`);
+      if (host === "localhost") add(`${proto}//127.0.0.1:8000`);
+      if (host === "127.0.0.1") add(`${proto}//localhost:8000`);
+    }
+    add("http://localhost:8000");
+    add("http://127.0.0.1:8000");
+    return out;
+  }
+
+  function isNetworkFetchError(error) {
+    const message = String(error?.message || "");
+    return error?.name === "TypeError" || /failed to fetch|networkerror|load failed/i.test(message);
+  }
+
   function materialHasFile(materials) {
     return (materials || []).some(m => m && m.file);
   }
@@ -455,6 +525,14 @@
     }));
   }
 
+  function serializableTools() {
+    return Object.entries(FEATURES).map(([id, feature]) => ({
+      id,
+      name: feature.name || id,
+      blurb: feature.blurb || ""
+    }));
+  }
+
   function buildDiscoveryRequest({ program, institution, materials }) {
     const token = window.CoachAPI && window.CoachAPI.token ? window.CoachAPI.token() : null;
     const authHeaders = token ? { "Authorization": `Bearer ${token}` } : {};
@@ -462,7 +540,7 @@
     if (!hasFiles) {
       return {
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ program, institution, materials: serializableMaterials(materials) })
+        body: JSON.stringify({ program, institution, materials: serializableMaterials(materials), tools: serializableTools() })
       };
     }
 
@@ -470,6 +548,7 @@
     form.append("program", program || "");
     form.append("institution", institution || "");
     form.append("materials", JSON.stringify(serializableMaterials(materials)));
+    form.append("tools", JSON.stringify(serializableTools()));
     (materials || []).forEach((material) => {
       if (material && material.file) {
         form.append("files", material.file, material.name || material.file.name || "uploaded-file");
@@ -480,25 +559,58 @@
 
   async function fetchOnlineDeliverables({ program, institution, materials = [] }) {
     if (!window.fetch) return null;
+    const hasMaterials = (materials || []).length > 0;
     const controller = window.AbortController ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), 60000) : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 180000) : null;
     const request = buildDiscoveryRequest({ program, institution, materials });
+    let lastNetworkError = null;
     try {
-      const response = await fetch(`${backendBase()}/api/discover-deliverables`, {
-        method: "POST",
-        ...request,
-        signal: controller ? controller.signal : undefined
-      });
-      if (!response.ok) return null;
-      const result = await response.json();
-      if (!result || !Array.isArray(result.deliverables) || result.deliverables.length === 0) return null;
-      return normalizeDiscoveryResult(result, {
-        program,
-        institution,
-        mode: "web",
-        defaultSource: "Public web search"
-      });
+      for (const base of backendCandidates()) {
+        try {
+          const response = await fetch(`${base}/api/discover-deliverables`, {
+            method: "POST",
+            ...request,
+            signal: controller ? controller.signal : undefined
+          });
+          if (!response.ok) {
+            if (!hasMaterials) return null;
+            let detail = "";
+            try {
+              const err = await response.json();
+              detail = err && (err.detail || err.message);
+            } catch (e) {}
+            const error = new Error(detail || "The handbook plan generator could not complete.");
+            error.status = response.status;
+            throw error;
+          }
+          const result = await response.json();
+          if (!result || !Array.isArray(result.deliverables) || result.deliverables.length === 0) {
+            if (hasMaterials) throw new Error("The handbook plan generator returned no milestones.");
+            return null;
+          }
+          return normalizeDiscoveryResult(result, {
+            program,
+            institution,
+            mode: "web",
+            defaultSource: "Public web search"
+          });
+        } catch (e) {
+          if (isNetworkFetchError(e) && !(controller && controller.signal && controller.signal.aborted)) {
+            lastNetworkError = e;
+            continue;
+          }
+          if (hasMaterials) throw e;
+          return null;
+        }
+      }
+      if (lastNetworkError && hasMaterials) {
+        const error = new Error("Could not reach the backend on port 8000. Make sure the backend is running, then hard-refresh. If you set a custom API base, clear localStorage['phd-api-base'].");
+        error.status = 0;
+        throw error;
+      }
+      return null;
     } catch (e) {
+      if (hasMaterials) throw e;
       return null;
     } finally {
       if (timer) clearTimeout(timer);
@@ -506,16 +618,14 @@
   }
 
   async function discoverDeliverables({ program, institution, materials = [] }) {
-    const hasFiles = materialHasFile(materials);
-    const parsedFromMaterials = hasFiles ? null : parseMaterialsForDeliverables({ program, institution, materials });
+    const hasMaterials = (materials || []).length > 0;
 
-    // The backend uses the configured chat LLM and shared RAG stack for every
-    // uploaded file or pasted source. Local parsing is a resilience fallback.
     const online = await fetchOnlineDeliverables({ program, institution, materials });
     if (online) return online;
 
-    const textFallback = hasFiles ? parseMaterialsForDeliverables({ program, institution, materials }) : parsedFromMaterials;
-    return delayResult(textFallback || localTemplateDeliverables(program, institution), 650);
+    if (hasMaterials) throw new Error("The handbook plan generator is unavailable. No local fallback plan was created.");
+
+    return delayResult(localTemplateDeliverables(program, institution), 650);
   }
 
   // --------------------------------------------------------------------------
@@ -784,12 +894,15 @@
   // --------------------------------------------------------------------------
   function generateRoadmap({ program, deliverables, startPosition, workflow }) {
     const sourceItems = dedupeDeliverables((deliverables && deliverables.deliverables) || []);
+    const generatedSteps = normalizeGeneratedSteps((deliverables && deliverables.steps) || []);
     const usedIds = new Set();
-    let steps = hasSpecificDeliverables(deliverables)
+    let steps = generatedSteps.length
+      ? generatedSteps
+      : hasSpecificDeliverables(deliverables)
       ? sourceItems.map((item, i) => stepFromDeliverable(item, i, usedIds))
       : MILESTONES.map((m) => ({ ...m, status: "locked" }));
 
-    steps = insertOptionalMilestones(steps, workflow);
+    if (!generatedSteps.length) steps = insertOptionalMilestones(steps, workflow);
     steps = applyStartPosition(steps, startPosition);
 
     // Attach which deliverable(s) each generic fallback milestone satisfies.

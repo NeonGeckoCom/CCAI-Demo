@@ -98,11 +98,13 @@ def _build_student_context_prompt(context: Dict[str, Any] | None, current_user: 
     profile_institution = _first_profile_value(
         profile.get("institution"),
         roadmap_institution,
+        current_user.institution,
         limit=180,
     )
     profile_program = _first_profile_value(
         profile.get("program"),
         roadmap_program_name,
+        current_user.program,
         current_user.researchArea,
         limit=180,
     )

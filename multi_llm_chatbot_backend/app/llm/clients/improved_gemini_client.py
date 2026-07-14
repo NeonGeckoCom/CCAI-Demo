@@ -1,3 +1,4 @@
+import base64
 import httpx
 import json
 import logging
@@ -103,7 +104,7 @@ class ImprovedGeminiClient(LLMClient):
             if response_mime_type is not None:
                 payload["generationConfig"]["responseMimeType"] = response_mime_type
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"{self.base_url}/{self.model_name}:generateContent",
                     json=payload,
@@ -153,6 +154,118 @@ class ImprovedGeminiClient(LLMClient):
             return "The AI service is taking too long to respond. Please try again."
         except Exception as e:
             logger.exception("Unexpected error in Gemini client")
+            return "I encountered an unexpected error. Please try again."
+
+    async def generate_multimodal(
+        self,
+        system_prompt: str,
+        text_prompt: str,
+        media_bytes: bytes = b"",
+        media_mime_type: str = "",
+        media_parts: Optional[List[Dict[str, Any]]] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
+        response_mime_type: str = None,
+    ) -> str:
+        """Generate a response from text plus one or more inline media/file payloads."""
+        try:
+            inline_parts = []
+            if media_parts:
+                for part in media_parts:
+                    data = part.get("bytes") or b""
+                    if not data:
+                        continue
+                    inline_parts.append(
+                        {
+                            "inlineData": {
+                                "mimeType": part.get("mime_type") or "application/octet-stream",
+                                "data": base64.b64encode(data).decode("ascii"),
+                            }
+                        }
+                    )
+            elif media_bytes:
+                inline_parts.append(
+                    {
+                        "inlineData": {
+                            "mimeType": media_mime_type or "video/webm",
+                            "data": base64.b64encode(media_bytes or b"").decode("ascii"),
+                        }
+                    }
+                )
+
+            generation_config = {
+                "temperature": temperature,
+                "topK": 40,
+                "topP": 0.9,
+            }
+            if max_tokens is not None:
+                generation_config["maxOutputTokens"] = max_tokens
+            if response_mime_type is not None:
+                generation_config["responseMimeType"] = response_mime_type
+            if _supports_thinking_config(self.model_name):
+                generation_config["thinkingConfig"] = THINKING_DISABLED_CONFIG
+
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": f"{system_prompt}\n\n{text_prompt}".strip()},
+                            *inline_parts,
+                        ],
+                    }
+                ],
+                "generationConfig": generation_config,
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    }
+                ],
+            }
+
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/{self.model_name}:generateContent",
+                    json=payload,
+                    headers={"x-goog-api-key": self.api_key}
+                )
+                response.raise_for_status()
+                result = response.json()
+                candidates = result.get("candidates") or []
+                if not candidates:
+                    logger.error("No candidates in Gemini multimodal response: %s", result)
+                    return "I apologize, but I'm unable to generate a response right now. Please try again."
+                parts = ((candidates[0].get("content") or {}).get("parts")) or []
+                text = "\n\n".join(
+                    p.get("text", "")
+                    for p in parts
+                    if not p.get("thought") and p.get("text", "").strip()
+                ).strip()
+                if not text:
+                    return "I apologize, but I couldn't analyze the recording. Please try again."
+                return self._clean_response(text)
+
+        except httpx.HTTPStatusError as e:
+            logger.error("Gemini multimodal HTTP error: %s - %s", e.response.status_code, e.response.text)
+            return "I'm experiencing issues connecting to the AI service. Please try again."
+        except httpx.TimeoutException:
+            logger.error("Gemini multimodal timeout")
+            return "The AI service is taking too long to respond. Please try again."
+        except Exception:
+            logger.exception("Unexpected error in Gemini multimodal client")
             return "I encountered an unexpected error. Please try again."
 
     async def stream_generate(
