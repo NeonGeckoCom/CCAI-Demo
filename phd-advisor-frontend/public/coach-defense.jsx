@@ -641,6 +641,7 @@
     const chunksRef = useRef([]);      // recorded chunks
     const slideStartRef = useRef(0);   // timestamp the current slide began
     const recordedBlobRef = useRef(null); // the take itself, kept so it can be saved to history
+    const recordingStopResolverRef = useRef(null);
 
     const questionCount = QUESTION_COUNT[format] || 6;
     const parsingMaterials = materials.some(m => m.status === "parsing");
@@ -728,19 +729,35 @@
           setCamReady(true); setCamError("");
           // Record the whole take; per-slide timing comes from the marks we log.
           chunksRef.current = [];
-          const rec = new MediaRecorder(stream);
+          recordedBlobRef.current = null;
+          const pickRecorderMime = () => {
+            const supported = (type) => window.MediaRecorder?.isTypeSupported?.(type);
+            const candidates = wantsVideo
+              ? (wantsAudio ? ["video/webm;codecs=vp8,opus", "video/webm"] : ["video/webm;codecs=vp8", "video/webm"])
+              : ["audio/webm;codecs=opus", "audio/webm"];
+            return candidates.find(supported) || "";
+          };
+          const mimeType = pickRecorderMime();
+          const recorderOptions = {};
+          if (mimeType) recorderOptions.mimeType = mimeType;
+          if (wantsVideo) recorderOptions.videoBitsPerSecond = 450000;
+          if (wantsAudio) recorderOptions.audioBitsPerSecond = 64000;
+          const rec = new MediaRecorder(stream, recorderOptions);
           rec.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
           rec.onstop = () => {
+            let blob = null;
             try {
-              const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "video/webm" });
+              blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || (wantsVideo ? "video/webm" : "audio/webm") });
               recordedBlobRef.current = blob;   // kept so "Save report" can persist the take
               setRecordedUrl(URL.createObjectURL(blob));
-              // BACKEND: also POST `blob` (+ the per-slide marks) to /api/defense/present
-              // via DefensePresent.analyzeSlide to get transcripts + delivery scores.
             } catch (e) {}
+            if (recordingStopResolverRef.current) {
+              recordingStopResolverRef.current(blob);
+              recordingStopResolverRef.current = null;
+            }
           };
           mediaRecRef.current = rec;
-          rec.start();
+          rec.start(1000);
           setRecording(true);
           slideStartRef.current = Date.now();
         } catch (err) {
@@ -1098,6 +1115,10 @@
       setSlideIdx(0);
       setPresentLog([]);
       setRecordedUrl("");
+      chunksRef.current = [];
+      recordedBlobRef.current = null;
+      recordingStopResolverRef.current = null;
+      mediaRecRef.current = null;
       setStage("present");   // the effect above grabs the camera + starts recording
     };
     // Log how long the current slide took, then advance (or finish).
@@ -1108,21 +1129,66 @@
       const entry = { index: slideIdx, seconds, transcript: "", slideText };
       setPresentLog(p => [...p, entry]);
       slideStartRef.current = now;
-      // BACKEND: fire-and-forget DefensePresent.analyzeSlide({ blob, slideText, seconds })
-      // once per-slide chunks are available, then merge scores into presentLog.
       return entry;
     };
     const nextSlide = () => { markSlide(); setSlideIdx(i => i + 1); };
+    const stopRecordingAndGetBlob = async () => {
+      const rec = mediaRecRef.current;
+      if (!rec) return recordedBlobRef.current;
+      if (rec.state === "inactive") return recordedBlobRef.current;
+      return await new Promise(resolve => {
+        recordingStopResolverRef.current = resolve;
+        try {
+          rec.requestData && rec.requestData();
+        } catch (e) {}
+        try {
+          rec.stop();
+        } catch (e) {
+          recordingStopResolverRef.current = null;
+          resolve(recordedBlobRef.current);
+        }
+      });
+    };
     const finishPresent = async () => {
+      if (loadingQuestions) return;
+      setLoadingQuestions(true);
       const finalEntry = markSlide();
-      try { mediaRecRef.current && mediaRecRef.current.state !== "inactive" && mediaRecRef.current.stop(); } catch (e) {}
+      const recordingBlob = await stopRecordingAndGetBlob();
       setRecording(false);
       stopStream();
       setPresented(true);
+      const slideRecords = [...presentLog, finalEntry];
+      let presentationMaterials = [];
+      try {
+        if (window.CoachAPI?.analyzeDefensePresentation) {
+          const analysis = await window.CoachAPI.analyzeDefensePresentation({
+            mediaBlob: recordingBlob,
+            deckFile: deck?.file || null,
+            deckName: deck?.name || "Slide deck"
+          });
+          if (analysis?.material?.text) {
+            presentationMaterials = [analysis.material];
+            setPresentLog(records => records.map(record => ({
+              ...record,
+              transcript: analysis.transcript || record.transcript || "",
+              one_fix: (analysis.delivery_notes || [])[0] || record.one_fix || ""
+            })));
+            if (onToast && analysis.generation_method === "multimodal_llm") {
+              onToast("Analyzed your recording and slide deck for committee questions.");
+            }
+          }
+        }
+      } catch (e) {
+        const detail = typeof e?.data?.detail === "string"
+          ? e.data.detail
+          : e?.data?.detail?.message || e?.message || "";
+        const suffix = detail ? `: ${detail}` : "";
+        if (onToast) onToast(`Could not analyze the recording${suffix}. Questions will use the deck name and slide timing.`);
+      }
       await generateQuestionsForSession({
         formatOverride: "talk",
-        materialPayload: [],
-        researchSummary: buildPresentationSummary([...presentLog, finalEntry]),
+        materialPayload: presentationMaterials,
+        researchSummary: presentationMaterials.length ? "" : buildPresentationSummary(slideRecords),
         questionCountOverride: QUESTION_COUNT.talk,
         toastMessage: "Generated LLM questions for your presentation."
       });
@@ -1135,6 +1201,7 @@
       setLog([]); setPresentLog([]);
       setRecordedUrl("");                 // the effect above revokes the old URL
       recordedBlobRef.current = null;
+      recordingStopResolverRef.current = null;
       setSavedId("");
     };
 
@@ -1554,7 +1621,9 @@
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span className={`def-rec-dot ${recording ? "on" : ""}`}><span /> {recording ? "Recording" : camReady ? "Ready" : "Recording off"}</span>
-              <button className="btn sm" onClick={() => finishPresent()}><IcoD name="Square" size={13} /> Finish</button>
+              <button className="btn sm" onClick={() => finishPresent()} disabled={loadingQuestions}>
+                <IcoD name={loadingQuestions ? "Loader2" : "Square"} size={13} /> {loadingQuestions ? "Analyzing..." : "Finish"}
+              </button>
             </div>
           </div>
 
@@ -1598,8 +1667,8 @@
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {isLastSlide ? (
-                <button className="btn primary" onClick={() => finishPresent()}>
-                  Finish & take questions <IcoD name="ArrowRight" size={14} color="#fff" />
+                <button className="btn primary" onClick={() => finishPresent()} disabled={loadingQuestions}>
+                  {loadingQuestions ? "Analyzing recording..." : "Finish & take questions"} <IcoD name={loadingQuestions ? "Loader2" : "ArrowRight"} size={14} color="#fff" />
                 </button>
               ) : (
                 <button className="btn primary" onClick={nextSlide}>
