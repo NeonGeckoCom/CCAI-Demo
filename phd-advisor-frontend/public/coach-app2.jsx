@@ -1201,8 +1201,9 @@ function CoachRoot() {
   // 1) Not signed in → marketing landing / login. Auth is real (CoachAPI):
   // CoachLogin performs the backend login/signup and only calls onAuthed on
   // success. A brand-new account (isNew) lands in onboarding with a fresh plan.
-  const onAuthed = (isNew) => {
-    if (window.CoachAPI) window.MOCK_USER = window.CoachAPI.getUser();
+  const onAuthed = (isNew, user) => {
+    if (user) window.MOCK_USER = user;
+    else if (window.CoachAPI) window.MOCK_USER = window.CoachAPI.getUser();
     if (isNew) { setRoadmap(null); setDoneTasks(new Set()); }
     setAuthed(true);
     setView("home");
@@ -1229,6 +1230,7 @@ function CoachRoot() {
   // 2) Signed in, no plan yet → onboarding (onboarding hands up density/model prefs)
   if (!roadmap) {
     return <window.CoachOnboarding
+      profile={window.MOCK_USER}
       onAuthExpired={handleAuthExpired}
       onComplete={(rm, p) => { setRoadmap(rm); if (p) setPrefs(prev => ({ ...prev, ...p })); setView("home"); }} />;
   }

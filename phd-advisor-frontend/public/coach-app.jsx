@@ -132,13 +132,17 @@ const cleanOnboardingValue = (value) => {
   return text;
 };
 
-function getOnboardingDefaults() {
-  const user = (window.CoachAPI && window.CoachAPI.getUser && window.CoachAPI.getUser()) || window.MOCK_USER || {};
+function getOnboardingDefaults(profile) {
+  const user = profile || (window.CoachAPI && window.CoachAPI.getUser && window.CoachAPI.getUser()) || window.MOCK_USER || {};
   return {
     program: cleanOnboardingValue(user.program) || DEFAULT_ONBOARDING_PROGRAM,
     institution: cleanOnboardingValue(user.institution) || DEFAULT_ONBOARDING_INSTITUTION
   };
 }
+const shouldReplaceOnboardingDefault = (current, fallback) => {
+  const clean = cleanOnboardingValue(current);
+  return !clean || clean === fallback;
+};
 
 // ============================================================================
 // SOURCE-CONFLICT DETECTION
@@ -253,10 +257,10 @@ function ConflictResolver({ conflicts, resolutions, onChoose, onApply, onClose }
 // ============================================================================
 // ONBOARDING
 // ============================================================================
-function Onboarding({ onComplete, onAuthExpired }) {
+function Onboarding({ onComplete, onAuthExpired, profile }) {
   const [step, setStep] = useState(0);
-  const [program, setProgram] = useState(() => getOnboardingDefaults().program);
-  const [institution, setInstitution] = useState(() => getOnboardingDefaults().institution);
+  const [program, setProgram] = useState(() => getOnboardingDefaults(profile).program);
+  const [institution, setInstitution] = useState(() => getOnboardingDefaults(profile).institution);
   const [materials, setMaterials] = useState([]);   // {kind:'file'|'text', name, text?, file?}
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -275,6 +279,18 @@ function Onboarding({ onComplete, onAuthExpired }) {
   const [modelMode, setModelMode] = useState("cloud");            // cloud | private
   const [finishing, setFinishing] = useState(false);
   const [searchError, setSearchError] = useState("");
+
+  useEffect(() => {
+    const defaults = getOnboardingDefaults(profile);
+    const nextProgram = cleanOnboardingValue(defaults.program);
+    const nextInstitution = cleanOnboardingValue(defaults.institution);
+    if (nextProgram && nextProgram !== DEFAULT_ONBOARDING_PROGRAM) {
+      setProgram(prev => shouldReplaceOnboardingDefault(prev, DEFAULT_ONBOARDING_PROGRAM) ? nextProgram : prev);
+    }
+    if (nextInstitution && nextInstitution !== DEFAULT_ONBOARDING_INSTITUTION) {
+      setInstitution(prev => shouldReplaceOnboardingDefault(prev, DEFAULT_ONBOARDING_INSTITUTION) ? nextInstitution : prev);
+    }
+  }, [profile?.program, profile?.institution]);
 
   const hasUploadedFiles = materials.some(m => m.kind === "file" && m.file);
   const readableMaterialCount = materials.filter(m => (m.text || "").trim()).length;

@@ -276,24 +276,25 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
   const submit = async () => {
     setErr(""); setBusy(true);
     try {
+      let authedUser = null;
       if (isSignup) {
         const parts = name.trim().split(/\s+/).filter(Boolean);
-        await window.CoachAPI.signup({
+        authedUser = await window.CoachAPI.signup({
           firstName: parts[0] || name.trim() || "PhD",
           lastName: parts.slice(1).join(" "),
           email, password: pw, institution, program, researchArea: program
         });
       } else {
-        await window.CoachAPI.login(email, pw);
+        authedUser = await window.CoachAPI.login(email, pw);
       }
-      onAuthed(isSignup);
+      onAuthed(isSignup, authedUser);
     } catch (e) {
       // fetch() throwing a TypeError means the backend is unreachable → fall
       // back to an offline demo session so the app stays usable. A real HTTP
       // error (e.g. wrong password) is surfaced to the user instead.
       if (e instanceof TypeError) {
-        window.CoachAPI.demoAuth({ email, name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
-        onAuthed(isSignup);
+        const authedUser = window.CoachAPI.demoAuth({ email, name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
+        onAuthed(isSignup, authedUser);
       } else {
         setErr(e.message || "Authentication failed. Please try again.");
       }
@@ -301,8 +302,8 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
   };
 
   const googleDemo = () => {
-    window.CoachAPI.demoAuth({ email: email || "you@example.com", name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
-    onAuthed(isSignup);
+    const authedUser = window.CoachAPI.demoAuth({ email: email || "you@example.com", name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
+    onAuthed(isSignup, authedUser);
   };
 
   return (
