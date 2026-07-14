@@ -1791,3 +1791,14 @@ button, input, textarea, select { font-family: inherit; }
 .ht-tile.on .ht-mark svg { color: #fff; }
 
 
+
+/* Onboarding: the plan generator was unreachable, so the uploaded handbook was
+   never parsed and these milestones are the generic template. Loud on purpose. */
+.onb-degraded {
+  display: flex; align-items: flex-start; gap: 9px;
+  margin-top: 12px; padding: 11px 13px;
+  border: 1px solid var(--amber); border-radius: 12px;
+  background: var(--amber-soft); color: var(--text);
+  font-size: 12.5px; line-height: 1.5;
+}
+.onb-degraded svg { flex-shrink: 0; margin-top: 1px; color: var(--amber); }

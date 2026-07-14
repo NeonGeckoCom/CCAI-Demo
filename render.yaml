@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# Render Blueprint — the PhD Navigator backend API.
+#
+# The frontend is on Vercel (static). Render runs the FastAPI service that the
+# frontend talks to; point the frontend at this service's URL via
+# window.PHD_API_BASE in phd-advisor-frontend/public/index.html.
+#
+# Render has no managed MongoDB, so MONGODB_CONNECTION_STRING must point at a
+# free MongoDB Atlas (M0) cluster.
+# ---------------------------------------------------------------------------
+services:
+  - type: web
+    name: phd-navigator-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /
+
+    envVars:
+      # Paste in the Render dashboard (sync:false = not stored in git).
+      - key: GEMINI_API_KEY
+        sync: false
+      # Your Atlas SRV string, e.g.
+      #   mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+      - key: MONGODB_CONNECTION_STRING
+        sync: false
+
+      # Render generates a strong secret. Without one the app silently falls back
+      # to the public default "your-secret-key-change-me" and every JWT is forgeable.
+      - key: JWT_SECRET_KEY
+        generateValue: true
+
+      # personas + model config live here inside the image (see Dockerfile.render).
+      - key: CONFIG_PATH
+        value: /app/phd_config.yaml
+
+      - key: GEMINI_MODEL
+        value: gemini-3-flash-preview
+
+      # Origins allowed to call this API. Must include the Vercel frontend, or the
+      # browser blocks every request with a CORS error.
+      - key: CORS_ORIGINS
+        value: https://ccai-demo-cu-team.vercel.app,https://ccai-demo-cu-team-git-dev-ryans-projects-321f0659.vercel.app,http://localhost:3000

@@ -620,9 +620,28 @@
   async function discoverDeliverables({ program, institution, materials = [] }) {
     const hasMaterials = (materials || []).length > 0;
 
-    const online = await fetchOnlineDeliverables({ program, institution, materials });
+    let online = null;
+    try {
+      online = await fetchOnlineDeliverables({ program, institution, materials });
+    } catch (e) {
+      // A handbook plan can only come from the backend — nothing local can read
+      // the file. But an unreachable backend used to dead-end onboarding, so we
+      // now degrade to the built-in template and say so loudly (`degradedReason`
+      // is rendered as a warning, and discoveryMode stays "fallback" so the UI
+      // never claims the handbook was parsed).
+      //
+      // Only a genuinely unreachable backend (status 0) degrades. A real HTTP
+      // failure — expired session (401), unreadable handbook — must still throw,
+      // or the student would silently get a plan that ignored their upload.
+      if (!hasMaterials || e?.status !== 0) throw e;
+      const local = await delayResult(localTemplateDeliverables(program, institution), 400);
+      local.degradedReason = "We couldn't reach the plan generator, so your handbook was not read. This is the built-in template for your program — treat every milestone as a guess. Your upload is saved in Documents; start the backend and rebuild the plan to personalise it.";
+      return local;
+    }
     if (online) return online;
 
+    // Backend answered but produced nothing usable from the handbook — that is a
+    // real parsing failure, not an outage, so keep surfacing it.
     if (hasMaterials) throw new Error("The handbook plan generator is unavailable. No local fallback plan was created.");
 
     return delayResult(localTemplateDeliverables(program, institution), 650);

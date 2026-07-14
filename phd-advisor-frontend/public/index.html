@@ -5,11 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PhD Navigator — know the path ahead</title>
   <script>
-    /* Backend origin for auth + chat. On Vercel the backend is NOT on the same
-       host, so set this to your deployed API origin (e.g. "https://api.example.com")
-       to enable real auth/chat. Leave "" to use the local dev default
-       (http://<host>:8000); if unreachable the app runs in offline demo mode. */
-    window.PHD_API_BASE = "";
+    /* Backend origin for auth + chat.
+     *
+     * The API is NOT on the same host as this static frontend, so it has to be
+     * named explicitly — and it differs by environment:
+     *
+     *   localhost / 127.0.0.1  -> "" so coach-api.js falls back to <host>:8000,
+     *                             i.e. the backend you run locally (uvicorn).
+     *   anywhere else (Vercel) -> the deployed Render API.
+     *
+     * localStorage['phd-api-base'] still overrides both, which is handy for
+     * pointing a deployed UI at a tunnel during a demo.
+     */
+    (function () {
+      var h = location.hostname;
+      var isLocal = h === "localhost" || h === "127.0.0.1" || h === "";
+      window.PHD_API_BASE = isLocal ? "" : "https://phd-navigator-api.onrender.com";
+    })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

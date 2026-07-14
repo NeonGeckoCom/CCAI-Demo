@@ -588,6 +588,14 @@ function Onboarding({ onComplete, onAuthExpired, profile }) {
                 <Icon name="Upload" size={14} /> Add handbook or materials
               </button>
             )}
+            {/* The backend was unreachable, so the handbook was never read. Say so
+                plainly — the milestones below are a generic template, not theirs. */}
+            {found.degradedReason && (
+              <div className="onb-degraded">
+                <Icon name="WifiOff" size={15} />
+                <span><strong>Your handbook wasn't read.</strong> {found.degradedReason}</span>
+              </div>
+            )}
             <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 10, display: "flex", gap: 6, alignItems: "center" }}>
               <Icon name={found.discoveryMode === "documents" ? "FileText" : "Globe"} size={12} /> {sourceNote}
             </div>

@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# Backend-only image for Render.
+#
+# The repo's main Dockerfile builds FROM node:24 and npm-installs the frontend
+# as well — far too heavy for a free-tier build, and its final stage is the
+# frontend, not the API. This one is Python-only and boots the FastAPI app.
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# chroma-hnswlib / bcrypt can fall back to a source build on some platforms.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# `sentence-transformers` is listed in requirements.txt but is NEVER imported by
+# the app (no `sentence_transformers` / `torch` anywhere under app/; chromadb uses
+# its own ONNX embedder). It drags in ~2.5GB of torch and blows up the build, so
+# it is stripped here. requirements.txt itself is left untouched for the team.
+COPY multi_llm_chatbot_backend/requirements.txt /tmp/requirements.txt
+RUN grep -viE '^\s*sentence-transformers' /tmp/requirements.txt > /tmp/req-slim.txt \
+ && pip install -r /tmp/req-slim.txt \
+ && apt-get purge -y build-essential && apt-get autoremove -y
+
+# personas_dir ("personas/phd_advisors") is resolved relative to the config file's
+# own directory (app/config.py:194), so phd_config.yaml and personas/ must be
+# siblings — hence both land in /app.
+COPY multi_llm_chatbot_backend/ /app/multi_llm_chatbot_backend/
+COPY phd_config.yaml /app/phd_config.yaml
+COPY personas/ /app/personas/
+
+WORKDIR /app/multi_llm_chatbot_backend
+
+# Render injects $PORT and requires the service to bind 0.0.0.0 on it.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

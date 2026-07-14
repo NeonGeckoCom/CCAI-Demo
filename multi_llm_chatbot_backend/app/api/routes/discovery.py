@@ -147,18 +147,31 @@ def parse_deliverables_from_texts(texts: List[dict]) -> List[dict]:
 
 
 def parse_llm_json(raw: str) -> object:
-    """Parse JSON-only model output while tolerating an accidental code fence."""
+    """Parse JSON-only model output, tolerating a code fence, leading prose, AND
+    trailing text after the JSON value.
+
+    Some models (notably gemini-3-flash-preview) return a valid JSON object and
+    then append an explanation or a repeated block. A plain json.loads() fails
+    on that with 'Extra data: line N', so we fall back to raw_decode(), which
+    parses the FIRST complete JSON value and ignores anything after it.
+    """
     cleaned = re.sub(r"```(?:json)?", "", (raw or "").strip(), flags=re.I).strip()
+    # Fast path: the whole response is exactly one JSON value.
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        object_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if object_match:
-            return json.loads(object_match.group(0))
-        list_match = re.search(r"\[.*\]", cleaned, re.DOTALL)
-        if list_match:
-            return json.loads(list_match.group(0))
-        raise
+        pass
+    # Tolerant path: skip any leading prose to the first { or [, then decode just
+    # the first complete value, discarding trailing text.
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(cleaned):
+        if ch in "{[":
+            try:
+                value, _end = decoder.raw_decode(cleaned[i:])
+                return value
+            except json.JSONDecodeError:
+                continue
+    raise json.JSONDecodeError("No JSON value found in model output", cleaned, 0)
 
 
 def normalize_llm_deliverables(payload: object, source_names: List[str]) -> List[dict]:
