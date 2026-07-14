@@ -55,7 +55,7 @@ function NotesTool({ storeKey, title = "Notes" }) {
           onKeyDown={(e) => { if (e.key === "Enter") add(); }}
           placeholder="Jot a note + Enter"
         />
-        <button className="tool-add" onClick={add}><IconT name="Plus" size={14} /></button>
+        <button className="tool-add" onClick={add} aria-label="Add"><IconT name="Plus" size={14} /></button>
       </div>
       <div className="tool-list">
         {notes.length === 0 && <div className="tool-empty">No notes yet.</div>}
@@ -85,7 +85,7 @@ function TasksTool({ storeKey, title = "Tasks" }) {
     <ToolCard icon="ListChecks" title={title} foot={<span className="tool-count">{doneN}/{tasks.length}</span>}>
       <div className="tool-input-row">
         <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Add a task + Enter" />
-        <button className="tool-add" onClick={add}><IconT name="Plus" size={14} /></button>
+        <button className="tool-add" onClick={add} aria-label="Add"><IconT name="Plus" size={14} /></button>
       </div>
       <div className="tool-list">
         {tasks.length === 0 && <div className="tool-empty">No tasks yet.</div>}
@@ -116,7 +116,7 @@ function ReadingTool({ storeKey, title = "Reading Queue" }) {
     <ToolCard icon="BookOpen" title={title} foot={<span className="tool-count">{readN}/{items.length} read</span>}>
       <div className="tool-input-row">
         <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Paper title or DOI + Enter" />
-        <button className="tool-add" onClick={add}><IconT name="Plus" size={14} /></button>
+        <button className="tool-add" onClick={add} aria-label="Add"><IconT name="Plus" size={14} /></button>
       </div>
       <div className="tool-list">
         {items.length === 0 && <div className="tool-empty">Nothing queued.</div>}
@@ -147,7 +147,7 @@ function BibTool({ storeKey, title = "Bibliography" }) {
       <div className="tool-input-row bib">
         <input style={{ flex: 2 }} value={f.authors} onChange={(e) => setF({ ...f, authors: e.target.value })} placeholder="Author(s)" />
         <input style={{ flex: 1 }} value={f.year} onChange={(e) => setF({ ...f, year: e.target.value })} placeholder="Year" />
-        <button className="tool-add" onClick={add}><IconT name="Plus" size={14} /></button>
+        <button className="tool-add" onClick={add} aria-label="Add"><IconT name="Plus" size={14} /></button>
       </div>
       <input className="tool-fullinput" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Title + Enter" />
       <div className="tool-list">
@@ -220,7 +220,11 @@ const TOOL_REGISTRY = {
   "pilot-checklist":  (k) => <TasksTool   storeKey={k} title="Pilot Checklist" />,
   "proquest-checklist":(k) => <TasksTool  storeKey={k} title="Submission Checklist" />,
   "formatting-check": (k) => <TasksTool   storeKey={k} title="Formatting Checklist" />,
-  "outline-builder":  (k) => <TasksTool   storeKey={k} title="Outline" />
+  "outline-builder":  (k) => <TasksTool   storeKey={k} title="Outline" />,
+  // Both are declared below; the function declarations hoist, and the arrow only
+  // dereferences them at render time.
+  "deadlines":        (k) => <DeadlinesTool storeKey={k} title="Deadlines" />,
+  "funding":          (k) => <FundingTool   storeKey={k} title="Funding" />
 };
 
 function hasTool(featureId) { return !!TOOL_REGISTRY[featureId]; }

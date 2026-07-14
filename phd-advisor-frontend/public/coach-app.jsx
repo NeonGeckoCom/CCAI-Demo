@@ -651,25 +651,152 @@ function Rail({ view, onNav, user, skillsUnlocked = true, onSignOut }) {
     { id: "settings", label: "Settings", icon: "Settings" }
   ].filter(it => it.id !== "skills" || skillsUnlocked); // Skills stays hidden until unlocked in chat
   return (
-    <aside className="rail">
+    <nav className="rail" aria-label="Primary">
       <div className="rail-brand">
         <div className="rail-mark"><Icon name="Compass" size={20} color="#fff" /></div>
         <div><div className="t1">PhD Navigator</div><div className="t2">know the path ahead</div></div>
       </div>
       <div className="rail-label">Workspace</div>
       {items.map(it => (
-        <button key={it.id} data-tour={it.id} className={`rail-item ${view === it.id ? "active" : ""}`} onClick={() => onNav(it.id)}>
+        <button key={it.id} data-tour={it.id} className={`rail-item ${view === it.id ? "active" : ""}`} onClick={() => onNav(it.id)} aria-current={view === it.id ? "page" : undefined}>
           <Icon name={it.icon} size={18} /> <span>{it.label}</span>
           {it.badge && <span className="badge">{it.badge}</span>}
         </button>
       ))}
       <div className="rail-spacer" />
       <div className="rail-user">
-        <div className="av" onClick={() => onNav("settings")}>{user.initials}</div>
-        <div className="rail-user-id" onClick={() => onNav("settings")}><div className="nm">{user.name}</div><div className="em">{user.email}</div></div>
-        {onSignOut && <button className="rail-signout" title="Sign out" aria-label="Sign out" onClick={(e) => { e.stopPropagation(); onSignOut(); }}><Icon name="LogOut" size={16} /></button>}
+        <button type="button" className="rail-user-btn" onClick={() => onNav("settings")} aria-label={`Account and settings for ${user.name}`}>
+          <span className="av" aria-hidden="true">{user.initials}</span>
+          <span className="rail-user-id">
+            <span className="nm">{user.name}</span>
+            <span className="em" title={user.email}>{user.email}</span>
+          </span>
+        </button>
+        {onSignOut && (
+          <button type="button" className="rail-signout" title="Sign out" aria-label="Sign out" onClick={onSignOut}>
+            <Icon name="LogOut" size={16} />
+          </button>
+        )}
       </div>
-    </aside>
+    </nav>
+  );
+}
+
+// ============================================================================
+// HOME TOOLS — the Workspace row on the dashboard.
+//
+// These are the app's real, functional tools (window.renderTool / TOOL_REGISTRY),
+// not previews: each one persists its own data under `phd-tool-<id>`. The student
+// picks which ones sit on Home from the Tools popup — up to HOME_TOOLS_MAX.
+// ============================================================================
+const HOME_TOOLS_KEY = "phd-coach-home-tools-v1";
+const HOME_TOOLS_MAX = 6;
+// Each entry is { id, size }. Sizes map to a 6-column grid: S = 3 per row,
+// M = 2 per row, L = full row.
+const HOME_TOOL_SIZES = ["S", "M", "L"];
+const HOME_TOOLS_DEFAULT = [
+  { id: "pomodoro", size: "M" },
+  { id: "reading-queue", size: "M" },
+  { id: "notes", size: "M" }
+];
+const nextToolSize = (size) => HOME_TOOL_SIZES[(HOME_TOOL_SIZES.indexOf(size) + 1) % HOME_TOOL_SIZES.length] || "M";
+const toolSizeLabel = { S: "Small", M: "Medium", L: "Large" };
+
+const HOME_TOOL_CATALOG = [
+  { id: "notes",              name: "Notes",                 icon: "StickyNote",     desc: "A markdown scratchpad you can search." },
+  { id: "reading-queue",      name: "Reading Queue",         icon: "ListChecks",     desc: "Papers to read, and what you've finished." },
+  { id: "pomodoro",           name: "Focus Timer",           icon: "Timer",          desc: "Pomodoro sessions with break cycles." },
+  { id: "bibliography",       name: "Bibliography",          icon: "BookMarked",     desc: "References, with BibTeX export." },
+  { id: "deadlines",          name: "Deadlines",             icon: "Calendar",       desc: "Countdowns to what's coming up." },
+  { id: "funding",            name: "Funding",               icon: "Landmark",       desc: "Grants and fellowships you're chasing." },
+  { id: "documenter",         name: "Daily Documenter",      icon: "FileEdit",       desc: "A date-stamped research journal." },
+  { id: "writing-tracker",    name: "Writing Scratchpad",    icon: "PenTool",        desc: "Draft prose without leaving Home." },
+  { id: "lit-matrix",         name: "Literature Matrix",     icon: "Table2",         desc: "Compare papers side by side." },
+  { id: "outline-builder",    name: "Outline",               icon: "List",           desc: "Build the shape of a chapter." },
+  { id: "meeting-prep",       name: "Meeting Agenda",        icon: "MessageSquare",  desc: "Agenda + action items for advisor meetings." },
+  { id: "pilot-checklist",    name: "Pilot Checklist",       icon: "ClipboardCheck", desc: "Track a pilot study end to end." },
+  { id: "proquest-checklist", name: "Submission Checklist",  icon: "FileCheck",      desc: "Everything ProQuest needs from you." },
+  { id: "formatting-check",   name: "Formatting Checklist",  icon: "AlignLeft",      desc: "Graduate-school formatting rules." }
+];
+
+const loadHomeTools = () => {
+  const v = loadJSON(HOME_TOOLS_KEY, null);
+  if (!Array.isArray(v)) return HOME_TOOLS_DEFAULT;
+  // Accept the legacy shape (array of id strings) and the current { id, size }
+  // shape; drop ids no longer in the catalog, normalize size, and hold the cap.
+  return v
+    .map(e => (typeof e === "string" ? { id: e, size: "M" } : e))
+    .filter(e => e && HOME_TOOL_CATALOG.some(t => t.id === e.id))
+    .map(e => ({ id: e.id, size: HOME_TOOL_SIZES.includes(e.size) ? e.size : "M" }))
+    .slice(0, HOME_TOOLS_MAX);
+};
+
+// The Tools popup: toggle tools on and off Home. Tools live on Home only —
+// there is no separate Tools page.
+function ToolsPopup({ selected, onToggle, onClose }) {
+  const closeRef = useRef(null);
+  const full = selected.length >= HOME_TOOLS_MAX;
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    if (closeRef.current) closeRef.current.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tools-popup-title"
+        style={{ maxWidth: 720 }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="modal-h">
+          <div>
+            <h2 className="display" id="tools-popup-title">Tools</h2>
+            <p>Pick up to {HOME_TOOLS_MAX} tools to keep on your Home page. Everything you put in them is saved.</p>
+          </div>
+          <button ref={closeRef} className="modal-x" onClick={onClose} aria-label="Close tools"><Icon name="X" size={14} /></button>
+        </div>
+        <div className="modal-b">
+          <div className="ht-count" aria-live="polite">
+            {selected.length} of {HOME_TOOLS_MAX} added{full ? " · remove one to add another" : ""}
+          </div>
+          <div className="ht-grid">
+            {HOME_TOOL_CATALOG.map(t => {
+              const on = selected.includes(t.id);
+              const disabled = !on && full;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`ht-tile ${on ? "on" : ""}`}
+                  onClick={() => onToggle(t.id)}
+                  disabled={disabled}
+                  aria-pressed={on}
+                  title={disabled ? `Remove a tool first — you can keep ${HOME_TOOLS_MAX} on Home` : undefined}
+                >
+                  <span className="ht-i"><Icon name={t.icon} size={17} /></span>
+                  <span className="ht-txt">
+                    <span className="ht-n">{t.name}</span>
+                    <span className="ht-d">{t.desc}</span>
+                  </span>
+                  <span className="ht-mark" aria-hidden="true">
+                    <Icon name={on ? "Check" : "Plus"} size={14} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="modal-f">
+          <button className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -714,6 +841,20 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
   const current = steps.find(s => s.status === "current") || steps.find(s => s.status === "redo") || steps[0];
   const curIdx = steps.indexOf(current);
   const dts = doneTasks || new Set();
+
+  // --- Tools on Home (up to HOME_TOOLS_MAX), chosen in the Tools popup -------
+  const [homeTools, setHomeTools] = useState(loadHomeTools);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  useEffect(() => { saveJSON(HOME_TOOLS_KEY, homeTools); }, [homeTools]);
+  const homeToolIds = homeTools.map(t => t.id);
+  const toggleTool = (id) => setHomeTools(prev =>
+    prev.some(t => t.id === id) ? prev.filter(t => t.id !== id)
+      : prev.length >= HOME_TOOLS_MAX ? prev
+        : [...prev, { id, size: "M" }]);
+  const resizeTool = (id) => setHomeTools(prev =>
+    prev.map(t => t.id === id ? { ...t, size: nextToolSize(t.size) } : t));
+  const removeTool = (id) => setHomeTools(prev => prev.filter(t => t.id !== id));
+  const toolName = (id) => (HOME_TOOL_CATALOG.find(t => t.id === id) || {}).name || "tool";
 
   // --- Today: the current step's checklist, toggled in place ----------------
   const subs = current.subtasks || [];
@@ -859,21 +1000,49 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
         </div>
       </div>
 
-      {/* WORKSPACE TOOLS — three live, milestone-matched tools (design 3a).
+      {/* WORKSPACE TOOLS — the student's live tools, up to HOME_TOOLS_MAX.
           These are the app's real tools via window.renderTool, so they persist
-          and stay fully functional; "All tools" opens the full workspace/plan. */}
+          and stay fully functional; "All tools" opens the Tools popup, which is
+          where tools are added and removed. There is no separate Tools page. */}
       {!focused && window.renderTool && (
         <>
           <div className="dh-ws-head">
             <span className="dh-eyebrow">Workspace</span>
-            <span className="dh-ws-sub">tools matched to {current.title}</span>
-            <button className="linkish dh-ws-all" onClick={() => onNav("plan")}>All tools →</button>
+            <span className="dh-ws-sub">{homeTools.length} of {HOME_TOOLS_MAX} tools · working on {current.title}</span>
+            <button className="linkish dh-ws-all" onClick={() => setToolsOpen(true)}>All tools →</button>
           </div>
-          <div className="dh-tools">
-            {window.renderTool("pomodoro")}
-            {window.renderTool("reading-queue")}
-            {window.renderTool("notes")}
-          </div>
+          {homeTools.length === 0 ? (
+            <button className="dh-tools-empty" onClick={() => setToolsOpen(true)}>
+              <Icon name="Plus" size={18} /> Add up to {HOME_TOOLS_MAX} tools to your Home page
+            </button>
+          ) : (
+            <div className="dh-tools">
+              {homeTools.map(t => (
+                <div key={t.id} className={`dh-tool-slot size-${t.size}`}>
+                  <div className="dh-tool-ctl">
+                    <button
+                      type="button"
+                      className="dh-tool-size"
+                      onClick={() => resizeTool(t.id)}
+                      title={`Resize ${toolName(t.id)} (now ${toolSizeLabel[t.size]}) — Small fits 3 per row, Medium 2, Large fills the row`}
+                      aria-label={`Resize ${toolName(t.id)}, currently ${toolSizeLabel[t.size]}`}
+                    >{t.size}</button>
+                    <button
+                      type="button"
+                      className="dh-tool-rm"
+                      onClick={() => removeTool(t.id)}
+                      title={`Remove ${toolName(t.id)} from Home`}
+                      aria-label={`Remove ${toolName(t.id)} from Home`}
+                    ><Icon name="X" size={13} /></button>
+                  </div>
+                  {window.renderTool(t.id)}
+                </div>
+              ))}
+            </div>
+          )}
+          {toolsOpen && (
+            <ToolsPopup selected={homeToolIds} onToggle={toggleTool} onClose={() => setToolsOpen(false)} />
+          )}
         </>
       )}
 

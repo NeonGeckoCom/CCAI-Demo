@@ -157,7 +157,7 @@ function CoachWorkspace({ roadmap, embedded }) {
           <span className="ws-w-ico"><IcoV name={def.icon} size={14} /></span>
           <span className="ws-w-title">{def.name}{isCustom && <span className="ws-custom-tag">custom</span>}</span>
           <button className="ws-size" onClick={() => cycle(w.id)} title="Resize: S = 3 per row, M = 2, L = full row">{w.size}</button>
-          <button className="ws-w-del" onClick={() => remove(w.id)}><IcoV name="Trash2" size={13} /></button>
+          <button className="ws-w-del" onClick={() => remove(w.id)} aria-label={`Remove ${def.name}`}><IcoV name="Trash2" size={13} /></button>
         </div>
         <div className="ws-w-body">{isCustom ? (window.CustomTool ? <window.CustomTool inst={w.custom} /> : null) : <WidgetBody def={def} seed={w.seed} />}</div>
       </div>
@@ -286,10 +286,10 @@ function WidgetPalette({ onClose, onAdd, suggested = [], stepTitle }) {
 
   return (
     <div className="backdrop" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="widget-palette-title" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
         <div className="modal-h">
-          <div><h2 className="display">Add a widget</h2><p>Widgets share data with the tools in My Plan.</p></div>
-          <button className="modal-x" onClick={onClose}><IcoV name="X" size={14} /></button>
+          <div><h2 className="display" id="widget-palette-title">Add a widget</h2><p>Widgets share data with the tools in My Plan.</p></div>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><IcoV name="X" size={14} /></button>
         </div>
         <div className="modal-b">
           <div className="section-label" style={{ marginTop: 0 }}><span className="ic"><IcoV name="Sparkles" size={13} /></span> Suggested for your stage{stepTitle ? ` · ${stepTitle}` : ""}</div>
@@ -305,7 +305,7 @@ function WidgetPalette({ onClose, onAdd, suggested = [], stepTitle }) {
             <>
               <div className="field" style={{ marginBottom: 12 }}>
                 <div className="wrap"><span className="fi"><IcoV name="Search" size={15} /></span>
-                  <input placeholder="Search widgets…" value={q} onChange={e => setQ(e.target.value)} autoFocus /></div>
+                  <input placeholder="Search widgets…" aria-label="Search widgets" value={q} onChange={e => setQ(e.target.value)} autoFocus /></div>
               </div>
               <div className="pal-cats">
                 {cats.map(c => <button key={c.id} className={`pal-cat ${cat === c.id ? "active" : ""}`} onClick={() => setCat(c.id)}>{c.label}</button>)}

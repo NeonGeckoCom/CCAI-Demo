@@ -477,7 +477,7 @@ function RecoveryModal({ open, onClose, onReplan }) {
             <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--rose-soft)", color: "var(--rose)", display: "grid", placeItems: "center", flexShrink: 0 }}><Ico name="LifeBuoy" size={18} /></div>
             <div><h2 className="display">Something came up?</h2><p>Tell me in plain words. I'll reopen the affected milestones and add recovery steps so you're not stuck.</p></div>
           </div>
-          <button className="modal-x" onClick={onClose}><Ico name="X" size={14} /></button>
+          <button className="modal-x" onClick={onClose} aria-label="Close"><Ico name="X" size={14} /></button>
         </div>
         <div className="modal-b">
           <textarea className="modal-textarea" value={text} onChange={e => setText(e.target.value)} placeholder="e.g. I thought my data was fine and moved on, but my committee just told me the last batch was rejected…" autoFocus />
@@ -1234,8 +1234,8 @@ function CoachRoot() {
   }
 
   const signOut = () => { if (window.CoachAPI) window.CoachAPI.clearAuth(); setAuthed(false); setGate("landing"); setView("home"); };
-  // Sanitize view: Skills isn't reachable until unlocked, and Workspace is no
-  // longer its own page — its tools live on Home now, so redirect there.
+  // Sanitize view: Skills isn't reachable until unlocked, and Workspace is not
+  // its own page — its tools live on Home (in the Tools popup), so redirect there.
   const v = (view === "skills" && !unlocked.skills) ? "home" : (view === "workspace" ? "home" : view);
 
   let body;
@@ -1255,8 +1255,9 @@ function CoachRoot() {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <window.CoachRail view={view} onNav={setView} user={window.MOCK_USER} skillsUnlocked={unlocked.skills} onSignOut={signOut} />
-      <div className="main">
+      <main className="main" id="main-content" tabIndex={-1}>
         <div className="topbar">
           <div style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
             <Ico name="Compass" size={15} /> {roadmap.program?.name || "PhD Navigator"}
@@ -1269,7 +1270,7 @@ function CoachRoot() {
           </div>
         </div>
         {body}
-      </div>
+      </main>
 
       <Celebration data={celebrate} onClose={() => setCelebrate(null)} />
       {showTour && <window.CoachTour onNav={setView} onClose={() => setShowTour(false)} skillsUnlocked={unlocked.skills} />}

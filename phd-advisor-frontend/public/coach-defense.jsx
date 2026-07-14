@@ -25,14 +25,127 @@
 
   const wordCount = (s) => (s || "").trim().split(/\s+/).filter(Boolean).length;
   const fmtDur = (secs) => { const s = Math.max(0, Math.round(secs)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")}`; };
-  const normalizeDeckSlides = (slides) => (Array.isArray(slides) ? slides : []).map((s, i) => ({
-    index: Number.isFinite(Number(s.index)) ? Number(s.index) : i,
-    title: String(s.title || "").trim(),
-    text: String(s.text || "").trim(),
-    notes: String(s.notes || "").trim(),
-    bullets: Array.isArray(s.bullets) ? s.bullets.map(b => String(b || "").trim()).filter(Boolean) : [],
-    thumbnail: String(s.thumbnail || "").trim()
-  }));
+
+  // ==========================================================================
+  // OFFLINE QUESTION FALLBACK
+  //
+  // The real questions come from the backend LLM, grounded in the committee's
+  // public academic profiles — nothing here can replace that. But when the
+  // service is unreachable the room used to be completely unusable, so this
+  // builds a practice set on-device instead: one angle per selected persona,
+  // plus questions quoting actual sentences from the student's own uploaded
+  // materials. The live stage LABELS these as offline — they must never be
+  // mistaken for the profile-grounded set.
+  // ==========================================================================
+  const PERSONA_TAG = {
+    methodologist: "Methods", theorist: "Framing", pragmatist: "Contribution",
+    critic: "Limitations", socratic: "Framing", minimalist: "Clarity",
+    empathetic: "Contribution", storyteller: "Clarity", visionary: "Future work",
+    motivator: "Contribution"
+  };
+
+  const TAG_BANK = {
+    Framing: [
+      "What is the single claim this work defends — and what evidence would falsify it?",
+      "Why is this the right question to ask now? What changes in the field if you're wrong?",
+      "Define your central construct precisely. Where does that definition start to break down?"
+    ],
+    Methods: [
+      "What is the most serious threat to validity in this design, and what did you do about it?",
+      "Why this design over the obvious alternative? What does it buy you that the alternative doesn't?",
+      "Walk me through your sampling. Who is missing from it, and does their absence change your conclusion?"
+    ],
+    Evidence: [
+      "Which result is your weakest, and why should the committee still believe the overall claim?",
+      "What is the alternative explanation for your main finding, and how do you rule it out?",
+      "If you re-ran this tomorrow with a new sample, which finding would you bet on replicating — and which wouldn't you?"
+    ],
+    Contribution: [
+      "Someone reads only your abstract. What should they be able to do that they couldn't before?",
+      "What is the smallest version of this contribution that would still be worth a dissertation?",
+      "Who outside your subfield should care about this, and why?"
+    ],
+    Limitations: [
+      "What is the strongest objection a hostile reviewer could raise, and what is your honest answer?",
+      "Where did you overclaim? Point to the sentence you would most like to soften.",
+      "What did you leave out because it didn't work, and how does that change the story?"
+    ],
+    Clarity: [
+      "Explain the whole project in ninety seconds, with no jargon.",
+      "Which single figure carries the argument — and what does it actually show?",
+      "If you had to cut one chapter entirely, which one, and what would be lost?"
+    ],
+    "Future work": [
+      "What is the very next study, and what would it settle that this one can't?",
+      "If someone handed you three more years and full funding, what would you do differently?",
+      "What would it take to move this from a finding to something people actually use?"
+    ]
+  };
+
+  const FORMAT_TAGS = {
+    defense: ["Framing", "Methods", "Evidence", "Contribution", "Limitations", "Future work"],
+    poster:  ["Clarity", "Framing", "Methods", "Contribution", "Limitations"],
+    talk:    ["Clarity", "Framing", "Evidence", "Contribution", "Future work"]
+  };
+
+  // Pull claim-like sentences out of the student's own uploaded materials so at
+  // least some offline questions are grounded in their actual document.
+  const claimsFromMaterials = (materialPayload) => {
+    const text = (materialPayload || []).map(m => m.text || "").join(" ");
+    if (!text.trim()) return [];
+    return text
+      .split(/[.!?]+\s+/)
+      // The final sentence keeps its own terminator; strip it so the question
+      // template doesn't end up with a double period.
+      .map(s => s.replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim())
+      .filter(s => s.length >= 45 && s.length <= 200)
+      .filter(s => /\b(show|shows|showed|found|find|argue|propose|demonstrat|suggest|contribut|predict|model|hypothes|result|evidence|method|analy|account)/i.test(s))
+      .slice(0, 3);
+  };
+
+  const buildOfflineQuestions = ({ format, materialPayload, count, panel }) => {
+    const members = (panel && panel.length) ? panel : [{ id: null, name: "Committee member" }];
+    const tags = FORMAT_TAGS[format] || FORMAT_TAGS.defense;
+    const used = {};
+    const out = [];
+
+    // 1) One question per selected persona, in that persona's own register.
+    members.forEach((m, i) => {
+      const tag = PERSONA_TAG[m.id] || tags[i % tags.length];
+      const bank = TAG_BANK[tag] || TAG_BANK.Framing;
+      const idx = (used[tag] = (used[tag] || 0));
+      used[tag] = idx + 1;
+      out.push({ tag, q: bank[idx % bank.length], advisorId: m.id, groundedIn: [], sourceUrls: [], offline: true });
+    });
+
+    // 2) Questions that quote the student's actual uploaded text.
+    claimsFromMaterials(materialPayload).forEach((claim, i) => {
+      const m = members[(members.length + i) % members.length];
+      out.push({
+        tag: "Evidence",
+        q: `You write: “${claim}.” How would you defend that to a skeptical reader?`,
+        advisorId: m.id,
+        groundedIn: ["your uploaded materials"],
+        sourceUrls: [],
+        offline: true
+      });
+    });
+
+    // 3) Top up to the requested count, cycling formats' tags.
+    let t = 0;
+    while (out.length < (count || 6) && t < tags.length * 3) {
+      const tag = tags[t % tags.length];
+      const bank = TAG_BANK[tag] || [];
+      const idx = (used[tag] = (used[tag] || 0));
+      used[tag] = idx + 1;
+      const q = bank[idx % bank.length];
+      if (q && !out.some(o => o.q === q)) {
+        out.push({ tag, q, advisorId: members[out.length % members.length].id, groundedIn: [], sourceUrls: [], offline: true });
+      }
+      t++;
+    }
+    return out.slice(0, count || 6);
+  };
 
   // Real committee members the student adds by name/title. Stored locally so the
   // roster survives reloads; the backend resolves public academic profiles when
@@ -41,6 +154,101 @@
   const REAL_COLORS = ["#B45309", "#0F766E", "#7C3AED", "#BE123C", "#1D4ED8"];
   const loadReal = () => { try { const v = JSON.parse(localStorage.getItem(REAL_KEY)); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
   const saveReal = (v) => { try { localStorage.setItem(REAL_KEY, JSON.stringify(v)); } catch (e) {} };
+
+  // ==========================================================================
+  // DEFENSE ROOM HISTORY — saved session reports + their recordings.
+  //
+  // A report is small JSON, so it lives in localStorage. A recording is tens of
+  // MB of webm, which would blow the ~5MB localStorage quota, so media blobs go
+  // to IndexedDB and the report stores only the media id that points at them.
+  // ==========================================================================
+  const HIST_KEY = "phd-defense-history-v1";
+  const DB_NAME = "phd-defense";
+  const DB_STORE = "media";
+
+  const openMediaDB = () => new Promise((resolve, reject) => {
+    let req;
+    try { req = indexedDB.open(DB_NAME, 1); } catch (e) { reject(e); return; }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  const DefenseMedia = {
+    put(id, blob) {
+      return openMediaDB().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, "readwrite");
+        tx.objectStore(DB_STORE).put(blob, id);
+        tx.oncomplete = () => { db.close(); resolve(true); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+        tx.onabort = () => { db.close(); reject(tx.error); };   // quota overrun lands here
+      }));
+    },
+    get(id) {
+      return openMediaDB().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, "readonly");
+        const r = tx.objectStore(DB_STORE).get(id);
+        r.onsuccess = () => { db.close(); resolve(r.result || null); };
+        r.onerror = () => { db.close(); reject(r.error); };
+      }));
+    },
+    del(id) {
+      return openMediaDB().then(db => new Promise((resolve) => {
+        const tx = db.transaction(DB_STORE, "readwrite");
+        tx.objectStore(DB_STORE).delete(id);
+        tx.oncomplete = () => { db.close(); resolve(true); };
+        tx.onerror = () => { db.close(); resolve(false); };
+      })).catch(() => false);
+    }
+  };
+
+  const loadHistory = () => { try { const v = JSON.parse(localStorage.getItem(HIST_KEY)); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+  // Returns false on quota failure so callers can tell the user instead of
+  // silently losing the report.
+  const saveHistory = (v) => { try { localStorage.setItem(HIST_KEY, JSON.stringify(v)); return true; } catch (e) { return false; } };
+
+  const fmtBytes = (n) => {
+    if (!n) return "";
+    const mb = n / (1024 * 1024);
+    return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+  };
+  const fmtWhen = (iso) => {
+    try {
+      return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+    } catch (e) { return iso; }
+  };
+
+  // Loads a saved recording out of IndexedDB and plays it back, revoking the
+  // object URL on unmount so blobs don't pin memory for the page lifetime.
+  function HistoryMedia({ media }) {
+    const [url, setUrl] = useState("");
+    const [failed, setFailed] = useState(false);
+    useEffect(() => {
+      let dead = false, made = "";
+      DefenseMedia.get(media.id)
+        .then(blob => {
+          if (dead) return;
+          if (!blob) { setFailed(true); return; }
+          made = URL.createObjectURL(blob);
+          setUrl(made);
+        })
+        .catch(() => { if (!dead) setFailed(true); });
+      return () => { dead = true; if (made) URL.revokeObjectURL(made); };
+    }, [media.id]);
+
+    if (failed) return <div className="def-note"><IcoD name="AlertTriangle" size={12} /> The recording for this session is no longer available on this device.</div>;
+    if (!url) return <div className="def-note"><IcoD name="Loader" size={12} /> Loading recording…</div>;
+    return (
+      <div className={`def-playback ${media.kind === "audio" ? "audio" : ""}`}>
+        {media.kind === "audio"
+          ? <audio src={url} controls preload="metadata" />
+          : <video src={url} controls playsInline preload="metadata" />}
+      </div>
+    );
+  }
 
   // ==========================================================================
   // AUDIO ADAPTER — the single swap point for the real voice pipeline.
@@ -164,16 +372,17 @@
   //       return { "questions": [ {persona_id, tag, q}, ... ] }  # 5-6 items
   // ==========================================================================
   const DefensePresent = {
-    // Split an uploaded deck into slides. PPTX is parsed by the backend; PDFs
-    // use the browser PDF viewer page-jump path.
-    async parseDeck({ file, dataUrl, count, parsedSlides }) {
-      if (parsedSlides && parsedSlides.length) return normalizeDeckSlides(parsedSlides);
-      const isPptx = /\.pptx$/i.test(file?.name || "") || file?.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-      if (isPptx && window.CoachAPI?.parseDefenseDeck) {
-        const parsed = await window.CoachAPI.parseDefenseDeck(file);
-        const slides = normalizeDeckSlides(parsed?.slides || []);
-        if (slides.length) return slides;
-      }
+    // Split an uploaded deck into slides. REAL: POST the file to /api/defense/deck.
+    // DEMO: we can't parse client-side, so we return `count` blank slide stubs and
+    // preview the raw file (PDFs page-jump via #page=N in the browser viewer).
+    async parseDeck({ file, dataUrl, count }) {
+      /* REAL:
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch("/api/defense/deck", { method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("phd-auth-token")}` }, body: fd });
+      const { slides } = await res.json();   // [{ index, thumbnail, text }]
+      return slides;
+      */
       const n = Math.max(1, count || 8);
       const isPdf = (file && file.type === "application/pdf") || /\.pdf$/i.test(file?.name || "");
       return Array.from({ length: n }, (_, i) => ({
@@ -204,9 +413,186 @@
     async seedQuestions() { return []; }
   };
 
+  // ==========================================================================
+  // COMMITTEE MEMBER PICKER
+  //
+  // Adding a real member used to silently take whatever profile the resolver
+  // returned first — with no way to see who that was, and no way to correct it
+  // when several academics share a name. Now the search opens this popup: you
+  // see the profile before it is added, and when the resolver returns more than
+  // one match you page through them in a carousel and pick the right person.
+  //
+  // The card is driven by an array, so a single result is just a one-item
+  // carousel (controls hidden). See candidatesFrom() for the shapes accepted.
+  // ==========================================================================
+  const candidatesFrom = (result) => {
+    if (!result) return [];
+    const list = Array.isArray(result) ? result
+      : Array.isArray(result.candidates) ? result.candidates
+        : Array.isArray(result.matches) ? result.matches
+          : [result];
+    // Only real public-web profiles are usable — the question generator rejects
+    // members without one, so never offer a candidate we can't actually start with.
+    return list.filter(p => p && p.name && p.source_status === "web");
+  };
+
+  function CommitteePicker({ query, state, onRetry, onCancel, onConfirm }) {
+    const { status, candidates = [], error = "" } = state;
+    const [idx, setIdx] = useState(0);
+    const closeRef = useRef(null);
+
+    useEffect(() => { setIdx(0); }, [candidates]);
+    useEffect(() => {
+      const onKey = (e) => {
+        if (e.key === "Escape") onCancel();
+        if (candidates.length > 1) {
+          if (e.key === "ArrowRight") setIdx(i => (i + 1) % candidates.length);
+          if (e.key === "ArrowLeft") setIdx(i => (i - 1 + candidates.length) % candidates.length);
+        }
+      };
+      document.addEventListener("keydown", onKey);
+      if (closeRef.current) closeRef.current.focus();
+      return () => document.removeEventListener("keydown", onKey);
+    }, [onCancel, candidates.length]);
+
+    const who = candidates[idx] || null;
+    const many = candidates.length > 1;
+    const pct = who ? Math.round((who.confidence || 0) * 100) : 0;
+
+    return (
+      <div className="backdrop" onClick={onCancel}>
+        <div className="modal cm-modal" role="dialog" aria-modal="true" aria-labelledby="cm-title" onClick={e => e.stopPropagation()}>
+          <div className="modal-h">
+            <div>
+              <h2 className="display" id="cm-title">Add a committee member</h2>
+              <p>
+                {status === "searching" ? `Searching public academic pages for “${query.name}”…`
+                  : status === "found" ? (many
+                    ? `${candidates.length} people match “${query.name}”. Pick the right one.`
+                    : `Found a public profile for “${query.name}”. Add them?`)
+                  : status === "error" ? `The lookup for “${query.name}” didn't complete.`
+                    : `We couldn't find a public academic profile for “${query.name}”.`}
+              </p>
+            </div>
+            <button ref={closeRef} className="modal-x" onClick={onCancel} aria-label="Cancel"><IcoD name="X" size={14} /></button>
+          </div>
+
+          <div className="modal-b">
+            {status === "searching" && (
+              <div className="cm-loading" aria-live="polite">
+                <IcoD name="Loader2" size={22} />
+                <div>Looking up public faculty pages, lab sites, and publication records…</div>
+              </div>
+            )}
+
+            {status !== "searching" && !who && (
+              <div className="cm-empty" aria-live="polite">
+                <IcoD name={status === "error" ? "WifiOff" : "SearchX"} size={22} />
+                <div className="cm-empty-t">
+                  {status === "error" ? "Couldn't reach the profile service" : "No public profile found"}
+                </div>
+                <div className="cm-empty-d">
+                  {error || "Nothing public came back for that name. Try adding the institution, or use the full name as it appears on their faculty page."}
+                </div>
+              </div>
+            )}
+
+            {status === "found" && who && (
+              <>
+                {many && (
+                  <div className="cm-carousel-bar">
+                    <button className="cm-nav" onClick={() => setIdx(i => (i - 1 + candidates.length) % candidates.length)} aria-label="Previous match">
+                      <IcoD name="ChevronLeft" size={16} />
+                    </button>
+                    <span className="cm-count" aria-live="polite">Match {idx + 1} of {candidates.length}</span>
+                    <button className="cm-nav" onClick={() => setIdx(i => (i + 1) % candidates.length)} aria-label="Next match">
+                      <IcoD name="ChevronRight" size={16} />
+                    </button>
+                  </div>
+                )}
+
+                <div className="cm-card">
+                  <div className="cm-card-h">
+                    <span className="cm-av" aria-hidden="true">
+                      {(who.name || "?").split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase()}
+                    </span>
+                    <span className="cm-id">
+                      <span className="cm-n">{who.name}</span>
+                      <span className="cm-t">
+                        {[who.title, who.department, who.institution].filter(Boolean).join(" · ") || "Public academic profile"}
+                      </span>
+                    </span>
+                    {pct > 0 && <span className={`cm-conf ${pct >= 70 ? "hi" : pct >= 40 ? "mid" : "lo"}`}>{pct}% match</span>}
+                  </div>
+
+                  {who.summary && <p className="cm-sum">{who.summary}</p>}
+
+                  {(who.research_areas || []).length > 0 && (
+                    <div className="cm-areas">
+                      {who.research_areas.slice(0, 6).map((a, i) => <span key={i} className="cm-area">{a}</span>)}
+                    </div>
+                  )}
+
+                  {(who.publications || []).length > 0 && (
+                    <div className="cm-sec">
+                      <div className="cm-sec-t">Recent work</div>
+                      {who.publications.slice(0, 3).map((p, i) => (
+                        <div key={i} className="cm-pub">
+                          <IcoD name="FileText" size={12} />
+                          <span>{p.title}{p.year ? ` (${p.year})` : ""}{p.venue ? ` · ${p.venue}` : ""}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(who.sources || []).length > 0 && (
+                    <div className="cm-sec">
+                      <div className="cm-sec-t">Where this came from</div>
+                      {who.sources.slice(0, 3).map((s, i) => (
+                        <a key={i} className="cm-src" href={s.url} target="_blank" rel="noopener noreferrer">
+                          <IcoD name="ExternalLink" size={12} /> {s.title || s.url}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {many && (
+                  <div className="cm-dots" role="tablist" aria-label="Matching people">
+                    {candidates.map((c, i) => (
+                      <button
+                        key={i}
+                        role="tab"
+                        aria-selected={i === idx}
+                        aria-label={`Match ${i + 1}: ${c.name}${c.institution ? `, ${c.institution}` : ""}`}
+                        className={`cm-dot ${i === idx ? "on" : ""}`}
+                        onClick={() => setIdx(i)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="modal-f">
+            <button className="btn" onClick={onCancel}>Cancel</button>
+            {status === "found" && who
+              ? <button className="btn primary" onClick={() => onConfirm(who)}>
+                  <IcoD name="UserPlus" size={14} color="#fff" /> Add {who.name.split(/\s+/).slice(-1)[0]} to committee
+                </button>
+              : status !== "searching"
+                ? <button className="btn primary" onClick={onRetry}><IcoD name="RefreshCw" size={14} color="#fff" /> Search again</button>
+                : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function CoachDefenseRoom({ roadmap, onNav, onToast }) {
     const advisors = window.ADVISORS || [];
-    const [stage, setStage] = useState("setup");        // setup | present | live | feedback
+    const [stage, setStage] = useState("setup");        // setup | present | live | feedback | history
     const [mode, setMode] = useState("qa");             // qa | present
     const [format, setFormat] = useState("defense");
     const [committee, setCommittee] = useState([]);
@@ -216,8 +602,11 @@
     const [newName, setNewName] = useState("");
     const [newInstitution, setNewInstitution] = useState("");
     const [resolvingMember, setResolvingMember] = useState(false);
+    const [picker, setPicker] = useState(null);   // null | { status, candidates, error }
+    const [pickerQuery, setPickerQuery] = useState({ name: "", institution: "" });
     const [sessionQuestions, setSessionQuestions] = useState(null);
     const [loadingQuestions, setLoadingQuestions] = useState(false);
+    const [offline, setOffline] = useState(false);   // questions came from the on-device fallback
     const [qIdx, setQIdx] = useState(0);
     const [answer, setAnswer] = useState("");
     const [log, setLog] = useState([]);                 // {q, tag, advisorId, answer, spoken}
@@ -225,7 +614,6 @@
 
     // ---- Presentation mode state --------------------------------------------
     const [deck, setDeck] = useState(null);             // { name, dataUrl, kind }
-    const [deckParsing, setDeckParsing] = useState(false);
     const [slideCount, setSlideCount] = useState(8);    // stand-in until backend parses the deck
     const [slides, setSlides] = useState([]);           // [{ index, thumbnail, text }]
     const [slideIdx, setSlideIdx] = useState(0);
@@ -237,20 +625,22 @@
     const [presentLog, setPresentLog] = useState([]);   // per-slide { index, seconds, transcript, ...scores }
     const [presented, setPresented] = useState(false);
 
+    // ---- Saved reports (Defense Room History) --------------------------------
+    const [history, setHistory] = useState(loadHistory); // newest first
+    const [saving, setSaving] = useState(false);
+    const [savedId, setSavedId] = useState("");          // report saved from THIS session
+    const [openReportId, setOpenReportId] = useState(""); // expanded row in history
+
     const fileRef = useRef(null);
     const deckRef = useRef(null);
     const recRef = useRef(null);       // SpeechRecognition (answers)
-    const recSeqRef = useRef(0);       // invalidates late SpeechRecognition callbacks
-    const liveQuestionRef = useRef({ stage: "setup", qIdx: 0 });
-    const answerRef = useRef("");
     const spokeRef = useRef(false);    // any part of this answer came in by voice
     const videoRef = useRef(null);     // live webcam preview
     const streamRef = useRef(null);    // MediaStream
     const mediaRecRef = useRef(null);  // MediaRecorder (presentation take)
     const chunksRef = useRef([]);      // recorded chunks
-    const recordingBlobRef = useRef(null);
-    const recordingStopResolverRef = useRef(null);
     const slideStartRef = useRef(0);   // timestamp the current slide began
+    const recordedBlobRef = useRef(null); // the take itself, kept so it can be saved to history
 
     const questionCount = QUESTION_COUNT[format] || 6;
     const parsingMaterials = materials.some(m => m.status === "parsing");
@@ -284,19 +674,10 @@
       if (stage === "live" && voice && current) DefenseAudio.speakQuestion({ text: current.q, personaId: asker.id });
       return () => DefenseAudio.stopSpeaking();
     }, [stage, qIdx, voice]);
-    useEffect(() => { liveQuestionRef.current = { stage, qIdx }; }, [stage, qIdx]);
-    useEffect(() => { answerRef.current = answer; }, [answer]);
 
     // Audio in: push-to-talk transcription into the answer box.
     const stopListening = () => {
-      recSeqRef.current += 1;
-      const rec = recRef.current;
-      if (rec) {
-        rec.onresult = null;
-        rec.onend = null;
-        rec.onerror = null;
-      }
-      try { rec && rec.stop(); } catch (e) {}
+      try { recRef.current && recRef.current.stop(); } catch (e) {}
       recRef.current = null;
       setListening(false);
     };
@@ -304,17 +685,11 @@
       if (!SpeechRec || recRef.current) return;
       DefenseAudio.stopSpeaking(); // don't transcribe our own TTS
       const rec = new SpeechRec();
-      const seq = recSeqRef.current + 1;
-      const questionAtStart = qIdx;
-      const stageAtStart = stage;
-      recSeqRef.current = seq;
       rec.continuous = true;
       rec.interimResults = true;
       rec.lang = "en-US";
-      const base = answerRef.current.trim() ? answerRef.current.trim() + " " : "";
+      const base = answer.trim() ? answer.trim() + " " : "";
       rec.onresult = (e) => {
-        const live = liveQuestionRef.current;
-        if (seq !== recSeqRef.current || recRef.current !== rec || live.qIdx !== questionAtStart || live.stage !== stageAtStart) return;
         let finalTxt = "", interim = "";
         for (let i = 0; i < e.results.length; i++) {
           const r = e.results[i];
@@ -324,14 +699,13 @@
         spokeRef.current = true;
         setAnswer((base + finalTxt + interim).replace(/\s+/g, " ").trimStart());
       };
-      rec.onend = () => { if (seq === recSeqRef.current && recRef.current === rec) { recRef.current = null; setListening(false); } };
-      rec.onerror = () => { if (seq === recSeqRef.current && recRef.current === rec) { recRef.current = null; setListening(false); } };
+      rec.onend = () => { recRef.current = null; setListening(false); };
+      rec.onerror = () => { recRef.current = null; setListening(false); };
       recRef.current = rec;
       try { rec.start(); setListening(true); } catch (e) { recRef.current = null; }
     };
     useEffect(() => stopListening, []);            // mic off on unmount
     useEffect(() => { stopListening(); }, [qIdx, stage]); // and between questions/stages
-    useEffect(() => { setAnswer(""); spokeRef.current = false; }, [qIdx]);
 
     // ---- Camera + recorder lifecycle for the presentation stage --------------
     const stopStream = () => {
@@ -354,35 +728,19 @@
           setCamReady(true); setCamError("");
           // Record the whole take; per-slide timing comes from the marks we log.
           chunksRef.current = [];
-          recordingBlobRef.current = null;
-          const pickRecorderMime = () => {
-            const supported = (type) => window.MediaRecorder?.isTypeSupported?.(type);
-            const candidates = wantsVideo
-              ? (wantsAudio ? ["video/webm;codecs=vp8,opus", "video/webm"] : ["video/webm;codecs=vp8", "video/webm"])
-              : ["audio/webm;codecs=opus", "audio/webm"];
-            return candidates.find(supported) || "";
-          };
-          const mimeType = pickRecorderMime();
-          const recorderOptions = {};
-          if (mimeType) recorderOptions.mimeType = mimeType;
-          if (wantsVideo) recorderOptions.videoBitsPerSecond = 450000;
-          if (wantsAudio) recorderOptions.audioBitsPerSecond = 64000;
-          const rec = new MediaRecorder(stream, recorderOptions);
+          const rec = new MediaRecorder(stream);
           rec.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
           rec.onstop = () => {
-            let blob = null;
             try {
-              blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "video/webm" });
-              recordingBlobRef.current = blob;
+              const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "video/webm" });
+              recordedBlobRef.current = blob;   // kept so "Save report" can persist the take
               setRecordedUrl(URL.createObjectURL(blob));
+              // BACKEND: also POST `blob` (+ the per-slide marks) to /api/defense/present
+              // via DefensePresent.analyzeSlide to get transcripts + delivery scores.
             } catch (e) {}
-            if (recordingStopResolverRef.current) {
-              recordingStopResolverRef.current(blob);
-              recordingStopResolverRef.current = null;
-            }
           };
           mediaRecRef.current = rec;
-          rec.start(1000);
+          rec.start();
           setRecording(true);
           slideStartRef.current = Date.now();
         } catch (err) {
@@ -393,16 +751,27 @@
       return () => { cancelled = true; try { mediaRecRef.current && mediaRecRef.current.state !== "inactive" && mediaRecRef.current.stop(); } catch (e) {} setRecording(false); stopStream(); };
     }, [stage]);
 
+    // Release the previous take's object URL when it is replaced or the room
+    // unmounts — otherwise every practice run pins its video blob in memory.
+    useEffect(() => () => { if (recordedUrl) URL.revokeObjectURL(recordedUrl); }, [recordedUrl]);
+
     const togglePanelist = (id) => setCommittee(c =>
       c.includes(id) ? (c.length > 1 ? c.filter(x => x !== id) : c) : (c.length < 3 ? [...c, id] : c));
 
-    const readLocalTextMaterial = async (file) => {
-      const name = (file?.name || "").toLowerCase();
-      const canRead = (file?.type || "").startsWith("text/")
-        || /\.(txt|md|markdown|csv|json|html?)$/.test(name);
-      if (!canRead || !file?.text) return "";
-      return (await file.text()).replace(/\s+/g, " ").trim();
-    };
+    // Read the file in the browser (pdf.js / mammoth / plain text). Used as the
+    // fallback whenever the backend parser can't be reached or returns nothing.
+    const readLocalMaterial = (file) =>
+      (window.extractTextFromFile
+        ? window.extractTextFromFile(file)
+        : Promise.resolve({ text: "", reason: "No local reader available." })
+      ).catch(() => ({ text: "", reason: "We couldn't read that file." }));
+
+    // The backend rejects uploads over 10MB (MAX_DEFENSE_MATERIAL_BYTES), so
+    // anything bigger skips the upload entirely and is read in the browser —
+    // pdf.js doesn't care how big the file is, and nothing goes over the wire.
+    // The only true ceiling is browser memory, which is far higher.
+    const BACKEND_UPLOAD_LIMIT = 10 * 1024 * 1024;
+    const MAX_MATERIAL_BYTES = 200 * 1024 * 1024;
 
     const addFiles = async (fileList) => {
       const files = [...(fileList || [])];
@@ -421,107 +790,123 @@
 
       await Promise.all(files.map(async (file, i) => {
         const id = placeholders[i].id;
-        try {
-          let parsed = null;
-          if (window.CoachAPI?.parseDefenseMaterial) {
-            parsed = await window.CoachAPI.parseDefenseMaterial(file);
-          }
-          const text = (parsed?.text || "").trim();
-          if (!text) throw new Error("No readable text returned");
-          setMaterials(p => p.map(m => m.id === id ? {
-            ...m,
-            name: parsed.name || m.name,
-            text,
-            status: "parsed",
-            wordCount: parsed.word_count || text.split(/\s+/).filter(Boolean).length,
-            fileType: parsed.file_type || ""
-          } : m));
-        } catch (e) {
-          const localText = await readLocalTextMaterial(file).catch(() => "");
+        const fail = (reason) => setMaterials(p => p.map(m => m.id === id
+          ? { ...m, text: "", status: "failed", wordCount: 0, error: reason }
+          : m));
+
+        if (file.size > MAX_MATERIAL_BYTES) {
+          fail(`That file is ${(file.size / 1048576).toFixed(1)}MB — too large to read in the browser. Split it up or export a smaller PDF.`);
+          return;
+        }
+
+        // 1) Try the backend parser first, but only when the file is small
+        //    enough for it to accept. A big file would just 413.
+        if (file.size <= BACKEND_UPLOAD_LIMIT) {
+          try {
+            if (window.CoachAPI?.parseDefenseMaterial) {
+              const parsed = await window.CoachAPI.parseDefenseMaterial(file);
+              const text = (parsed?.text || "").trim();
+              if (text) {
+                setMaterials(p => p.map(m => m.id === id ? {
+                  ...m,
+                  name: parsed.name || m.name,
+                  text,
+                  status: "parsed",
+                  wordCount: parsed.word_count || text.split(/\s+/).filter(Boolean).length,
+                  fileType: parsed.file_type || ""
+                } : m));
+                return;
+              }
+            }
+          } catch (e) { /* fall through to the local reader */ }
+        }
+
+        // 2) Read it in the browser — this is what makes a PDF work with no
+        //    backend (and any size), and it reports WHY when it genuinely can't.
+        const { text: localText, reason } = await readLocalMaterial(file);
+        if (localText) {
           setMaterials(p => p.map(m => m.id === id ? {
             ...m,
             text: localText,
-            status: localText ? "parsed-local" : "failed",
-            wordCount: localText ? localText.split(/\s+/).filter(Boolean).length : 0,
-            error: localText ? "" : "Could not parse"
+            status: "parsed-local",
+            wordCount: localText.split(/\s+/).filter(Boolean).length,
+            error: ""
           } : m));
+        } else {
+          fail(reason || "We couldn't read that file.");
         }
       }));
     };
 
-    // Deck upload for presentation mode. PDFs keep a data URL preview; PPTX is
-    // parsed by the backend into ordered slide records.
-    const addDeck = async (fileList) => {
+    // Deck upload for presentation mode. We keep a data URL so PDFs can preview.
+    const addDeck = (fileList) => {
       const file = fileList && fileList[0];
       if (!file) return;
-      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-      const isPptx = file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || /\.pptx$/i.test(file.name);
-      const kind = isPdf ? "pdf" : isPptx ? "pptx" : "other";
-      const baseDeck = { name: file.name, dataUrl: "", kind, file, parsedSlides: [], status: isPptx ? "parsing" : "ready" };
-      const finish = (dataUrl) => setDeck({ ...baseDeck, dataUrl: dataUrl || "" });
-      if (isPdf) {
-        const r = new FileReader();
-        r.onload = () => finish(r.result);
-        r.onerror = () => finish("");
-        r.readAsDataURL(file);
-        return;
-      }
+      const kind = (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) ? "pdf" : "other";
+      const finish = (dataUrl) => setDeck({ name: file.name, dataUrl: dataUrl || "", kind, file });
+      if (kind === "pdf") { const r = new FileReader(); r.onload = () => finish(r.result); r.onerror = () => finish(""); r.readAsDataURL(file); }
+      else finish("");
+    };
 
-      setDeck(baseDeck);
-      if (!isPptx) {
-        setSlideCount(8);
-        return;
-      }
+    // Search, then show what we found in the picker so the student confirms the
+    // right person before it lands on the committee.
+    const searchRealMember = async () => {
+      const name = newName.trim();
+      if (!name || resolvingMember) return;
+      const institution = newInstitution.trim() || roadmap?.program?.institution || "";
 
-      setDeckParsing(true);
+      setResolvingMember(true);
+      setPickerQuery({ name, institution });
+      setPicker({ status: "searching", candidates: [], error: "" });
+
       try {
-        const parsed = await window.CoachAPI?.parseDefenseDeck?.(file);
-        const parsedSlides = normalizeDeckSlides(parsed?.slides || []);
-        if (!parsedSlides.length) throw new Error("No slides returned");
-        setSlideCount(parsed?.slide_count || parsedSlides.length);
-        setDeck({ ...baseDeck, parsedSlides, status: "parsed", title: parsed?.title || "" });
-        if (onToast) onToast(`Loaded ${parsedSlides.length} PowerPoint slide${parsedSlides.length === 1 ? "" : "s"}.`);
+        if (!window.CoachAPI?.resolveDefenseMemberProfile) throw new Error("Profile lookup is unavailable.");
+        const result = await window.CoachAPI.resolveDefenseMemberProfile({
+          id: `real-${Date.now()}`,
+          name,
+          title: "",
+          institution,
+          area: ""
+        });
+        const candidates = candidatesFrom(result);
+        setPicker({
+          status: "found",
+          candidates,
+          error: candidates.length ? "" : "The lookup returned no public academic profile for that name."
+        });
       } catch (e) {
-        setDeck({ ...baseDeck, status: "failed", error: "Could not parse PowerPoint slides" });
-        const detail = typeof e?.data?.detail === "string" ? e.data.detail : "";
-        if (onToast) onToast(detail || "Could not read this PowerPoint deck. Try saving it as a .pptx file.");
+        // A network failure is a different story from "this person doesn't exist",
+        // and the student shouldn't be told to fix their spelling when the
+        // service is simply down.
+        const offlineish = /fetch|network|Failed to fetch|unavailable/i.test(e?.message || "");
+        setPicker({
+          status: "error",
+          candidates: [],
+          error: offlineish
+            ? "The advisor service isn't reachable, so public profiles can't be looked up. Start the backend and try again — or practise with the advisor personas above."
+            : (e?.message || "The profile lookup failed.")
+        });
       } finally {
-        setDeckParsing(false);
+        setResolvingMember(false);
       }
     };
 
-    const addRealMember = async () => {
-      const name = newName.trim();
-      if (!name || resolvingMember) return;
-      const member = { id: `real-${Date.now()}`, name, institution: newInstitution.trim() };
-      setResolvingMember(true);
-      let profile = null;
-      try {
-        if (!window.CoachAPI?.resolveDefenseMemberProfile) throw new Error("Profile API unavailable");
-        profile = await window.CoachAPI.resolveDefenseMemberProfile({
-          id: member.id,
-          name: member.name,
-          title: "",
-          institution: member.institution || roadmap?.program?.institution || "",
-          area: ""
-        });
-      } catch (e) {
-        if (onToast) onToast(`Could not fetch public profile data for ${member.name}.`);
-        setResolvingMember(false);
-        return;
-      } finally {
-        setResolvingMember(false);
-      }
-      if (!profile || profile.source_status !== "web") {
-        if (onToast) onToast(`No public academic profile found for ${member.name}.`);
-        return;
-      }
-      member.profile = profile;
+    // The student picked a person from the carousel — commit them.
+    const confirmRealMember = (profile) => {
+      const member = {
+        id: `real-${Date.now()}`,
+        name: profile.name || pickerQuery.name,
+        institution: profile.institution || pickerQuery.institution || "",
+        title: profile.title || "",
+        profile: { ...profile }
+      };
+      member.profile.id = member.id;   // question payload keys the profile to the member
       const next = [...realMembers, member];
       setRealMembers(next); saveReal(next);
       setCommittee(c => c.length < 3 ? [...c, member.id] : c);
       setNewName(""); setNewInstitution("");
-      if (onToast) onToast(`Found public profile data: ${member.name}`);
+      setPicker(null);
+      if (onToast) onToast(`Added ${member.name} to your committee.`);
     };
     const removeRealMember = (id) => {
       const next = realMembers.filter(m => m.id !== id);
@@ -544,41 +929,15 @@
         buildDefenseSummary()
       ].filter(Boolean).join(" ");
     };
-    const buildPresentationMaterialPayload = (slideRecords) => {
-      const timingByIndex = new Map((slideRecords || []).map(s => [Number(s.index || 0), s.seconds || 0]));
-      return (slides || []).map((slide, i) => {
-        const text = [
-          slide.title ? `Title: ${slide.title}` : "",
-          slide.text ? `Slide text:\n${slide.text}` : "",
-          slide.notes ? `Speaker notes:\n${slide.notes}` : "",
-          timingByIndex.has(i) ? `Presentation timing: ${fmtDur(timingByIndex.get(i))}` : ""
-        ].filter(Boolean).join("\n\n");
-        return text ? { name: `${deck?.name || "Slide deck"} - Slide ${i + 1}`, text } : null;
-      }).filter(Boolean);
-    };
     const defenseGenerationError = (e) => {
       const detail = e?.data?.detail;
       if (detail && typeof detail === "object") {
-        const labelReason = (value) => {
-          const raw = String(value || "");
-          const labels = {
-            llm_provider_text_response: "AI service returned a retry message",
-            non_json_llm_response: "AI service returned text instead of JSON",
-            malformed_json_in_llm_response: "AI service returned malformed JSON",
-            empty_llm_response: "AI service returned an empty response",
-            no_usable_llm_questions: "No usable grounded questions were returned",
-            too_few_usable_llm_questions: "Too few usable grounded questions were returned",
-            missing_committee_member_coverage: "Questions did not cover every selected committee member"
-          };
-          return labels[raw] || raw.replace(/_/g, " ");
-        };
-        const reason = detail.reason ? labelReason(detail.reason) : "";
-        const diagnosticRaw = detail.diagnostics?.failure_reason || "";
-        const diagnostic = diagnosticRaw && diagnosticRaw !== detail.reason ? labelReason(diagnosticRaw) : "";
-        const usable = Number.isFinite(detail.accepted_count) && Number.isFinite(detail.minimum_usable_count)
-          ? `${detail.accepted_count}/${detail.minimum_usable_count} usable questions`
+        const reason = detail.reason ? String(detail.reason).replace(/_/g, " ") : "";
+        const diagnostic = detail.diagnostics?.failure_reason
+          ? String(detail.diagnostics.failure_reason).replace(/_/g, " ")
           : "";
-        return [detail.message, reason, diagnostic, usable].filter(Boolean).join(" - ");
+        const rejected = detail.diagnostics?.rejected_count ? `${detail.diagnostics.rejected_count} rejected` : "";
+        return [detail.message, reason, diagnostic, rejected].filter(Boolean).join(" - ");
       }
       return e?.message || "Question generation failed.";
     };
@@ -636,9 +995,16 @@
         profile: stored.profile || null
       };
     });
+    // A 16MB dissertation extracts to megabytes of text. The backend only reads
+    // the first MAX_MATERIAL_CHARS (3200) of each material anyway, so shipping
+    // the whole thing is pure waste — trim generously and keep the request small.
+    const MATERIAL_PAYLOAD_CHARS = 20000;
     const buildMaterialPayload = () => materials
       .filter(m => (m.text || "").trim())
-      .map(m => ({ name: m.name || "Uploaded material", text: m.text || "" }));
+      .map(m => ({
+        name: m.name || "Uploaded material",
+        text: (m.text || "").slice(0, MATERIAL_PAYLOAD_CHARS)
+      }));
     const generateQuestionsForSession = async ({ formatOverride = format, materialPayload = [], researchSummary = "", thesisTitle = "", questionCountOverride = null, toastMessage = "Generated LLM questions from public committee profiles." } = {}) => {
       const selectedPanel = buildCommitteePayload();
       if (!selectedPanel.length) {
@@ -649,23 +1015,38 @@
         if (onToast) onToast("Remove and re-add members without public profile data before starting.");
         return false;
       }
-      if (!window.CoachAPI?.generateDefenseQuestions) {
-        if (onToast) onToast("Defense question API is unavailable.");
-        return false;
-      }
-
       setLoadingQuestions(true);
-      setLog([]); setQIdx(0); setAnswer(""); spokeRef.current = false; setSessionQuestions(null);
+      setLog([]); setQIdx(0); setAnswer(""); spokeRef.current = false; setSessionQuestions(null); setOffline(false);
+      const count = questionCountOverride || QUESTION_COUNT[formatOverride] || questionCount;
+
+      // If the advisor service can't produce the real, profile-grounded set, we
+      // still let the student practice — but we say so rather than passing
+      // on-device questions off as the model's.
+      const fallBackToOffline = (why) => {
+        const local = buildOfflineQuestions({ format: formatOverride, materialPayload, count, panel });
+        if (!local.length) {
+          if (onToast) onToast(`Could not generate defense questions: ${why}`);
+          return false;
+        }
+        setSessionQuestions(local);
+        setOffline(true);
+        if (onToast) onToast("Advisor service unreachable — practising with offline questions built on this device.");
+        setStage("live");
+        return true;
+      };
+
       try {
+        if (!window.CoachAPI?.generateDefenseQuestions) {
+          return fallBackToOffline("Defense question API is unavailable.");
+        }
         const hasUploadedMaterial = materialPayload.length > 0;
-        const requestedCount = questionCountOverride || QUESTION_COUNT[formatOverride] || questionCount;
         const result = await window.CoachAPI.generateDefenseQuestions({
           format: formatOverride,
           thesisTitle: hasUploadedMaterial ? "" : (thesisTitle || roadmap?.program?.name || ""),
           researchSummary: hasUploadedMaterial ? "" : (researchSummary || buildDefenseSummary()),
           materials: materialPayload,
           committeeMembers: selectedPanel,
-          questionCount: requestedCount
+          questionCount: count
         });
         const generated = (result?.questions || []).map(q => ({
           tag: q.tag || "Committee question",
@@ -676,23 +1057,12 @@
         })).filter(q => q.q);
         if (!generated.length) throw new Error("No generated questions returned.");
         setSessionQuestions(generated);
-        if (onToast) {
-          const rejected = result?.diagnostics?.rejected_count || 0;
-          if (result?.generation_method === "profile_grounded_recovery") {
-            onToast(`Started with ${generated.length} committee-profile questions after the AI service failed to respond.`);
-          } else if (result?.generation_method === "llm_coverage_repaired") {
-            onToast(`Generated ${generated.length} grounded questions including every selected committee member.`);
-          } else if (generated.length < requestedCount) {
-            onToast(`Generated ${generated.length} grounded questions${rejected ? ` (${rejected} filtered out)` : ""}.`);
-          } else {
-            onToast(toastMessage);
-          }
-        }
+        setOffline(false);
+        if (onToast) onToast(toastMessage);
         setStage("live");
         return true;
       } catch (e) {
-        if (onToast) onToast(`Could not generate defense questions: ${defenseGenerationError(e)}`);
-        return false;
+        return fallBackToOffline(defenseGenerationError(e));
       } finally {
         setLoadingQuestions(false);
       }
@@ -723,26 +1093,11 @@
 
     // ---- Presentation flow ---------------------------------------------------
     const startPresent = async () => {
-      let parsed = [];
-      try {
-        parsed = await DefensePresent.parseDeck({ file: deck?.file, dataUrl: deck?.dataUrl, count: slideCount, parsedSlides: deck?.parsedSlides });
-      } catch (e) {
-        if (onToast) onToast("Could not open this deck for slide-by-slide presentation.");
-        return;
-      }
-      if (!parsed.length) {
-        if (onToast) onToast("No readable slides were found in this deck.");
-        return;
-      }
+      const parsed = await DefensePresent.parseDeck({ file: deck?.file, dataUrl: deck?.dataUrl, count: slideCount });
       setSlides(parsed);
-      setSlideCount(parsed.length);
       setSlideIdx(0);
       setPresentLog([]);
       setRecordedUrl("");
-      chunksRef.current = [];
-      recordingBlobRef.current = null;
-      recordingStopResolverRef.current = null;
-      mediaRecRef.current = null;
       setStage("present");   // the effect above grabs the camera + starts recording
     };
     // Log how long the current slide took, then advance (or finish).
@@ -753,71 +1108,251 @@
       const entry = { index: slideIdx, seconds, transcript: "", slideText };
       setPresentLog(p => [...p, entry]);
       slideStartRef.current = now;
+      // BACKEND: fire-and-forget DefensePresent.analyzeSlide({ blob, slideText, seconds })
+      // once per-slide chunks are available, then merge scores into presentLog.
       return entry;
     };
     const nextSlide = () => { markSlide(); setSlideIdx(i => i + 1); };
-    const stopRecordingAndGetBlob = async () => {
-      const rec = mediaRecRef.current;
-      if (!rec) return recordingBlobRef.current;
-      if (rec.state === "inactive") return recordingBlobRef.current;
-      return await new Promise(resolve => {
-        recordingStopResolverRef.current = resolve;
-        try {
-          rec.requestData && rec.requestData();
-        } catch (e) {}
-        try {
-          rec.stop();
-        } catch (e) {
-          recordingStopResolverRef.current = null;
-          resolve(recordingBlobRef.current);
-        }
-      });
-    };
     const finishPresent = async () => {
-      setLoadingQuestions(true);
       const finalEntry = markSlide();
-      const recordingBlob = await stopRecordingAndGetBlob();
+      try { mediaRecRef.current && mediaRecRef.current.state !== "inactive" && mediaRecRef.current.stop(); } catch (e) {}
       setRecording(false);
       stopStream();
       setPresented(true);
-      const slideRecords = [...presentLog, finalEntry];
-      let presentationMaterials = buildPresentationMaterialPayload(slideRecords);
-      try {
-        if (window.CoachAPI?.analyzeDefensePresentation) {
-          const analysis = await window.CoachAPI.analyzeDefensePresentation({
-            mediaBlob: recordingBlob,
-            deckFile: deck?.file || null,
-            deckName: deck?.name || "Slide deck"
-          });
-          if (analysis?.material?.text) {
-            presentationMaterials = [analysis.material];
-            setPresentLog(records => records.map(record => ({
-              ...record,
-              transcript: analysis.transcript || record.transcript || "",
-              one_fix: (analysis.delivery_notes || [])[0] || record.one_fix || ""
-            })));
-            if (onToast && analysis.generation_method === "multimodal_llm") {
-              onToast("Analyzed your recording and slide deck for committee questions.");
-            }
-          }
-        }
-      } catch (e) {
-        const detail = typeof e?.data?.detail === "string"
-          ? e.data.detail
-          : e?.data?.detail?.message || e?.message || "";
-        const suffix = detail ? `: ${detail}` : "";
-        if (onToast) onToast(`Could not analyze the recording${suffix}. Questions will use the slides and timing.`);
-      }
       await generateQuestionsForSession({
         formatOverride: "talk",
-        materialPayload: presentationMaterials,
-        researchSummary: presentationMaterials.length ? "" : buildPresentationSummary(slideRecords),
+        materialPayload: [],
+        researchSummary: buildPresentationSummary([...presentLog, finalEntry]),
         questionCountOverride: QUESTION_COUNT.talk,
         toastMessage: "Generated LLM questions for your presentation."
       });
     };
 
-    const reset = () => { DefenseAudio.stopSpeaking(); stopStream(); setStage("setup"); setQIdx(0); setAnswer(""); setSlideIdx(0); setPresented(false); setSessionQuestions(null); };
+    const reset = () => {
+      DefenseAudio.stopSpeaking(); stopStream();
+      setStage("setup"); setQIdx(0); setAnswer(""); setSlideIdx(0); setPresented(false); setSessionQuestions(null);
+      setOffline(false);
+      setLog([]); setPresentLog([]);
+      setRecordedUrl("");                 // the effect above revokes the old URL
+      recordedBlobRef.current = null;
+      setSavedId("");
+    };
+
+    // ==========================================================================
+    // SAVE REPORT — report JSON to localStorage, recording to IndexedDB.
+    // ==========================================================================
+    const saveReport = async () => {
+      if (saving || savedId) return;
+      setSaving(true);
+      const id = `def-${Date.now()}`;
+      const blob = recordedBlobRef.current;
+
+      // Media first: if it can't be stored we still want to save the report,
+      // but the user needs to be told the recording didn't make it.
+      let media = null, mediaWarning = "";
+      if (blob && blob.size) {
+        const kind = captureMode === "audio" ? "audio" : "video";
+        try {
+          await DefenseMedia.put(id, blob);
+          media = { id, kind, mime: blob.type || (kind === "audio" ? "audio/webm" : "video/webm"), size: blob.size };
+        } catch (e) {
+          mediaWarning = ` The ${kind} recording (${fmtBytes(blob.size)}) was too large to store on this device, so the report was saved without it.`;
+        }
+      }
+
+      const answeredNow = log.filter(l => l.answer);
+      const report = {
+        id,
+        savedAt: new Date().toISOString(),
+        format,
+        formatName: presented ? "Slide presentation" : (FORMATS.find(f => f.id === format)?.name || format),
+        presented,
+        offline,   // so History never implies these were the profile-grounded questions
+        panel: panel.map(a => ({ id: a.id, name: a.name, role: a.role || "" })),
+        stats: {
+          questions: log.length,
+          answered: answeredNow.length,
+          avgWords: answeredNow.length ? Math.round(answeredNow.reduce((a, l) => a + wordCount(l.answer), 0) / answeredNow.length) : 0,
+          slides: presentLog.length,
+          totalPresentSecs: presentLog.reduce((a, s) => a + (s.seconds || 0), 0)
+        },
+        skippedTags: [...new Set(log.filter(l => !l.answer).map(l => l.tag))],
+        log,
+        presentLog,
+        media
+      };
+
+      const next = [report, ...history];
+      if (!saveHistory(next)) {
+        if (media) await DefenseMedia.del(id);   // don't orphan the blob
+        setSaving(false);
+        if (onToast) onToast("Couldn't save the report — this device's local storage is full.");
+        return;
+      }
+      setHistory(next);
+      setSavedId(id);
+      setSaving(false);
+      if (onToast) onToast(`Report saved to Defense Room History.${mediaWarning}`);
+    };
+
+    const deleteReport = async (rid) => {
+      const rep = history.find(r => r.id === rid);
+      if (!rep) return;
+      if (!confirm("Delete this report and its recording? This can't be undone.")) return;
+      const next = history.filter(r => r.id !== rid);
+      if (!saveHistory(next)) { if (onToast) onToast("Couldn't delete that report."); return; }
+      if (rep.media) await DefenseMedia.del(rep.media.id);
+      setHistory(next);
+      if (openReportId === rid) setOpenReportId("");
+      if (savedId === rid) setSavedId("");
+    };
+
+    // ==========================================================================
+    // DEFENSE ROOM HISTORY — every saved report, with its recording.
+    // ==========================================================================
+    if (stage === "history") {
+      return (
+        <div className="page">
+          <div className="greeting">
+            <h1 className="display" style={{ fontSize: 26 }}>Defense Room History</h1>
+            <div className="sub">Every practice session you saved — the full report, plus the recording you made.</div>
+          </div>
+
+          <div className="def-startrow" style={{ marginTop: 0, marginBottom: 18 }}>
+            <button className="btn" onClick={() => setStage("setup")}><IcoD name="ArrowLeft" size={14} /> Back to Defense Room</button>
+          </div>
+
+          {history.length === 0 ? (
+            <div className="card card-pad def-hist-empty">
+              <IcoD name="Archive" size={22} />
+              <div className="def-hist-empty-t">No saved sessions yet</div>
+              <div className="def-hist-empty-d">Finish a practice session and choose <strong>Save report</strong> — it will show up here with its recording.</div>
+              <button className="btn primary" onClick={() => setStage("setup")}><IcoD name="Play" size={14} color="#fff" /> Start a session</button>
+            </div>
+          ) : (
+            <ul className="def-hist-list">
+              {history.map(r => {
+                const open = openReportId === r.id;
+                return (
+                  <li key={r.id} className="card def-hist-item">
+                    <div className="def-hist-head">
+                      <button
+                        type="button"
+                        className="def-hist-toggle"
+                        aria-expanded={open}
+                        aria-controls={`def-hist-body-${r.id}`}
+                        onClick={() => setOpenReportId(open ? "" : r.id)}
+                      >
+                        <span className="def-hist-chev"><IcoD name={open ? "ChevronDown" : "ChevronRight"} size={16} /></span>
+                        <span className="def-hist-main">
+                          <span className="def-hist-t">{r.formatName}</span>
+                          <span className="def-hist-s">
+                            {fmtWhen(r.savedAt)}
+                            {r.stats.questions ? ` · ${r.stats.answered}/${r.stats.questions} answered` : ""}
+                            {r.stats.slides ? ` · ${r.stats.slides} slides · ${fmtDur(r.stats.totalPresentSecs)}` : ""}
+                          </span>
+                        </span>
+                        {r.media && (
+                          <span className="def-hist-media" title={`${r.media.kind === "audio" ? "Audio" : "Video"} recording · ${fmtBytes(r.media.size)}`}>
+                            <IcoD name={r.media.kind === "audio" ? "Volume2" : "Video"} size={12} />
+                            {fmtBytes(r.media.size)}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="def-hist-del"
+                        title="Delete this report"
+                        aria-label={`Delete the report from ${fmtWhen(r.savedAt)}`}
+                        onClick={() => deleteReport(r.id)}
+                      >
+                        <IcoD name="Trash2" size={14} />
+                      </button>
+                    </div>
+
+                    {open && (
+                      <div className="def-hist-body" id={`def-hist-body-${r.id}`}>
+                        {r.panel.length > 0 && (
+                          <div className="def-hist-panel">Practiced with {r.panel.map(p => p.name).join(", ")}.</div>
+                        )}
+                        {r.offline && (
+                          <div className="def-gap" style={{ marginTop: 8 }}>
+                            <IcoD name="WifiOff" size={14} />
+                            <span>Offline session — these questions were built on-device, not by the committee model.</span>
+                          </div>
+                        )}
+
+                        <div className="def-stats">
+                          {r.presented ? (
+                            <>
+                              <div className="card card-pad def-stat"><div className="def-stat-n">{r.stats.slides}</div><div className="def-stat-l">slides presented</div></div>
+                              <div className="card card-pad def-stat"><div className="def-stat-n">{fmtDur(r.stats.totalPresentSecs)}</div><div className="def-stat-l">total talk time</div></div>
+                              <div className="card card-pad def-stat"><div className="def-stat-n">{fmtDur(r.stats.slides ? r.stats.totalPresentSecs / r.stats.slides : 0)}</div><div className="def-stat-l">avg per slide</div></div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="card card-pad def-stat"><div className="def-stat-n">{r.stats.questions}</div><div className="def-stat-l">questions faced</div></div>
+                              <div className="card card-pad def-stat"><div className="def-stat-n">{r.stats.answered}</div><div className="def-stat-l">answered</div></div>
+                              <div className="card card-pad def-stat"><div className="def-stat-n">{r.stats.avgWords}</div><div className="def-stat-l">avg words per answer</div></div>
+                            </>
+                          )}
+                        </div>
+
+                        {r.media && (
+                          <>
+                            <div className="section-label"><span className="ic"><IcoD name={r.media.kind === "audio" ? "Volume2" : "Video"} size={13} /></span> {r.media.kind === "audio" ? "Listen back" : "Watch yourself back"}</div>
+                            <HistoryMedia media={r.media} />
+                          </>
+                        )}
+
+                        {r.presentLog.length > 0 && (
+                          <>
+                            <div className="section-label"><span className="ic"><IcoD name="Clock" size={13} /></span> Time per slide</div>
+                            <div className="def-review">
+                              {r.presentLog.map((s, i) => (
+                                <div key={i} className="def-review-row">
+                                  <span className="def-tag" style={{ flexShrink: 0 }}>Slide {s.index + 1}</span>
+                                  <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div className="def-slide-bar"><span style={{ width: `${r.stats.totalPresentSecs ? Math.round((s.seconds / r.stats.totalPresentSecs) * 100) : 0}%` }} /></div>
+                                    <div className="def-review-a">{fmtDur(s.seconds)}{s.transcript ? ` · “${s.transcript.slice(0, 80)}…”` : ""}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+
+                        {r.skippedTags.length > 0 && (
+                          <div className="def-gap"><IcoD name="AlertTriangle" size={14} /> You skipped {r.skippedTags.join(", ").toLowerCase()} questions in this session.</div>
+                        )}
+
+                        {r.log.length > 0 && (
+                          <>
+                            <div className="section-label"><span className="ic"><IcoD name="ListChecks" size={13} /></span> Your answers</div>
+                            <div className="def-review">
+                              {r.log.map((l, i) => (
+                                <div key={i} className="def-review-row">
+                                  <span className="def-tag" style={{ flexShrink: 0 }}>{l.tag}</span>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div className="def-review-q">{l.q}</div>
+                                    <div className="def-review-a">{l.answer ? l.answer : <em>Skipped</em>}</div>
+                                    {l.spoken && <div className="def-review-voice"><IcoD name="Mic" size={11} /> answered by voice</div>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      );
+    }
 
     // ==========================================================================
     // SETUP
@@ -827,9 +1362,14 @@
       const isPresent = mode === "present";
       return (
         <div className="page">
-          <div className="greeting">
-            <h1 className="display" style={{ fontSize: 26 }}>Defense Room</h1>
-            <div className="sub">A private practice room. Field committee questions, or present your slides out loud and get feedback — before the real thing.</div>
+          <div className="def-head">
+            <div className="greeting" style={{ margin: 0 }}>
+              <h1 className="display" style={{ fontSize: 26 }}>Defense Room</h1>
+              <div className="sub">A private practice room. Field committee questions, or present your slides out loud and get feedback — before the real thing.</div>
+            </div>
+            <button className="btn" onClick={() => setStage("history")}>
+              <IcoD name="Archive" size={14} /> History{history.length ? ` · ${history.length}` : ""}
+            </button>
           </div>
 
           {/* Practice mode */}
@@ -890,30 +1430,39 @@
             <div className="def-add-real-h"><IcoD name="UserPlus" size={13} /> Add your real committee members</div>
             <div className="def-add-row">
               <input className="def-add-input" value={newName} onChange={e => setNewName(e.target.value)}
-                placeholder="Name, e.g. Dr. Maria Chen" onKeyDown={e => e.key === "Enter" && !resolvingMember && addRealMember()} />
+                aria-label="Committee member name"
+                placeholder="Name, e.g. Dr. Maria Chen" onKeyDown={e => e.key === "Enter" && !resolvingMember && searchRealMember()} />
               <input className="def-add-input" value={newInstitution} onChange={e => setNewInstitution(e.target.value)}
-                placeholder="Affiliated institution, e.g. University of Colorado Boulder" onKeyDown={e => e.key === "Enter" && !resolvingMember && addRealMember()} />
-              <button className="btn sm" onClick={addRealMember} disabled={!newName.trim() || resolvingMember}>
-                <IcoD name={resolvingMember ? "Loader2" : "Plus"} size={13} /> {resolvingMember ? "Searching..." : "Add"}
+                aria-label="Affiliated institution"
+                placeholder="Affiliated institution, e.g. University of Colorado Boulder" onKeyDown={e => e.key === "Enter" && !resolvingMember && searchRealMember()} />
+              <button className="btn sm" onClick={searchRealMember} disabled={!newName.trim() || resolvingMember}>
+                <IcoD name={resolvingMember ? "Loader2" : "Search"} size={13} /> {resolvingMember ? "Searching…" : "Search"}
               </button>
             </div>
-            <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Globe" size={12} /> Adding a member searches public academic pages by name and affiliated institution. Start practice then generates questions from the saved profile.</div>
+            <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Globe" size={12} /> Searching looks up public academic pages by name and institution. You'll see who we found — and pick between them if several people share the name — before anyone is added.</div>
           </div>
+
+          {picker && (
+            <CommitteePicker
+              query={pickerQuery}
+              state={picker}
+              onRetry={searchRealMember}
+              onCancel={() => setPicker(null)}
+              onConfirm={confirmRealMember}
+            />
+          )}
 
           {/* Materials — a deck to present (present mode) or optional context (Q&A mode) */}
           {isPresent ? (
             <>
               <div className="section-label"><span className="ic"><IcoD name="MonitorPlay" size={13} /></span> Your slide deck</div>
-              <input ref={deckRef} type="file" style={{ display: "none" }} accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              <input ref={deckRef} type="file" style={{ display: "none" }} accept=".pdf,.ppt,.pptx,.key"
                 onChange={e => { addDeck(e.target.files); e.target.value = ""; }} />
               <div className="def-materials" data-ptour="def-materials">
                 <button className="btn" onClick={() => deckRef.current?.click()}><IcoD name="Upload" size={14} /> {deck ? "Replace deck" : "Upload your slides"}</button>
                 {deck && (
                   <span className="def-mat">
-                    <IcoD name={deck.status === "failed" ? "AlertTriangle" : deck.status === "parsing" ? "Loader2" : deck.kind === "pdf" ? "FileText" : "Presentation"} size={12} /> {deck.name}
-                    {deck.status === "parsing" && " - parsing"}
-                    {deck.status === "parsed" && deck.parsedSlides?.length ? ` - ${deck.parsedSlides.length} slides` : ""}
-                    {deck.status === "failed" && " - unreadable"}
+                    <IcoD name={deck.kind === "pdf" ? "FileText" : "Presentation"} size={12} /> {deck.name}
                     <button className="def-mat-x" onClick={() => setDeck(null)} title="Remove"><IcoD name="X" size={11} /></button>
                   </span>
                 )}
@@ -921,9 +1470,8 @@
               <div className="def-slidecount">
                 <label><IcoD name="Layers" size={13} /> Slides in your deck</label>
                 <input type="number" min="1" max="60" value={slideCount}
-                  onChange={e => setSlideCount(Math.max(1, Math.min(60, parseInt(e.target.value || "1", 10))))}
-                  disabled={deck?.kind === "pptx" && deck?.parsedSlides?.length} />
-                <span className="def-note" style={{ margin: 0 }}><IcoD name="Info" size={12} /> PowerPoint decks use the parsed slide count; PDFs use this page count.</span>
+                  onChange={e => setSlideCount(Math.max(1, Math.min(60, parseInt(e.target.value || "1", 10))))} />
+                <span className="def-note" style={{ margin: 0 }}><IcoD name="Info" size={12} /> The backend will read this straight from your file — this is just a stand-in for the demo.</span>
               </div>
 
               <div className="section-label"><span className="ic"><IcoD name="Video" size={13} /></span> What should we record?</div>
@@ -950,16 +1498,25 @@
               <div className="def-materials" data-ptour="def-materials">
                 <button className="btn" onClick={() => fileRef.current?.click()}><IcoD name="Upload" size={14} /> Upload slides or draft</button>
                 {materials.map((m, i) => (
-                  <span key={i} className="def-mat">
+                  <span key={i} className={`def-mat ${m.status === "failed" ? "bad" : ""}`}>
                     <IcoD name={m.status === "failed" ? "AlertTriangle" : m.status === "parsing" ? "Loader2" : "FileText"} size={12} /> {m.name}
-                    {m.status === "parsing" && " - parsing"}
-                    {(m.status === "parsed" || m.status === "parsed-local") && ` - ${m.wordCount || 0} words`}
-                    {m.status === "failed" && " - unreadable"}
-                    <button className="def-mat-x" onClick={() => setMaterials(p => p.filter((_, j) => j !== i))} title="Remove"><IcoD name="X" size={11} /></button>
+                    {m.status === "parsing" && " · reading…"}
+                    {(m.status === "parsed" || m.status === "parsed-local") && ` · ${m.wordCount || 0} words`}
+                    {m.status === "failed" && " · couldn't read"}
+                    <button className="def-mat-x" onClick={() => setMaterials(p => p.filter((_, j) => j !== i))} title="Remove" aria-label={`Remove ${m.name}`}><IcoD name="X" size={11} /></button>
                   </span>
                 ))}
               </div>
-              <div className="def-note"><IcoD name="Info" size={12} /> Parsed materials seed the committee's questions. Unreadable files are ignored.</div>
+
+              {/* Say exactly WHY a file failed — "unreadable" told the student nothing. */}
+              {materials.filter(m => m.status === "failed").map(m => (
+                <div key={m.id} className="def-gap" style={{ marginTop: 10, marginBottom: 0 }}>
+                  <IcoD name="AlertTriangle" size={14} />
+                  <span><strong>{m.name}</strong> — {m.error || "We couldn't read that file."}</span>
+                </div>
+              ))}
+
+              <div className="def-note"><IcoD name="Info" size={12} /> Materials seed the committee's questions. PDFs and Word files are read right in your browser, so this works even offline.</div>
             </>
           )}
 
@@ -968,8 +1525,8 @@
               <IcoD name={voice ? "Volume2" : "VolumeX"} size={14} /> Voice {voice ? "on" : "off"}
             </button>
             {isPresent ? (
-              <button className="btn primary lg" onClick={startPresent} disabled={!hasSelectedCommittee || !deck || deckParsing || deck?.status === "failed" || loadingQuestions}>
-                <IcoD name={deckParsing ? "Loader2" : "Play"} size={15} color="#fff" /> {deckParsing ? "Reading deck..." : `Start presenting - ${slideCount} slide${slideCount === 1 ? "" : "s"}`}
+              <button className="btn primary lg" onClick={startPresent} disabled={!hasSelectedCommittee || !deck || loadingQuestions}>
+                <IcoD name="Play" size={15} color="#fff" /> Start presenting - {slideCount} slide{slideCount === 1 ? "" : "s"}
               </button>
             ) : (
               <button className="btn primary lg" onClick={start} disabled={!hasSelectedCommittee || loadingQuestions || parsingMaterials}>
@@ -997,7 +1554,7 @@
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span className={`def-rec-dot ${recording ? "on" : ""}`}><span /> {recording ? "Recording" : camReady ? "Ready" : "Recording off"}</span>
-              <button className="btn sm" onClick={() => finishPresent()} disabled={loadingQuestions}><IcoD name={loadingQuestions ? "Loader2" : "Square"} size={13} /> {loadingQuestions ? "Analyzing..." : "Finish"}</button>
+              <button className="btn sm" onClick={() => finishPresent()}><IcoD name="Square" size={13} /> Finish</button>
             </div>
           </div>
 
@@ -1006,21 +1563,8 @@
           <div className="def-present-stage">
             {/* The slide */}
             <div className="def-slide">
-              {slide?.thumbnail && String(slide.thumbnail).startsWith("data:image/") ? (
-                <img alt={`Slide ${slideIdx + 1}`} src={slide.thumbnail} />
-              ) : slide?.thumbnail ? (
+              {slide?.thumbnail ? (
                 <iframe title={`Slide ${slideIdx + 1}`} src={slide.thumbnail} />
-              ) : (slide?.title || slide?.text || slide?.notes) ? (
-                <div className="def-slide-text">
-                  <div className="def-slide-kicker">Slide {slideIdx + 1}</div>
-                  {slide?.title && <h2>{slide.title}</h2>}
-                  {slide?.bullets?.length ? (
-                    <ul>{slide.bullets.slice(0, 8).map((line, i) => <li key={i}>{line}</li>)}</ul>
-                  ) : slide?.text ? (
-                    <p>{slide.text}</p>
-                  ) : null}
-                  {slide?.notes && <div className="def-slide-notes"><IcoD name="StickyNote" size={13} /> {slide.notes}</div>}
-                </div>
               ) : (
                 <div className="def-slide-blank">
                   <IcoD name="Presentation" size={30} />
@@ -1054,8 +1598,8 @@
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {isLastSlide ? (
-                <button className="btn primary" onClick={() => finishPresent()} disabled={loadingQuestions}>
-                  {loadingQuestions ? "Analyzing recording..." : "Finish & take questions"} <IcoD name={loadingQuestions ? "Loader2" : "ArrowRight"} size={14} color="#fff" />
+                <button className="btn primary" onClick={() => finishPresent()}>
+                  Finish & take questions <IcoD name="ArrowRight" size={14} color="#fff" />
                 </button>
               ) : (
                 <button className="btn primary" onClick={nextSlide}>
@@ -1094,6 +1638,18 @@
             </div>
             <button className="btn sm" onClick={endEarly}><IcoD name="Square" size={13} /> End session</button>
           </div>
+
+          {/* Never let on-device questions pass as the profile-grounded set. */}
+          {offline && (
+            <div className="def-gap">
+              <IcoD name="WifiOff" size={14} />
+              <span>
+                <strong>Offline practice questions.</strong> The advisor service isn't reachable, so these were built on this
+                device from your committee personas{materials.some(m => m.text) ? " and your uploaded materials" : ""} — they are
+                not the profile-grounded questions the committee model writes. Start the backend to get those.
+              </span>
+            </div>
+          )}
 
           <div className="msg-adv def-q" style={{ borderTopColor: asker.color }}>
             <div className="ma-h">
@@ -1177,7 +1733,7 @@
                 </div>
               ))}
             </div>
-            <div className="def-note" style={{ marginBottom: 18 }}><IcoD name="Sparkles" size={12} /> Your recorded talk and slide text seed the committee questions for this practice round.</div>
+            <div className="def-note" style={{ marginBottom: 18 }}><IcoD name="Sparkles" size={12} /> Once the backend is wired, each slide also gets a transcript, pace (words/min), filler-word count, and a one-line fix from the committee.</div>
           </>
         )}
 
@@ -1210,8 +1766,28 @@
           </>
         )}
 
+        {/* Save this session: the report, plus the recording if one was made. */}
+        <div className="card card-pad def-save">
+          <div className="def-save-txt">
+            <div className="def-save-t"><IcoD name="Save" size={15} /> Keep this session</div>
+            <div className="def-save-d">
+              {savedId
+                ? "Saved. You can reopen this report — and its recording — any time from Defense Room History."
+                : recordedBlobRef.current
+                  ? `Save the full report together with your ${captureMode === "audio" ? "audio" : "video"} recording (${fmtBytes(recordedBlobRef.current.size)}) so you can compare runs later.`
+                  : "Save the full report so you can compare this run against later ones."}
+            </div>
+          </div>
+          {savedId
+            ? <button className="btn primary" onClick={() => setStage("history")}><IcoD name="Archive" size={14} color="#fff" /> View in History</button>
+            : <button className="btn primary" onClick={saveReport} disabled={saving}>
+                <IcoD name={saving ? "Loader" : "Save"} size={14} color="#fff" /> {saving ? "Saving…" : "Save report"}
+              </button>}
+        </div>
+
         <div className="def-startrow">
           <button className="btn" onClick={reset}><IcoD name="RotateCcw" size={14} /> Practice again</button>
+          <button className="btn" onClick={() => setStage("history")}><IcoD name="Archive" size={14} /> Defense Room History{history.length ? ` · ${history.length}` : ""}</button>
           <button className="btn primary" onClick={() => onNav && onNav("chat")}><IcoD name="MessageCircle" size={14} color="#fff" /> Debrief with an advisor</button>
         </div>
       </div>
