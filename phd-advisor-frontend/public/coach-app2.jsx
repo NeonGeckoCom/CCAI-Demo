@@ -5,6 +5,54 @@ const { useState: useS2, useEffect: useE2, useMemo: useM2, useRef: useR2 } = Rea
 const Ico = window.Icon;
 const RE2 = window.RoadmapEngine;
 const H = window.coachHelpers;
+const DEFAULT_ACADEMIC_PROGRAM = "PhD, Information Science";
+const DEFAULT_ACADEMIC_INSTITUTION = "University of Colorado Boulder";
+const ACADEMIC_PLACEHOLDERS = new Set(["string", "undefined", "null", "none", "n/a", "na", "unknown", "choose your program", "select your program", "choose your university", "select your university"]);
+
+function cleanAcademicValue(value) {
+  const text = String(value || "").trim();
+  if (!text || ACADEMIC_PLACEHOLDERS.has(text.toLowerCase())) return "";
+  return text;
+}
+function firstAcademicValue(fallback, ...values) {
+  let fallbackCandidate = "";
+  const cleaned = values.map(cleanAcademicValue);
+  cleaned.forEach(value => {
+    if (value && !fallbackCandidate) fallbackCandidate = value;
+  });
+  return cleaned.find(value => value && value !== fallback) || fallbackCandidate || fallback;
+}
+function academicProgramValue(profile) {
+  if (!profile) return "";
+  return profile.program && typeof profile.program === "object" ? profile.program.name : profile.program;
+}
+function academicInstitutionValue(profile) {
+  if (!profile) return "";
+  if (profile.institution) return profile.institution;
+  return profile.program && typeof profile.program === "object" ? profile.program.institution : "";
+}
+function signedInUserProfile() {
+  return (window.CoachAPI && window.CoachAPI.getUser && window.CoachAPI.getUser()) || window.MOCK_USER || {};
+}
+function buildAcademicProfile(user, prefs = {}, roadmap = null) {
+  const roadmapProfile = roadmap?.program ? { program: roadmap.program } : {};
+  return {
+    ...(user || {}),
+    program: firstAcademicValue(
+      DEFAULT_ACADEMIC_PROGRAM,
+      academicProgramValue(user),
+      user?.researchArea,
+      prefs.program,
+      academicProgramValue(roadmapProfile)
+    ),
+    institution: firstAcademicValue(
+      DEFAULT_ACADEMIC_INSTITUTION,
+      academicInstitutionValue(user),
+      prefs.institution,
+      academicInstitutionValue(roadmapProfile)
+    )
+  };
+}
 
 // ============================================================================
 // PLAN / STEP VIEW  (spine + focused current step + live tools)
@@ -1132,6 +1180,7 @@ function CoachRoot() {
   const [engagement, setEngagement] = useS2(() => H.loadJSON(H.ENGAGE_KEY, { messages: 0, visits: 0 }));
   const [seenUnlocks, setSeenUnlocks] = useS2(() => H.loadJSON(H.UNLOCKS_KEY, []));
   const [unlockPopup, setUnlockPopup] = useS2(null);
+  const [rebuildProfile, setRebuildProfile] = useS2(null);
   // A feature is "on" once its message threshold is reached (or reveal-all) AND
   // the user hasn't chosen to keep it hidden.
   const isHidden = (id) => (prefs.hidden || []).includes(id);
@@ -1154,6 +1203,7 @@ function CoachRoot() {
   const toggleHidden = (id) => setPrefs(p => { const h = new Set(p.hidden || []); h.has(id) ? h.delete(id) : h.add(id); return { ...p, hidden: [...h] }; });
   const revealAllNow = () => { setPrefs(p => ({ ...p, revealAll: true, hidden: [] })); setSeenUnlocks(["multiple", "skills", "personas10"]); setUnlockPopup(null); };
   const resetDrip = () => { setEngagement(e => ({ messages: 0, visits: e.visits || 0 })); setSeenUnlocks([]); setPrefs(p => ({ ...p, revealAll: false, hidden: [] })); setUnlockPopup(null); };
+  const academicProfile = useM2(() => rebuildProfile || buildAcademicProfile(signedInUserProfile(), prefs, roadmap), [rebuildProfile, prefs, roadmap, authed]);
 
   useE2(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem(H.THEME_KEY, theme); } catch (e) {} }, [theme]);
   useE2(() => { H.saveJSON(H.RM_KEY, roadmap); }, [roadmap]);
@@ -1204,12 +1254,14 @@ function CoachRoot() {
   const onAuthed = (isNew, user) => {
     if (user) window.MOCK_USER = user;
     else if (window.CoachAPI) window.MOCK_USER = window.CoachAPI.getUser();
+    setRebuildProfile(null);
     if (isNew) { setRoadmap(null); setDoneTasks(new Set()); }
     setAuthed(true);
     setView("home");
   };
   const handleAuthExpired = () => {
     if (window.CoachAPI) window.CoachAPI.clearAuth();
+    setRebuildProfile(null);
     setAuthMode("login");
     setGate("login");
     setAuthed(false);
@@ -1230,12 +1282,12 @@ function CoachRoot() {
   // 2) Signed in, no plan yet → onboarding (onboarding hands up density/model prefs)
   if (!roadmap) {
     return <window.CoachOnboarding
-      profile={window.MOCK_USER}
+      profile={academicProfile}
       onAuthExpired={handleAuthExpired}
-      onComplete={(rm, p) => { setRoadmap(rm); if (p) setPrefs(prev => ({ ...prev, ...p })); setView("home"); }} />;
+      onComplete={(rm, p) => { setRebuildProfile(null); setRoadmap(rm); if (p) setPrefs(prev => ({ ...prev, ...p })); setView("home"); }} />;
   }
 
-  const signOut = () => { if (window.CoachAPI) window.CoachAPI.clearAuth(); setAuthed(false); setGate("landing"); setView("home"); };
+  const signOut = () => { if (window.CoachAPI) window.CoachAPI.clearAuth(); setRebuildProfile(null); setAuthed(false); setGate("landing"); setView("home"); };
   // Sanitize view: Skills isn't reachable until unlocked, and Workspace is not
   // its own page — its tools live on Home (in the Tools popup), so redirect there.
   const v = (view === "skills" && !unlocked.skills) ? "home" : (view === "workspace" ? "home" : view);
@@ -1251,7 +1303,7 @@ function CoachRoot() {
   else body = <SettingsView roadmap={roadmap} setRoadmap={setRoadmap} theme={theme} onToggleTheme={toggleTheme}
     prefs={prefs} setPrefs={setPrefs} engagement={engagement} unlocked={unlocked}
     onRevealAll={revealAllNow} onResetDrip={resetDrip} onToggleHidden={toggleHidden}
-    onRebuild={() => { if (confirm("Rebuild your plan from scratch? Progress clears.")) { setRoadmap(null); setDoneTasks(new Set()); } }}
+    onRebuild={() => { if (confirm("Rebuild your plan from scratch? Progress clears.")) { setRebuildProfile(buildAcademicProfile(signedInUserProfile(), prefs, roadmap)); setRoadmap(null); setDoneTasks(new Set()); } }}
     onReplayOnboarding={() => { setView("home"); setShowTour(true); }}
     onSignOut={signOut} />;
 

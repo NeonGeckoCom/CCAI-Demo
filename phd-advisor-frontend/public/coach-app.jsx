@@ -133,15 +133,52 @@ const cleanOnboardingValue = (value) => {
 };
 
 function getOnboardingDefaults(profile) {
-  const user = profile || (window.CoachAPI && window.CoachAPI.getUser && window.CoachAPI.getUser()) || window.MOCK_USER || {};
+  const apiUser = (window.CoachAPI && window.CoachAPI.getUser && window.CoachAPI.getUser()) || {};
+  const mockUser = window.MOCK_USER || {};
+  const prefs = loadJSON(PREFS_KEY, {}) || {};
+  const storedRoadmap = loadJSON(RM_KEY, null) || {};
   return {
-    program: cleanOnboardingValue(user.program) || DEFAULT_ONBOARDING_PROGRAM,
-    institution: cleanOnboardingValue(user.institution) || DEFAULT_ONBOARDING_INSTITUTION
+    program: firstOnboardingDefault(
+      DEFAULT_ONBOARDING_PROGRAM,
+      profileProgramValue(profile),
+      profile?.researchArea,
+      prefs.program,
+      storedRoadmap.program?.name,
+      profileProgramValue(apiUser),
+      apiUser.researchArea,
+      profileProgramValue(mockUser),
+      mockUser.researchArea
+    ),
+    institution: firstOnboardingDefault(
+      DEFAULT_ONBOARDING_INSTITUTION,
+      profileInstitutionValue(profile),
+      prefs.institution,
+      storedRoadmap.program?.institution,
+      profileInstitutionValue(apiUser),
+      profileInstitutionValue(mockUser)
+    )
   };
 }
 const shouldReplaceOnboardingDefault = (current, fallback) => {
   const clean = cleanOnboardingValue(current);
   return !clean || clean === fallback;
+};
+const firstOnboardingDefault = (fallback, ...values) => {
+  let fallbackCandidate = "";
+  const cleaned = values.map(cleanOnboardingValue);
+  cleaned.forEach(value => {
+    if (value && !fallbackCandidate) fallbackCandidate = value;
+  });
+  return cleaned.find(value => value && value !== fallback) || fallbackCandidate || fallback;
+};
+const profileProgramValue = (profile) => {
+  if (!profile) return "";
+  return profile.program && typeof profile.program === "object" ? profile.program.name : profile.program;
+};
+const profileInstitutionValue = (profile) => {
+  if (!profile) return "";
+  if (profile.institution) return profile.institution;
+  return profile.program && typeof profile.program === "object" ? profile.program.institution : "";
 };
 
 // ============================================================================
