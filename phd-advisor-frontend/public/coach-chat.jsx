@@ -438,9 +438,25 @@ function responseStageText(phase, data = {}) {
 // ============================================================================
 function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsumed, unlocked = { multiple: true, skills: true, personas10: true }, onMessage }) {
   const current = roadmap.steps.find(s => s.status === "current") || roadmap.steps.find(s => s.status === "redo") || roadmap.steps[0];
-  const advisors = window.ADVISORS || [];
-  // Until 15 messages (or reveal-all), only the first 3 advisor lenses are offered.
-  const availableAdvisors = unlocked.personas10 ? advisors : advisors.slice(0, 3);
+  // Personas plus the real committee members added in the Defense Room —
+  // those are always chattable, whatever the persona unlock state.
+  const realCommittee = (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("phd-defense-committee-v1") || "[]");
+      return (Array.isArray(v) ? v : []).map((m, i) => ({
+        id: m.id, name: m.name,
+        role: [m.profile?.title, m.institution].filter(Boolean).join(" · ") || "Committee member",
+        color: m.color || ["#B45309", "#0F766E", "#7C3AED"][i % 3], icon: "GraduationCap",
+        real: true, profile: m.profile || {}, institution: m.institution || ""
+      }));
+    } catch (e) { return []; }
+  })();
+  const advisors = [...(window.ADVISORS || []), ...realCommittee];
+  // Until 15 messages (or reveal-all), only the first 3 advisor lenses are
+  // offered — but your real committee members are always available.
+  const availableAdvisors = unlocked.personas10
+    ? advisors
+    : [...advisors.filter(a => !a.real).slice(0, 3), ...advisors.filter(a => a.real)];
 
   const [mode, setMode] = useSC(() => { try { return localStorage.getItem("phd-chat-mode") || "single"; } catch (e) { return "single"; } });
   const [active, setActive] = useSC(() => {
@@ -528,7 +544,7 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
   const normalizeAdvisorId = (data = {}) => data.persona_id || data.personaId || data.advisor_id || data.advisorId || data.advisor || "";
   const advisorDisplayName = (data = {}) => {
     const id = normalizeAdvisorId(data);
-    const advisor = id ? HC.advisorById(id) : null;
+    const advisor = id ? (advisors.find(x => x.id === id) || HC.advisorById(id)) : null;
     return data.persona_name || data.personaName || data.advisorName || advisor?.name || id || "Advisor";
   };
   const updateStreamingAdvisorStatus = (personaId, status) => {
@@ -704,6 +720,19 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
           userMessageId: userMsg.id,
           sessionId: sid,
           activeAdvisors: targetAdvisorIds,
+          customAdvisors: targetAdvisorIds
+            .filter(id => String(id).startsWith("real-"))
+            .map(id => {
+              const m = advisors.find(a => a.id === id);
+              if (!m) return null;
+              const p = m.profile || {};
+              return {
+                id: m.id, name: m.name, title: p.title || "",
+                institution: m.institution || p.institution || "",
+                research_areas: p.research_areas || [],
+                summary: p.summary || p.bio || [p.title, p.department, m.institution].filter(Boolean).join(", ")
+              };
+            }).filter(Boolean),
           studentContext: buildStudentContext(ragSyncedDocuments),
           onEvent: ({ type, data }) => {
             const d = data || {};
@@ -1018,7 +1047,7 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
               ); }
               return (
                 <div className="msg-adv-row" key={gi}>
-                  {gr.g.map(m => { const personaId = m.personaId || m.persona_id || m.advisorId || m.advisor_id || m.advisor; const a = HC.advisorById(personaId); return (
+                  {gr.g.map(m => { const personaId = m.personaId || m.persona_id || m.advisorId || m.advisor_id || m.advisor; const a = advisors.find(x => x.id === personaId) || HC.advisorById(personaId); return (
                     <div className={`msg-adv ${m.streaming ? "streaming" : ""}`} key={m.id} style={{ borderTopColor: a.color }}>
                       <div className="ma-h">
                         <div className="ma-i" style={{ background: a.color }}><IcoC name={a.icon} size={14} color="#fff" /></div>

@@ -1,0 +1,1426 @@
+{
+ "version": "handbook-research-1",
+ "note": "Evidence-grounded 5-year PhD template synthesized from real handbooks across ~40 programs (10-agent survey, cross-school/major analysis, adversarial audit). Sections = ~3-month quarters. Subs = ~1 week (2 days-3 weeks). skip_if tokens: masters_entry, coursework_done, post_quals, post_candidacy, post_proposal.",
+ "sections": [
+  {
+   "num": 1,
+   "title": "Arrival, Compliance, First Core Courses, and Rotation 1",
+   "months": "1-3",
+   "phase": "Year 1 — Foundation",
+   "objective": "Get administratively established, start core coursework and (where used) lab rotations, seed the first-year committee, and open prep for any Year-1 screening exam.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "1a",
+     "title": "Program onboarding and milestone map",
+     "days": "5",
+     "description": "Meet the DGS/graduate coordinator, read the handbook for your admission year, and build a milestone spreadsheet: total credits (60-96 typical), GPA floor (mode 3.0, up to 3.5 Columbia/Indiana), every named form, exam offering dates, attempt caps, and all clock rules (candidacy expiry, overall 6-10 year ceilings)."
+    },
+    {
+     "id": "1b",
+     "title": "Online RCR/ethics certification",
+     "days": "3",
+     "description": "Complete CITI or equivalent online responsible-conduct training (Georgia Tech requires it within 90 days; Rutgers/Vanderbilt in the first semester). Human-subjects fields add the human-subjects module now — it is prerequisite to any later IRB submission.",
+     "field_variants": "Human-subjects fields (psych, epi, education, clinical) add human-subjects certification; engineering/physics/chemistry have RCR-only compliance with no IRB track."
+    },
+    {
+     "id": "1c",
+     "title": "Register core block 1, required seminar, and degree audit",
+     "days": "3",
+     "skip_if": [
+      "coursework_done"
+     ],
+     "description": "Register for 2-3 core courses plus the required first-year seminar/colloquium (CS300, CHEM 8601, proseminar analogues) and set the attendance log where a quota exists; run the degree audit to confirm every course counts and note letter-grade floors (B-/B/B+) that gate later exams.",
+     "field_variants": "Econ/engineering front-load a fixed theory core; humanities take field seminars; psychology takes stats sequences with B- floors."
+    },
+    {
+     "id": "1d",
+     "title": "Transfer-credit / waiver petition",
+     "days": "3",
+     "description": "If entering with a master's or prior graduate coursework, file the transfer/waiver petition with syllabi attached (caps: ~9 credits Purdue, 21 Utah/CU Boulder, 30 common, 45 units Stanford, 36 Buffalo). Record in writing what is non-waivable: Stanford breadth, Cornell exams/teaching/language, FSU core, UNC 37-hour core."
+    },
+    {
+     "id": "1e",
+     "title": "Rotation 1: define and run the mini-project",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Lab fields: choose rotation lab 1 (of 2-3, each ~8-10 weeks), agree a written mini-project scope with the PI, and execute the first phase; log a mid-rotation check-in. Non-rotation fields: hold and log intro meetings with 5-8 potential advisors (Purdue requires 8 signed faculty interviews with ranked choices due Nov 1).",
+     "field_variants": "Lab sciences/neuroscience rotate in Y1; engineering/econ/humanities usually have an at-entry advisor and use this slot for advisor confirmation meetings; psychology often assigns the lab at admission."
+    },
+    {
+     "id": "1f",
+     "title": "Form first-year/advisory committee and file the first-year plan",
+     "days": "5",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Where the program requires a Year-1 committee, recruit it and file the plan NOW: Oregon gates a First-Year Committee (chair + 2) plus First-Year Plan by end of fall term of Year 1; Purdue requires Advisory Committee recruitment in the second semester; Arizona's Qualifying Review committee forms at the end of semester 1. This committee form typically must precede the plan-of-study form."
+    },
+    {
+     "id": "1g",
+     "title": "Early-screen prep kickoff",
+     "days": "5",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "If the program screens in Year 1 (Columbia EE January DQE, NC State course-final qualifiers, FSU diagnostic, Toronto Field Exam 1), collect past exams/model answers now, form a study group, and build a week-by-week prep calendar terminating at the exam date."
+    },
+    {
+     "id": "1h",
+     "title": "Clinical practicum: clinic orientation and intake rotation start",
+     "days": "5",
+     "description": "Clinical psychology: enroll in the Year-1 clinic orientation/intake rotation (Rutgers: 0.5 credits/semester in the GSAPP clinic from Year 1), complete onboarding, and log the first supervised hours; set the cumulative tracker against the 16 hr/week cap.",
+     "field_variants": "Clinical psychology only; other fields have no placement track."
+    },
+    {
+     "id": "1i",
+     "title": "International students: English proficiency and visa checklist",
+     "days": "3",
+     "description": "Complete required English certification steps (SPEAK test before TA-ing at UF, ALP levels at Columbia, TAMU certification by Dec 31 of Year 1 or funding is lost) and note program CPT limits (Stanford caps internationals at 3 CPT units)."
+    }
+   ]
+  },
+  {
+   "num": 2,
+   "title": "Core Load, Rotation 2, Early Screening Exam, and Winter Teaching",
+   "months": "4-6",
+   "phase": "Year 1 — Foundation",
+   "objective": "Sustain the core load, finish rotations, clear any Year-1 diagnostic/screening exam, and start Year-1 teaching where the program schedules it.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "2a",
+     "title": "Register core block 2 and mid-year GPA check",
+     "days": "3",
+     "skip_if": [
+      "coursework_done"
+     ],
+     "description": "Enroll in the second core block and compute GPA against the program floor and exam-prerequisite letter grades (UCLA needs A-/A- in two of the epi core and B+ in the third); trigger tutoring or course swaps now, before grades post."
+    },
+    {
+     "id": "2b",
+     "title": "Rotation 2: execute the mini-project to its endpoint",
+     "days": "21",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Run the agreed rotation-2 project to its written endpoint (experiment set complete, dataset produced, or analysis finished). Non-rotation fields: hold second-round meetings with a 2-3 advisor shortlist and get funding/milestone expectations in writing.",
+     "field_variants": "Lab sciences: full rotation with defined deliverable; other fields: advisor shortlist confirmation."
+    },
+    {
+     "id": "2c",
+     "title": "End-of-rotation writeups and talks",
+     "days": "5",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Deliver the end-of-rotation talk or written report for rotations 1-2 (required per rotation at Oregon's rotation-substitute and standard in lab programs); request written feedback from each PI to inform the final lab choice."
+    },
+    {
+     "id": "2d",
+     "title": "Early-screen prep completion: two timed mocks",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Finish the prep calendar started in 1g: complete the remaining past-exam sets and sit two full timed mock exams under exam conditions; triage weak areas in the final two weeks."
+    },
+    {
+     "id": "2e",
+     "title": "Sit the Year-1 screening/diagnostic exam (where the program runs one)",
+     "days": "5",
+     "gate": true,
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Sit the early screen on its fixed date: Columbia EE's January DQE (cannot be postponed — skipping counts as a failure; 6 of 18 problems in 4 hours, oral within 3 working days), FSU's diagnostic in week 6 of the SECOND semester (~month 5), NC State's fall core-course finals, Toronto's Field Exam 1 (May sitting). Log the result and the retake policy (two attempts is the norm) in writing.",
+     "field_variants": "Engineering and some professional programs screen in Y1; econ screens in summer after Y1 (section 4); lab sciences and humanities screen in Y2-Y4 — the generator must snap or drop this sub per the local calendar."
+    },
+    {
+     "id": "2f",
+     "title": "Year-1 teaching term and pedagogy course (where scheduled in Y1)",
+     "days": "14",
+     "description": "Where teaching starts in Year 1 — Michigan's two-semester Teaching Academy (PSYCH 609) with an embedded .25 GSI appointment in winter of Year 1; Berkeley's History 375 before or with the first GSI term — complete pedagogy-course enrollment, onboarding, and the first month of logged contact hours. This sub is the setup-plus-early-weeks wrapper for a term-long appointment; term completion is checked in 3e.",
+     "field_variants": "Y1 teaching is a psychology/humanities funding-model feature; most engineering and lab-science programs start TA duties in Y1-Y2 without a Y1 pedagogy gate."
+    },
+    {
+     "id": "2g",
+     "title": "Scope the first-year project",
+     "days": "5",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Write the first-year project (FYP / 619-project analogue) scope memo: research question, data/experiment/archive plan, analysis plan, and timeline; obtain advisor sign-off in writing. This paper is a formal graded gate in psychology and adjacent fields.",
+     "field_variants": "A graded gate in psychology (Oregon FYP due Nov 15 of Y2; Michigan 619) and econ-adjacent programs; absent in engineering and most humanities."
+    },
+    {
+     "id": "2h",
+     "title": "In-person/discussion RCR component",
+     "days": "3",
+     "description": "Complete the discussion-based ethics component where required (Penn State SARI discussion hours; Georgia Tech PHIL 6000 registration for first summer; Emory JPE; Minnesota CHEM 8066 in spring of Y1)."
+    },
+    {
+     "id": "2i",
+     "title": "IRB/IACUC protocol for the first-year project",
+     "days": "10",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Human-subjects/animal fields: draft and submit the full IRB (or IACUC) protocol for the first-year project — several programs bar ANY data collection before approval and require a Documentation of Research Compliance form on file (Oregon).",
+     "field_variants": "Human-subjects and animal-research fields only; no IRB analogue exists in engineering/physics/chemistry handbooks."
+    }
+   ]
+  },
+  {
+   "num": 3,
+   "title": "Advisor Commitment, Plan of Study, and Year-1 Close-out",
+   "months": "7-9",
+   "phase": "Year 1 — Foundation",
+   "objective": "Lock the permanent advisor, file the plan of study, close Year-1 coursework and teaching cleanly, and set up summer exam prep and residency planning.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "3a",
+     "title": "Finish Year-1 courses and clear incompletes",
+     "days": "3",
+     "skip_if": [
+      "coursework_done"
+     ],
+     "description": "Verify all Year-1 grades meet the floor and clear or schedule removal of incompletes — incompletes block milestone eligibility at several schools (Berkeley's Third Semester Review, Vanderbilt comps)."
+    },
+    {
+     "id": "3b",
+     "title": "Select and file the permanent advisor",
+     "days": "3",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Commit to the thesis advisor/lab and file the match or agreement form. Lab-science deadlines cluster at end of Year 1 (Pitt: end of August Y1; Purdue match announced November Y1); failure to secure an advisor within a year triggers formal warnings (OSU).",
+     "field_variants": "MIT and Columbia EE choose the advisor AFTER quals — for those programs the generator moves this sub to the post-quals quarter rather than skipping it."
+    },
+    {
+     "id": "3c",
+     "title": "First annual review meeting and filed report",
+     "days": "3",
+     "description": "Assemble CV, transcript, and 1-2 page progress report + IDP; hold the annual evaluation with the area faculty or first-year committee and file the signed report. Treat written feedback as binding input to the Year-2 plan."
+    },
+    {
+     "id": "3d",
+     "title": "File the plan of study / program of studies",
+     "days": "3",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "File the formal plan of study with committee signatures. Anchors: Utah requires PRELIMINARY Program of Study approval by the END OF THE FIRST SEMESTER (move this sub to section 2 there); Purdue's POS is due May-July of Year 1; Arizona's GradPath plan by semester 2; Nebraska's filing starts the 8-year completion clock. The committee-appointment form (1f) must be approved first at forms-driven schools."
+    },
+    {
+     "id": "3e",
+     "title": "Close the Year-1 teaching term",
+     "days": "5",
+     "description": "File the end-of-term teaching evaluation, log the full term's contact hours against the degree quota, and record the pedagogy-course grade (completes the term opened in 2f).",
+     "field_variants": "Only where teaching is scheduled in Y1; a hard degree component at Michigan/Berkeley-style programs."
+    },
+    {
+     "id": "3f",
+     "title": "Language requirement mapping and enrollment",
+     "days": "3",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Humanities: map all required languages (1-4 by subfield; US-history fields often need one) to the exam calendar (often only November and April sittings) and enroll in the first course or structured self-study. Languages must be fully satisfied BEFORE quals.",
+     "field_variants": "Humanities and some social science only; UF biology and TAMU economics explicitly have no language requirement."
+    },
+    {
+     "id": "3g",
+     "title": "Summer qual study plan (early-exam fields)",
+     "days": "5",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Econ/engineering: build the summer qual plan — past-exam inventory, study-group schedule, and the exact two-sitting calendar (first attempt late May/June, retake ~4 weeks before fall at TAMU/UVA). Record A-grade exam-exemption rules where they exist (UVA one subject; TAMU per-part)."
+    },
+    {
+     "id": "3h",
+     "title": "Summer research proposal to advisor",
+     "days": "3",
+     "description": "Write the 1-2 page summer research plan (required every May at Michigan-style programs) covering goals, data collection, and funding logistics; get advisor sign-off."
+    },
+    {
+     "id": "3i",
+     "title": "Residency requirement plan",
+     "days": "2",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Map the residency rule into concrete registrations NOW: Penn State requires two consecutive full-time semesters at University Park BEFORE the comprehensive exam; Utah requires 9+ credits in two consecutive semesters; FSU 24 hours in 12 months; Nebraska 27 hours in 18 months. Schedule the qualifying window in Years 1-2 so it cannot collide with exams."
+    }
+   ]
+  },
+  {
+   "num": 4,
+   "title": "Summer 1: Written Quals (Early-Exam Fields) and First-Year Project Execution",
+   "months": "10-12",
+   "phase": "Year 1 — Foundation",
+   "objective": "Pass early written quals where scheduled and drive the first-year project to collected-and-analyzed status.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "4a",
+     "title": "Qual prep cycle 1: past-exam set A",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Work the first half of the past-exam inventory to written solutions and reconcile against study-group answers; close the identified weak topics with targeted review."
+    },
+    {
+     "id": "4b",
+     "title": "Qual prep cycle 2: past-exam set B plus two timed mocks",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Complete the remaining past exams and sit two full-length timed mocks under exam conditions; final-week triage on the weakest subject."
+    },
+    {
+     "id": "4c",
+     "title": "Sit written qualifying exams (attempt 1)",
+     "days": "5",
+     "gate": true,
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Sit the written subject quals (micro/macro/econometrics in econ; closed-book subject exams in engineering). Final failure after the attempt cap means dismissal (UVA, NYU, TAMU) or a terminal-MS off-ramp (CU Boulder, Utah, UIUC). Log results and the retake window in writing.",
+     "field_variants": "Econ: summer after Y1 with dismissal stakes. Engineering: by semester 3 (5 for BS-entry at MIT). Lab science/humanities: this exam sits in Y2-Y4 — sections 6-7 or 9-10 instead."
+    },
+    {
+     "id": "4d",
+     "title": "Retake: targeted re-study and second sitting",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "If any section failed: meet the DGS within two weeks, file the remediation plan, complete a focused re-study block on exactly the failed sections, and sit the single permitted retake (~4 weeks before fall classes in econ)."
+    },
+    {
+     "id": "4e",
+     "title": "First-year project data collection complete",
+     "days": "21",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Execute FYP data collection to the pre-registered target (N reached, experiment series complete, or archive/corpus assembled) and write the quality-control memo declaring collection closed."
+    },
+    {
+     "id": "4f",
+     "title": "First-year project analysis complete",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Run the pre-specified analyses, produce final results tables/figures, and draft the methods section; advisor signs off that results are colloquium-ready."
+    },
+    {
+     "id": "4g",
+     "title": "September summer summary and fall registration",
+     "days": "2",
+     "description": "Submit the end-of-summer research summary where required (Michigan early September) and register for Year-2 courses plus any TA/pedagogy corequisites."
+    }
+   ]
+  },
+  {
+   "num": 5,
+   "title": "Year 2 Launch: Teaching, FYP Delivery, Exam Artifact Start",
+   "months": "13-15",
+   "phase": "Year 2 — Qualifying",
+   "objective": "Deliver the first-year project, run the Year-2 teaching term, start the qualifying-exam artifact, and audit early-candidacy prerequisites.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "5a",
+     "title": "Field/breadth/minor course enrollment",
+     "days": "3",
+     "skip_if": [
+      "coursework_done"
+     ],
+     "description": "Enroll in field, breadth, and outside-minor/cognate courses and open the tracking sheet for the outside requirement (MIT 3-subject minor at 3.5 GPA; Michigan Rackham cognate; GT 6-hr minor; Wisconsin external minor; Berkeley outside field)."
+    },
+    {
+     "id": "5b",
+     "title": "Year-2 TA term with pedagogy corequisite",
+     "days": "14",
+     "description": "Run the TA appointment with its pedagogy course (TATTO, RHE398T, Practical Pedagogy analogues): onboarding, weekly logged hours, and the filed end-of-term evaluation. Term-long commitment — this sub's task-days cover setup, the logged-hours ledger, and the evaluation packet; teaching is a hard degree gate in roughly a third of programs.",
+     "field_variants": "Formal degree gate in humanities/social science and some STEM (Stanford: half the 100% CA/TF quota expected in the first two years); funding duty only in most engineering; explicitly NOT required at Oregon psych and UCLA epi."
+    },
+    {
+     "id": "5c",
+     "title": "First-year project publishable-format draft",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Write the complete publishable-format FYP paper (Oregon standard) from the analysis finished in 4f; one full advisor revision pass included."
+    },
+    {
+     "id": "5d",
+     "title": "FYP colloquium talk and committee-approved report filed",
+     "days": "5",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Deliver the department colloquium talk (20-minute Oregon format, mid-October of Y2) and file the committee-approved written report by the deadline (Nov 15 at Oregon). Non-completion means unsatisfactory standing and possible funding loss."
+    },
+    {
+     "id": "5e",
+     "title": "Qualifying-exam artifact: first defined deliverable",
+     "days": "10",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Produce the first concrete piece of the Y2-Y3 exam artifact: dossier outline plus first 2,000 words (Minnesota-style, advisor firewalled — advisor may not read it), the agreed reading-list draft (humanities), or the methods-review problem set 1. Confirm format, caps, and grading rules in writing.",
+     "field_variants": "Lab sciences write research dossiers/proposals; professional fields review for methods exams; humanities begin the reading program that continues through sections 9-10."
+    },
+    {
+     "id": "5f",
+     "title": "En-route master's mapping and thesis outline",
+     "days": "3",
+     "skip_if": [
+      "masters_entry",
+      "post_quals"
+     ],
+     "description": "Map the en-route MA/MS requirements (credits, thesis vs non-thesis, defense timing — OSU expects the thesis defended by end of Year 2; Rutgers requires the MS by the 5th semester on pain of termination) and get the thesis outline approved. Caution: at Rutgers-style clinical programs the en-route MS may be required even for external-masters entrants — verify before applying the masters_entry skip."
+    },
+    {
+     "id": "5g",
+     "title": "Residency execution check",
+     "days": "2",
+     "description": "Confirm the consecutive full-time semesters planned in 3i are actually underway this year (registration level, campus presence) so the residency requirement completes BEFORE the comprehensive exam where required (Penn State)."
+    },
+    {
+     "id": "5h",
+     "title": "Clinical: Year-2 supervised-therapy practicum term",
+     "days": "10",
+     "description": "Clinical psychology: start the Year-2 supervised therapy practicum (Rutgers: GSAPP clinic with 1:1 supervision), take the assigned caseload, and keep the weekly hours log against the 16 hr/week cap. Term-long placement; task-days cover onboarding, supervision setup, and the hours ledger.",
+     "field_variants": "Clinical psychology only."
+    },
+    {
+     "id": "5i",
+     "title": "Early-candidacy prerequisites audit",
+     "days": "2",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Programs that file candidacy by END OF YEAR 2 (Stanford hard deadline; Michigan usually before Y3): verify the prerequisites now — Stanford needs permanent advisor alignment, three foundation/breadth courses at B+ or better, and a 3+ unit course with each of four Academic Council instructors. Fix gaps in the spring registration."
+    }
+   ]
+  },
+  {
+   "num": 6,
+   "title": "Written Qualifying / Preliminary Examination (Mid-Exam Fields)",
+   "months": "16-18",
+   "phase": "Year 2 — Qualifying",
+   "objective": "Complete written-exam preparation and sit the written screen — the median first hard gate; advance the master's thesis and language work in parallel.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "6a",
+     "title": "Written-exam prep completion",
+     "days": "21",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Finish the exam artifact or review program started in 5e: complete the 5,000-7,000-word dossier (Minnesota, due week 6 of fall Y2), the full methods review with two timed mocks (UNC 4-hour open-textbook exam, 70% pass line), or the take-home-format practice cycle."
+    },
+    {
+     "id": "6b",
+     "title": "Sit the written qualifying/preliminary exam",
+     "days": "5",
+     "gate": true,
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Take the written exam in its local format: closed-book subject exam, open-book methods exam, multi-day take-home, dossier submission, or paper critique (Penn State). Two-attempt cap is near-universal; record the retake window and any conditional-pass revision deadlines immediately.",
+     "field_variants": "Format is the sharpest field divide: subject problems (engineering/econ), research documents with advisor firewalls (lab sciences), reading-list/portfolio exams (humanities — usually Y3-Y4, sections 9-10), methods+substantive two-part (epi/education)."
+    },
+    {
+     "id": "6c",
+     "title": "Master's thesis: methods and results chapters",
+     "days": "14",
+     "skip_if": [
+      "masters_entry",
+      "post_quals"
+     ],
+     "description": "Write the methods and results chapters of the en-route master's thesis (journal-article format at Rutgers: target-journal style); advisor review pass on both."
+    },
+    {
+     "id": "6d",
+     "title": "Language study block 1",
+     "days": "10",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Humanities: complete the semester's language course or a structured 10-passage timed-translation practice set at exam standard (2-hour, two 200-word passages, no dictionary where the local exam bans one).",
+     "field_variants": "Humanities only."
+    },
+    {
+     "id": "6e",
+     "title": "Language exam #1 sitting",
+     "days": "2",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Sit the first translation exam on its fixed offering date (often November or April only) or complete the qualifying coursework with the required grade (B+ common)."
+    },
+    {
+     "id": "6f",
+     "title": "Breadth/minor audit against candidacy prerequisites",
+     "days": "3",
+     "description": "Mid-degree audit of breadth, minor, and cognate credits against candidacy prerequisites; fix gaps in the next registration cycle. Retained for ALL entrants — breadth is non-waivable at Stanford and audits transfer only partially elsewhere."
+    },
+    {
+     "id": "6g",
+     "title": "Dissertation-direction memo",
+     "days": "5",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Write the memo defining the candidate dissertation question and the 2-3 aims it implies, extending the FYP/rotation work; agree it with the advisor as the target for the proposal."
+    },
+    {
+     "id": "6h",
+     "title": "Annual review packet #2",
+     "days": "3",
+     "description": "Update CV, progress report (some programs prescribe year-specific lengths — Purdue Y2 wants a JACS-communication-style 3+ pages), and IDP; confirm a satisfactory rating to protect the funding guarantee."
+    }
+   ]
+  },
+  {
+   "num": 7,
+   "title": "Oral Prelim, Early Candidacy Filing, and Year-2 Close-out",
+   "months": "19-21",
+   "phase": "Year 2 — Qualifying",
+   "objective": "Complete the oral half of the qualifying sequence, file candidacy where it precedes quals, deliver the master's draft, and close Year-2 coursework.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "7a",
+     "title": "Oral-exam preparation: talk plus two mock orals",
+     "days": "7",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Build the 25-minute oral-prelim talk (Minnesota format) and run two full mock orals with lab mates/committee-adjacent faculty; prepare answers to the written-exam weak spots."
+    },
+    {
+     "id": "7b",
+     "title": "Oral qualifying/preliminary exam",
+     "days": "2",
+     "gate": true,
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Sit the oral inside the required window after the written (Minnesota: scheduled before the third Friday of spring, passed by end of Y2; Buffalo: within ~1 month of the written). Two-strike rules can mean permanent removal (Minnesota OPE). Record vote rule and outcome in writing."
+    },
+    {
+     "id": "7c",
+     "title": "Master's thesis full draft to committee",
+     "days": "10",
+     "skip_if": [
+      "masters_entry",
+      "post_quals"
+     ],
+     "description": "Assemble the complete master's thesis (25-35 pp journal format where required) and deliver it to the 3-member committee at least two weeks before the defense date set for next quarter."
+    },
+    {
+     "id": "7d",
+     "title": "Second-year paper: analysis complete",
+     "days": "14",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Econ/psych/poli sci: complete the analysis for the second-year/field paper — final results, tables, and robustness checks — so the summer is pure writing (draft due May 15 at TAMU; Vanderbilt paper presented in August).",
+     "field_variants": "A formal graded gate in econ (dismissal stakes at UVA), psychology, and political science; absent in engineering and most humanities."
+    },
+    {
+     "id": "7e",
+     "title": "Early candidacy filing (candidacy-before-quals programs)",
+     "days": "3",
+     "gate": true,
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Programs where candidacy PRECEDES the qualifying exam: file now. Stanford requires candidacy filed by END OF YEAR 2 (hard deadline; the area qual follows by end of Y3) — filing starts the five-year completion clock and changes the tuition rate. Michigan candidacy lands at the start of Y3. In these programs section 11's candidacy sub is consumed here and sections 9-10 exams follow it."
+    },
+    {
+     "id": "7f",
+     "title": "Year-2 coursework close and credit audit",
+     "days": "3",
+     "skip_if": [
+      "coursework_done"
+     ],
+     "description": "Close Year-2 courses; audit total credits against the degree number and dissertation-credit rules (some programs block dissertation registration until all exams pass — Buffalo EEH 700)."
+    },
+    {
+     "id": "7g",
+     "title": "Supporting Area Project (SAP) / second breadth milestone: proposal filed",
+     "days": "5",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Oregon-style programs: file the SAP proposal with the GEC BEFORE any work begins — a second, separate breadth milestone in addition to the prelim, done with a second mentor outside the primary lab (empirical project, grant proposal, review paper, teaching portfolio, or industry internship). Sequencing: one of SAP/prelims complete by end of spring Y3, the other by Oct 15 of Y4.",
+     "field_variants": "Psychology (Oregon) specific; the loose analogue elsewhere is the outside minor/cognate tracked in 5a/6f."
+    }
+   ]
+  },
+  {
+   "num": 8,
+   "title": "Summer 2: Master's Defense, Retakes, Second-Year Paper, Research Ramp",
+   "months": "22-24",
+   "phase": "Year 2 — Qualifying",
+   "objective": "Bank the en-route master's, clear retakes, complete the second-year paper draft, and produce a concrete summer research deliverable.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "8a",
+     "title": "Defend the en-route master's and file its graduation application",
+     "days": "5",
+     "gate": true,
+     "skip_if": [
+      "masters_entry",
+      "post_quals"
+     ],
+     "description": "Defend the master's thesis (or submit the approved non-thesis paper) and file the master's graduation application by the term deadline (OSU: end of second-year summer; Rutgers hard cap at 5th semester, one 6-month extension then termination recommendation). Ordering note: in psychology/clinical the master's PRECEDES the qualifying/candidacy exam — for those fields the section 6-7 exam subs shift to Year 3 (sections 9-10) and this defense stays here. Rutgers may require the en-route MS even for external-masters entrants; verify before skipping."
+    },
+    {
+     "id": "8b",
+     "title": "Qual retake re-preparation",
+     "days": "14",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "If any Y2 exam component failed: complete a targeted re-study block on exactly the failed sections, with a mock under exam conditions, per the filed remediation plan."
+    },
+    {
+     "id": "8c",
+     "title": "Qual retake sitting",
+     "days": "3",
+     "gate": true,
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Sit the single permitted retake in its window; confirm in writing what a conditional pass requires and by when (1-week and 3-week revision windows appear at Minnesota)."
+    },
+    {
+     "id": "8d",
+     "title": "Second-year/field paper: full draft complete",
+     "days": "21",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Write the complete second-year/field paper (8,000-11,000 words at Vanderbilt; TAMU final due Aug 15) from the analysis closed in 7d, including one full advisor revision pass. An unsatisfactory evaluation triggers probation or dismissal in econ."
+    },
+    {
+     "id": "8e",
+     "title": "Summer research deliverable",
+     "days": "21",
+     "description": "Execute the pre-committed summer research block to a written deliverable: pilot dataset collected with results memo, first dissertation-track experiment series completed, or archive reconnaissance trip with finding-aid log and digitization inventory — not a diary, a named artifact the committee can read."
+    },
+    {
+     "id": "8f",
+     "title": "Conference abstract submitted",
+     "days": "2",
+     "description": "Submit at least one conference abstract/poster from FYP or summer results — several programs require an annual scientific presentation from Year 2 on (Buffalo, Duke)."
+    },
+    {
+     "id": "8g",
+     "title": "Comps/candidacy-exam topic and specific-aims approval",
+     "days": "3",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Where the next exam is proposal-format, get the topic approved now — noting Purdue's rule that the Original Proposal must NOT relate to your own research, and its specific-aims one-pager due with the Year-2 annual report."
+    },
+    {
+     "id": "8h",
+     "title": "Annual report and IDP filing",
+     "days": "2",
+     "description": "File the annual report package; verify continuation of the funding guarantee and note milestone-linked funding conditions (Purdue's five-year guarantee is contingent on satisfactory annual reports)."
+    }
+   ]
+  },
+  {
+   "num": 9,
+   "title": "Year 3 Launch: Final Coursework, Comps Setup, SAP, and Language Clearance",
+   "months": "25-27",
+   "phase": "Year 3 — Candidacy",
+   "objective": "Finish coursework, form the comps committee, execute the reading/artifact program, and clear every prerequisite (languages, teaching, SAP, substantive exam) that gates the candidacy exam.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "9a",
+     "title": "Final coursework semester",
+     "days": "3",
+     "skip_if": [
+      "coursework_done"
+     ],
+     "description": "Enroll in the last required courses (humanities coursework legitimately trails into Y3-Y4; engineering programs often continue coursework AFTER quals). Verify GPA and no-incompletes status against exam eligibility."
+    },
+    {
+     "id": "9b",
+     "title": "Form and file the comprehensive/candidacy exam committee",
+     "days": "5",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Assemble the exam committee (4-5 members typical; outside member and grad-school approval frequently required — Arizona wants it by the end of semester 3) and file the appointment form with the mandated lead time (2 weeks to a semester)."
+    },
+    {
+     "id": "9c",
+     "title": "Reading/artifact block 1",
+     "days": "21",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Humanities: read and annotate the first ~20-25 reading-list texts (100+ word annotations where required) — block 1 of the program begun at 5e and continued in 10a. Proposal-format fields: complete the literature base and background section of the exam document. This block plus 10a schedules the multi-month reading the exam actually requires.",
+     "field_variants": "Humanities: reading lists of 60-80 texts (UT Austin) span sections 5-10; lab sciences: proposal/grant-format document drafting; professional fields: substantive-area review."
+    },
+    {
+     "id": "9d",
+     "title": "Second-year paper submission and evaluation response",
+     "days": "2",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "File the second-year/field paper for faculty evaluation by the local deadline and respond in writing to the evaluation (TAMU committee evaluation by add/drop of the 5th semester; failure triggers a probationary semester)."
+    },
+    {
+     "id": "9e",
+     "title": "Substantive/specialty written exam (professional fields)",
+     "days": "5",
+     "gate": true,
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Epi/education: sit the take-home substantive exam in your program area (UNC: 3-business-day open-book, early fall of Y3) — the second half of a two-part QE that must fully pass before the dissertation committee may even be formed.",
+     "field_variants": "Professional/applied fields only; other fields have a single exam sequence."
+    },
+    {
+     "id": "9f",
+     "title": "Teaching term #2 with logged quota",
+     "days": "14",
+     "description": "Run the next required teaching term: appointment onboarding, weekly hours ledger, filed end-of-term evaluation. Track cumulative progress against the degree quota (Stanford 100% total by end of Y4; Florida 2 semesters; Michigan five .50 GSI terms by end of Y4). Term-long appointment; task-days are the active setup/grading-peak/evaluation work."
+    },
+    {
+     "id": "9g",
+     "title": "Clinical: Year-3 specialized practicum",
+     "days": "5",
+     "description": "Clinical psychology: start the Year-3 specialized/tailored practicum, verify the cumulative hours log (16 hr/week cap without DCT permission), and begin the internship-hours tally APPIC will require.",
+     "field_variants": "Clinical psychology only; epi programs schedule the ~80-hour doctoral practicum activities in this window instead."
+    },
+    {
+     "id": "9h",
+     "title": "Final language clearance",
+     "days": "3",
+     "skip_if": [
+      "post_quals"
+     ],
+     "description": "Humanities: sit the remaining language exam(s) — the requirement must be fully satisfied the semester BEFORE the qualifying exam (Berkeley); a failed November sitting leaves exactly one April retry before a spring QE.",
+     "field_variants": "Humanities only; count varies 1-4 by subfield."
+    },
+    {
+     "id": "9i",
+     "title": "Supporting Area Project completion",
+     "days": "14",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Oregon-style programs: execute and complete the SAP deliverable with the second mentor (empirical project, grant proposal, review, teaching portfolio, or internship product) and file the committee sign-off — one of SAP/prelims must be complete by end of spring Y3.",
+     "field_variants": "Psychology (Oregon) specific."
+    }
+   ]
+  },
+  {
+   "num": 10,
+   "title": "Comprehensive / Candidacy Examination",
+   "months": "28-30",
+   "phase": "Year 3 — Candidacy",
+   "objective": "Pass the candidacy-level examination (written artifact + oral) — the second-tier gate in roughly half of programs.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "10a",
+     "title": "Reading block 2 / exam artifact assembly",
+     "days": "21",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Complete the remaining reading-list texts and assemble the final artifact: annotated lists + 1,000-2,000-word rationale + two syllabi (UT Austin), the 10-15 pp original proposal in NIH R21/NSF format (Purdue), the grant-application document (Pitt), or the portfolio with fields essay and professional artifact (Arizona). Respect advisor-firewall rules where they exist."
+    },
+    {
+     "id": "10b",
+     "title": "Written comps submission / sitting",
+     "days": "5",
+     "gate": true,
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Deliver or sit the written component — portfolio, proposal document, field exams (two questions per field over multi-day sittings at Iowa), or written comps — through the required channel (anonymous grading and Turnitin at FSU) with the mandated committee lead time."
+    },
+    {
+     "id": "10c",
+     "title": "Oral comps preparation: mock oral",
+     "days": "5",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Build the oral defense of the written artifact and run one full mock with peers or committee-adjacent faculty; prepare the prospectus-adjacent answers (Berkeley folds a prospectus review into the QE's final 20 minutes)."
+    },
+    {
+     "id": "10d",
+     "title": "Oral comprehensive/candidacy exam",
+     "days": "2",
+     "gate": true,
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Sit the oral (1-3 hours; 20 minutes per examiner at Berkeley). Know the vote rule in advance: unanimity (OSU, Oregon, Utah), one-dissent tolerance (Arizona 4-5-member, Duke), or 2/3 favorable (Penn State, TAMU); two attempts maximum almost everywhere."
+    },
+    {
+     "id": "10e",
+     "title": "Exam scheduling paperwork and registration compliance",
+     "days": "2",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "File the grad-school exam-scheduling form with its lead time (2 weeks standard; OSU GRADFORMS) and confirm registration in the exam term (required even in summer at Penn State)."
+    },
+    {
+     "id": "10f",
+     "title": "Conditional-pass remediation executed",
+     "days": "10",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "If passed with conditions: log the exact deliverables and deadlines (Minnesota's 1-week minor and 3-week major revision windows) and complete the revisions to committee sign-off."
+    },
+    {
+     "id": "10g",
+     "title": "Protected research deliverable through exam season",
+     "days": "3",
+     "description": "Complete one pre-committed small research task during exam season — an experiment batch run, dataset order placed, IRB continuation filed, or archive request submitted — so the pipeline does not stall; a discrete, checkable item, not a standing policy."
+    }
+   ]
+  },
+  {
+   "num": 11,
+   "title": "Advancement to Candidacy and Dissertation Committee",
+   "months": "31-33",
+   "phase": "Year 3 — Candidacy",
+   "objective": "Convert the exam pass into formal candidacy (where not filed earlier at 7e), form the dissertation committee, and produce the proposal draft.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "11a",
+     "title": "File Advancement to Candidacy",
+     "days": "3",
+     "gate": true,
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Submit the candidacy application with all signatures (up to six approval layers at Florida). Skipped if already filed at 7e in candidacy-first programs. CRITICAL: this starts the completion clock — PhD within 5 years of candidacy at Stanford/OSU/Wisconsin/Arizona/FSU, 7 at Indiana/GT, 3-year validity at Berkeley — and often changes tuition status and pay (ASU raise)."
+    },
+    {
+     "id": "11b",
+     "title": "Convert registration to dissertation credits",
+     "days": "2",
+     "skip_if": [
+      "post_candidacy"
+     ],
+     "description": "Switch to dissertation research credits and verify the local accounting quirk: exactly-12 rule (ASU BIO 799), 18-24 credit minimums (Kansas, Minnesota), per-semester minimums in the defense term, and continuous-enrollment rules every fall/spring until done."
+    },
+    {
+     "id": "11c",
+     "title": "Form and file the dissertation committee",
+     "days": "5",
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Constitute the final committee (4-5 members; outside-department member mandated in most programs, outside the university at Wisconsin, biostatistician in epi, theorist+experimentalist mix at Duke). Some schools require the committee to stand at least 6 months before the defense with no member changes inside that window (Oregon); file the form now."
+    },
+    {
+     "id": "11d",
+     "title": "Proposal literature review and aims sections drafted",
+     "days": "14",
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Write the proposal's literature review and specific-aims sections from the 6g memo and the comps artifact; GT-style rules require the 5+ page literature survey written without outside help."
+    },
+    {
+     "id": "11e",
+     "title": "Proposal full draft complete",
+     "days": "14",
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Complete the full proposal at local length (6 pp MIT to 35-page cap GT; mode 10-20 pp; NSF/DOE/NIH agency format acceptable at Utah): problem, prior work, preliminary results, aims, and timeline."
+    },
+    {
+     "id": "11f",
+     "title": "Committee meeting and filed synopsis",
+     "days": "2",
+     "description": "Hold the required committee/progress meeting and file the synopsis — post-candidacy cadence rules begin (annual standard; every 6 months at Emory, where missed meetings cap the research grade at C)."
+    }
+   ]
+  },
+  {
+   "num": 12,
+   "title": "Summer 3: Proposal Finalization, Pilot Evidence, and External Funding",
+   "months": "34-36",
+   "phase": "Year 3 — Candidacy",
+   "objective": "Finish a committee-ready proposal with preliminary results, submit an external funding application, and clear clinical/epi placement prerequisites.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "12a",
+     "title": "Proposal revision cycles with advisor",
+     "days": "10",
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Run 2-3 advisor review passes; lock aims and timeline. Note programs where the proposal must be filed with a graduate committee BEFORE work begins and page caps enforced at submission."
+    },
+    {
+     "id": "12b",
+     "title": "Preliminary-results package to committee standard",
+     "days": "21",
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Assemble the pilot data, feasibility analysis, or archival evidence base the committee expects at the proposal defense, building on the 8e summer deliverable and 10g pipeline items: analyzed pilot results with figures, power/feasibility memo, or annotated source inventory."
+    },
+    {
+     "id": "12c",
+     "title": "External fellowship/grant application",
+     "days": "21",
+     "description": "Prepare and submit one complete external application (NSF GRFP/DDRIG, NIH F31, SSRC, or field equivalent): aims, research strategy, sponsor/environment documents, and coordinated reference letters. Vanderbilt makes an external grant application a graduation requirement; a won fellowship waives grant-writing courses at Pitt.",
+     "field_variants": "Humanities target archival/research-year grants for the Y4-Y5 research year; STEM uses F31/GRFP-style mechanisms; econ rarely requires one."
+    },
+    {
+     "id": "12d",
+     "title": "Circulate proposal and schedule the defense",
+     "days": "2",
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Send the proposal to all members with the mandated lead (2 weeks standard; 4 weeks at UNC), book the room, and file the scheduling form."
+    },
+    {
+     "id": "12e",
+     "title": "Clinical/epi placement prerequisites check",
+     "days": "5",
+     "description": "Clinical psych: tally practicum hours to date and confirm the proposal defense date lands BEFORE the internship-application cutoff (Rutgers Oct 15; Oregon proposal approved by Nov 1 of the application year). Epi: complete/document the ~80-hour doctoral practicum activities.",
+     "field_variants": "Clinical psychology and epidemiology only."
+    }
+   ]
+  },
+  {
+   "num": 13,
+   "title": "Proposal / Prospectus Defense and Main-Study Launch",
+   "months": "37-39",
+   "phase": "Year 4 — Research",
+   "objective": "Defend the dissertation proposal, secure compliance approvals, launch Aim 1, and (clinical) file internship applications.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "13a",
+     "title": "Defend the dissertation proposal/prospectus",
+     "days": "3",
+     "gate": true,
+     "skip_if": [
+      "post_proposal"
+     ],
+     "description": "Hold the proposal defense (1-2 hours; unanimous approval required at Pitt; Wisconsin's oral prelim is deliberately an informal conversation). File the approval form with department and graduate school the same week — UVA-style calendars attach dismissal deadlines to this milestone."
+    },
+    {
+     "id": "13b",
+     "title": "Log spacing rules and back-plan the defense term",
+     "days": "2",
+     "description": "Record every mandatory minimum between this point and the final defense: Utah 8 months proposal-to-defense; Pitt candidacy at least 8 months pre-defense; Nebraska comps+candidacy 7 months pre-defense; GT 6 months and never the same term; FSU 4 months; Florida 2 semesters; Oregon's 6-month rule runs from dissertation-COMMITTEE DECLARATION to the final defense. Back-plan the defense term from these now."
+    },
+    {
+     "id": "13c",
+     "title": "IRB/IACUC final approval and compliance forms",
+     "days": "10",
+     "description": "Submit or update the IRB/IACUC protocol immediately after proposal approval (FSU requires the Human Subjects Verification form within 60 days of the prospectus defense); file data-use agreements for restricted data. No data collection before approval.",
+     "field_variants": "Human-subjects/animal fields only."
+    },
+    {
+     "id": "13d",
+     "title": "Aim 1 launch: protocol finalized and first data batch",
+     "days": "14",
+     "description": "Finalize the Aim 1 protocol/analysis pipeline (or the archive itinerary for the humanities research year) and complete the first data batch/archive visit; set the written benchmark schedule the sprints in sections 14-16 will be checked against."
+    },
+    {
+     "id": "13e",
+     "title": "Teaching quota completion term",
+     "days": "14",
+     "description": "Run the final required TA/instructor term with logged hours and file the quota-completion verification — several programs require the full quota by end of Year 4 (Stanford, Michigan) and tie TA/RA funding eligibility to milestone currency (NC State). Term-long appointment; task-days are the active wrapper."
+    },
+    {
+     "id": "13f",
+     "title": "Clinical: APPIC internship applications",
+     "days": "21",
+     "description": "Clinical psych: complete the APPIC application — essays, verified hours tallies, site list research, and letters — now that the proposal is defended; ranking deadlines are immovable. Match results and the internship year itself sit in section 21.",
+     "field_variants": "Clinical psychology only; adds the Year 5/6 internship held in section 21."
+    }
+   ]
+  },
+  {
+   "num": 14,
+   "title": "Research Block 1: Aim 1 to Completion",
+   "months": "40-42",
+   "phase": "Year 4 — Research",
+   "objective": "Drive Aim 1 data collection to closure and open the first chapter/manuscript. For 6-8 year programs this block (14-16) is cloned per extra year.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "14a",
+     "title": "Aim 1 collection sprint to benchmark",
+     "days": "21",
+     "description": "Execute Aim 1 to the pre-set benchmark from 13d — e.g., 50% of target N enrolled, experiment series 1-3 complete with QC'd data, or archive campaign 1 finished with photo log and box inventory. Checked against the written benchmark, not a diary."
+    },
+    {
+     "id": "14b",
+     "title": "Aim 1 collection closed",
+     "days": "14",
+     "description": "Complete the remaining Aim 1 collection to the pre-registered target, run quality control, and send the advisor a written completion memo with the evidence attached."
+    },
+    {
+     "id": "14c",
+     "title": "Committee progress meeting and filed synopsis",
+     "days": "2",
+     "description": "Hold the required committee/data meeting and file the report — missed meetings can cap the research grade and trigger probation (Emory)."
+    },
+    {
+     "id": "14d",
+     "title": "Chapter/manuscript 1: outline and methods section",
+     "days": "10",
+     "description": "Produce the full outline and complete methods section of the first dissertation manuscript or chapter while Aim 1 analysis is fresh."
+    },
+    {
+     "id": "14e",
+     "title": "Candidacy-clock and enrollment audit",
+     "days": "2",
+     "description": "Check months elapsed on the candidacy clock and continuous-registration compliance; calendar re-examination triggers (comps expire after 5-6 years at Penn State/Wisconsin/OSU; Berkeley candidacy lapses at 3)."
+    },
+    {
+     "id": "14f",
+     "title": "Conference/symposium talk on Aim 1",
+     "days": "5",
+     "description": "Present Aim 1 results at a conference or the required departmental symposium (third-year talk requirements exist at Minnesota chemistry and in neuroscience)."
+    }
+   ]
+  },
+  {
+   "num": 15,
+   "title": "Research Block 2: Aim 1 Written, Aim 2 Launched",
+   "months": "43-45",
+   "phase": "Year 4 — Research",
+   "objective": "Finish Aim 1 analysis and its manuscript, launch Aim 2, and secure Year-5 funding.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "15a",
+     "title": "Aim 1 analysis complete with final figures",
+     "days": "14",
+     "description": "Run the full pre-specified Aim 1 analysis and finalize publication-quality figures and tables; deviations from the proposal documented in a memo to the advisor."
+    },
+    {
+     "id": "15b",
+     "title": "Manuscript/chapter 1 full draft",
+     "days": "21",
+     "description": "Write the complete first manuscript or chapter from the 14d skeleton and the 15a results, through one full advisor revision pass.",
+     "field_variants": "3-paper/manuscript dissertations dominate STEM, epi, and econ (Buffalo requires a 3-manuscript minimum); humanities write monograph chapters."
+    },
+    {
+     "id": "15c",
+     "title": "Submit manuscript 1 to a journal",
+     "days": "3",
+     "description": "Submit the first paper to a peer-reviewed journal — this satisfies UNC's at-least-one-manuscript-under-external-review-before-defense rule and feeds Purdue's at-least-one-published-paper dissertation requirement.",
+     "field_variants": "A formal requirement only in STEM/biomed; career-critical but optional elsewhere; humanities may spin an article from a chapter."
+    },
+    {
+     "id": "15d",
+     "title": "Aim 2 launch: protocol and first data batch",
+     "days": "14",
+     "description": "Finalize the Aim 2 protocol/pipeline (or archive campaign 2 itinerary) and complete its first data batch; set the benchmark for 16a."
+    },
+    {
+     "id": "15e",
+     "title": "Annual/candidacy review filed",
+     "days": "2",
+     "description": "File the in-candidacy annual review (Berkeley DCR analogue) — failure to file counts as insufficient progress and jeopardizes funding and ASE eligibility."
+    },
+    {
+     "id": "15f",
+     "title": "Scope-check against the clock",
+     "days": "2",
+     "description": "Formally re-scope remaining aims with the advisor against the target defense term and the candidacy clock; cut or redesign anything that does not fit, in writing."
+    },
+    {
+     "id": "15g",
+     "title": "Completion-fellowship applications",
+     "days": "10",
+     "description": "Apply for dissertation-write-up/completion fellowships for Year 5 — guaranteed funding commonly ends after Year 4-5 (Oregon years 5-6 contingent; TAMU funding not normally extended past Y5)."
+    }
+   ]
+  },
+  {
+   "num": 16,
+   "title": "Summer 4: Data Close-out, Remaining Analyses, and Year-5 Plan",
+   "months": "46-48",
+   "phase": "Year 4 — Research",
+   "objective": "Close primary data/archive collection, complete remaining-aim analysis, and lock the completion and job-market plan.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "16a",
+     "title": "Aim 2 collection sprint to closure",
+     "days": "21",
+     "description": "Execute Aim 2 to its pre-set benchmark and close collection against the target, with QC memo — the counterpart of 14a/14b for the second aim."
+    },
+    {
+     "id": "16b",
+     "title": "Primary data/archive freeze with written inventory",
+     "days": "10",
+     "description": "Declare the dissertation-wide data freeze (or final archive-visit end) in a written inventory of every dataset/source and its status; anything after this date goes to future work, not the thesis."
+    },
+    {
+     "id": "16c",
+     "title": "Remaining-aim analysis complete",
+     "days": "21",
+     "description": "Complete the full analysis, figures, and tables for ONE remaining aim/chapter (Aim 2 or 3). Programs with more aims or 6-7 year timelines clone this sub in the extension blocks (section 21 / field note on stretching)."
+    },
+    {
+     "id": "16d",
+     "title": "Defense back-plan finalized",
+     "days": "2",
+     "description": "Pick the target defense term and back-plan every dated dependency from 13b: deposit deadline, defense-scheduling lead (2 weeks-5 weeks), committee circulation window (2 weeks-60 days at Cornell; 2 months for research chapters at UNC), interim-meeting requirement, and graduation-application window."
+    },
+    {
+     "id": "16e",
+     "title": "Job-market paper / flagship writing sample: full draft",
+     "days": "21",
+     "description": "Econ: complete the full job-market paper draft (typically grown from manuscript 1 or 2) — TAMU rosters candidates only with a committee-approved JMP and satisfactory workshop presentation. Other fields: complete the flagship writing sample/article draft.",
+     "field_variants": "Econ has formal program-run job-market machinery in fall of Y5; humanities/lab sciences run application cycles without a departmental market."
+    },
+    {
+     "id": "16f",
+     "title": "CV and research/teaching statements drafted",
+     "days": "5",
+     "description": "Draft the academic CV, research statement, and teaching statement; identify and confirm 3-4 recommenders in writing."
+    }
+   ]
+  },
+  {
+   "num": 17,
+   "title": "Year 5 Fall: Writing, Job Market Wave 1, Pre-Defense Requirements",
+   "months": "49-51",
+   "phase": "Year 5 — Completion",
+   "objective": "Write chapter 2 and the introduction, submit job applications, hold the interim committee meeting, and clear administrative pre-defense checkboxes.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "17a",
+     "title": "Chapter/manuscript 2 full draft",
+     "days": "21",
+     "description": "Write the complete second manuscript/chapter from the 16c analysis, through one advisor revision pass; confirm running total against any manuscript-count minimum (three at Buffalo)."
+    },
+    {
+     "id": "17b",
+     "title": "Job-market applications: wave 1 submitted",
+     "days": "14",
+     "description": "Finalize and submit the first application wave (portals, tailored letters), confirm all reference letters uploaded, and register for the field's market platform where one exists. Interviews and flyouts follow in 18g."
+    },
+    {
+     "id": "17c",
+     "title": "Interim committee meeting",
+     "days": "2",
+     "description": "Hold the formal interim/pre-defense committee meeting 4-6 months before the defense — at UNC a defense may not be scheduled without it; file the close-out schedule it produces."
+    },
+    {
+     "id": "17d",
+     "title": "Introduction chapter draft",
+     "days": "14",
+     "description": "Draft the introduction chapter that frames the manuscripts/chapters as one dissertation (the conclusion is drafted in assembly, 18b)."
+    },
+    {
+     "id": "17e",
+     "title": "Apply to graduate for the target term",
+     "days": "2",
+     "description": "File the graduation/degree application inside its window (OSU third Friday of the term; FSU first two weeks; Nebraska MyRED) and confirm receipt — missing it defers conferral a full term."
+    },
+    {
+     "id": "17f",
+     "title": "Full requirements audit with the graduate coordinator",
+     "days": "3",
+     "description": "Line-item verify: teaching quota, residency completion, credit totals and dissertation-credit accounting, RCR, language clearance, committee validity (no member changes within 6 months of defense at Oregon), and candidacy-clock standing. Fix any deficiency this term, not in the defense term."
+    }
+   ]
+  },
+  {
+   "num": 18,
+   "title": "Full Draft Assembly, Format Check, Defense Scheduling",
+   "months": "52-54",
+   "phase": "Year 5 — Completion",
+   "objective": "Complete the final chapter, assemble and format the full dissertation, pass advisor review, and formally schedule the defense.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "18a",
+     "title": "Final results chapter/manuscript full draft",
+     "days": "21",
+     "description": "Write the last results chapter/manuscript from the frozen data and completed analyses; this closes the content set of the dissertation."
+    },
+    {
+     "id": "18b",
+     "title": "Assemble the complete dissertation",
+     "days": "10",
+     "description": "Merge all chapters, conclusion, front matter, and bibliography into one document on the graduate-school template; file the Content-and-Style form if using journal-format or co-authored chapters (Oregon requires it the term BEFORE the defense)."
+    },
+    {
+     "id": "18c",
+     "title": "Advisor full-draft review and revision pass",
+     "days": "14",
+     "description": "Complete the advisor's full read and execute one revision pass — many programs require advisor approval before the committee ever sees the draft (Penn State)."
+    },
+    {
+     "id": "18d",
+     "title": "Graduate-school format check",
+     "days": "3",
+     "description": "Start the thesis-office format review 6-8 weeks before the defense (Purdue timing) and clear all formatting flags before committee circulation."
+    },
+    {
+     "id": "18e",
+     "title": "Schedule and announce the defense",
+     "days": "3",
+     "description": "File the defense-scheduling application (2-5 weeks lead by school; Oregon starts 5 weeks out), book the room, arrange remote-attendance approvals, and post the public announcement (7-14 day posting rules at Buffalo/Arizona)."
+    },
+    {
+     "id": "18f",
+     "title": "Publication-gate compliance verified",
+     "days": "2",
+     "description": "Verify at least one manuscript is under external peer review (UNC pre-defense rule) or published/preprinted (Purdue) and file the verification form where one exists.",
+     "field_variants": "STEM/biomed only; no humanities program in the source set has a publication gate."
+    },
+    {
+     "id": "18g",
+     "title": "Job-market interviews and campus visits",
+     "days": "10",
+     "description": "Complete first-round interviews and campus flyouts: job talk rehearsed and delivered, teaching demo prepared, itineraries managed — the winter half of the market opened in 17b."
+    }
+   ]
+  },
+  {
+   "num": 19,
+   "title": "Committee Circulation and Defense Preparation",
+   "months": "55-57",
+   "phase": "Year 5 — Completion",
+   "objective": "Get the dissertation into the committee's hands on time, satisfy pre-defense seminar rules, and rehearse.",
+   "gate": false,
+   "subs": [
+    {
+     "id": "19a",
+     "title": "Circulate the final draft to the full committee",
+     "days": "2",
+     "description": "Deliver the complete dissertation to every member by the local rule: 2 weeks standard, 1 month preferred (GT), 60 days at Cornell, 2 months for research chapters at UNC. Late circulation postpones the defense automatically at strict schools."
+    },
+    {
+     "id": "19b",
+     "title": "Build and rehearse the defense talk",
+     "days": "10",
+     "description": "Prepare the public presentation (20-45 minutes standard) and run at least two full mock defenses with lab mates or writing group, including hostile-question drills."
+    },
+    {
+     "id": "19c",
+     "title": "Pre-defense paperwork and registration",
+     "days": "2",
+     "description": "File the final-exam application/report forms with the graduate school (2-week lead standard; TAMU prelim results must already be 14 weeks old), confirm registration in the defense term (2-3 dissertation credits is the common minimum), and collect committee availability confirmations."
+    },
+    {
+     "id": "19d",
+     "title": "Committee check-ins with written responses",
+     "days": "3",
+     "description": "Ask each member for their top concerns before the room and prepare written responses; complete any Rackham-style group pre-defense meeting (Michigan)."
+    },
+    {
+     "id": "19e",
+     "title": "Pre-defense departmental seminar (where required)",
+     "days": "3",
+     "description": "Deliver the required public departmental seminar in the defense window — Florida requires it 1 day to 2 weeks BEFORE the defense so the department can give the committee input.",
+     "field_variants": "Program-specific (UF biology); most programs fold the public talk into the defense itself."
+    },
+    {
+     "id": "19f",
+     "title": "Revisions contingency reserved",
+     "days": "2",
+     "description": "Block 2-4 post-defense weeks for revisions in the calendar and confirm the deposit deadline still holds if the outcome is 'pass with revisions' — the modal outcome in practice."
+    }
+   ]
+  },
+  {
+   "num": 20,
+   "title": "Defense, Deposit, and Degree Conferral",
+   "months": "58-60",
+   "phase": "Year 5 — Completion",
+   "objective": "Pass the final oral defense, deposit the approved dissertation, and close out the degree.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "20a",
+     "title": "Final oral defense",
+     "days": "2",
+     "gate": true,
+     "description": "Defend: public talk (20-45 min) plus closed committee examination (up to 3 hours at Stanford). Vote rules vary (unanimity at OSU to one-dissent tolerance at Arizona/Duke). Berkeley History is the lone no-oral-defense exception — the committee signs the manuscript under Plan B.",
+     "field_variants": "Arizona/Purdue open with a public lecture then close the room; Berkeley History files without an oral defense."
+    },
+    {
+     "id": "20b",
+     "title": "Committee revisions executed and signatures collected",
+     "days": "14",
+     "description": "Execute all required revisions, obtain the chair's written sign-off and remaining signatures (Report of Completion / Form 11 analogues), and hold any required post-defense meeting (Michigan's Rackham Post-Defense Meeting) before the degree deadline."
+    },
+    {
+     "id": "20c",
+     "title": "Electronic deposit of the dissertation",
+     "days": "3",
+     "gate": true,
+     "description": "Pass final format review and deposit electronically (ProQuest and/or institutional repository) by the term deadline — often 5pm cutoffs days before classes end, with a deposit fee ($25-90). Cornell allows only 60 days post-defense; Arizona allows up to a year for revisions. Decide embargo status (5-year holds advised for archival work)."
+    },
+    {
+     "id": "20d",
+     "title": "Graduation close-out and conferral verification",
+     "days": "3",
+     "description": "Confirm the degree application is active, complete exit surveys, pay fees, verify final-term registration minimums, return keys/equipment, and verify the conferral date (many schools confer only 3-4 times per year — April/May, August, December); obtain the completion certificate and update employment/visa records."
+    },
+    {
+     "id": "20e",
+     "title": "Data, code, and lab handoff",
+     "days": "5",
+     "description": "Archive data/code per funder and IRB retention rules, hand off lab notebooks and protocols, and transfer ongoing mentorship or collaborations in writing."
+    }
+   ]
+  },
+  {
+   "num": 21,
+   "title": "Conditional Extension Year(s): Clinical Internship and Long-Normative Fields",
+   "months": "61-72",
+   "phase": "Year 6+ — Conditional Extension",
+   "objective": "Container for programs that structurally exceed 60 months: the mandatory one-year clinical internship (Rutgers Y5/6, OSU Clinical Y6) and the extra research/writing years of 6-8-year-normative programs (Berkeley History 6-7 yrs, Indiana Sociology 7-8, Oregon 6). Generators activate this section only for those fields and shift sections 17-20 into the true final year.",
+   "gate": true,
+   "subs": [
+    {
+     "id": "21a",
+     "title": "Clinical: internship match, rankings, and relocation",
+     "days": "5",
+     "description": "Submit APPIC rankings (site rankings due after proposal-defense compliance is verified — Rutgers waiver students must defend before rankings are due), process the match result, and complete site onboarding/relocation logistics.",
+     "field_variants": "Clinical psychology only."
+    },
+    {
+     "id": "21b",
+     "title": "Clinical: complete the one-year full-time internship",
+     "days": "21",
+     "gate": true,
+     "description": "Complete the required 12-month full-time approved clinical internship (Rutgers; OSU Clinical Year 6). This sub is the tracking wrapper for a year-long appointment: task-days cover start-of-internship paperwork, each quarterly evaluation filing, and the final completion-certification packet the program requires for the degree.",
+     "field_variants": "Clinical psychology only; the internship is a hard degree gate."
+    },
+    {
+     "id": "21c",
+     "title": "Registration and funding status during the extension year",
+     "days": "2",
+     "description": "Verify enrollment status while off campus or past guaranteed funding: continuous-registration or matriculation-continued rules (Rutgers), 24-credit research-credit floor before leaving for internship, dissertator-status tuition rates (Wisconsin), and department funding limits (Oregon: none beyond Y6)."
+    },
+    {
+     "id": "21d",
+     "title": "Extended research blocks (6-8 year fields)",
+     "days": "3",
+     "description": "Planning sub that instantiates the stretch: clone sections 14-16 (Aim sprints, analysis, chapter drafts, annual reviews, clock audits) once per additional year — Berkeley 7-year fields run a Year-5 research year then two writing years; Indiana candidates research Years 5-7. Each cloned block keeps its committee-meeting and candidacy-clock subs."
+    },
+    {
+     "id": "21e",
+     "title": "Final-year shift for extended programs",
+     "days": "2",
+     "description": "Re-anchor sections 17-20 (writing, circulation, defense, deposit) into the actual final year, re-checking candidacy-expiry and re-examination triggers (Penn State second comps after 6 years; Wisconsin new prelim after 5; OSU candidacy deactivation at 5) before scheduling the defense."
+    }
+   ]
+  }
+ ],
+ "skip_profiles": {
+  "masters_entry": "Removes the en-route master's chain (5f, 6c, 7c, 8a) — with the documented caveat that Rutgers-style clinical programs publish no external-masters waiver for the required en-route MS, so verify locally before skipping 8a — and routes prior coursework through the 1d transfer/waiver petition (caps 9-45 credits; breadth, exams, teaching, and language are never waived: Stanford breadth 'cannot be waived', Cornell credit-only). It also compresses deadlines roughly one year: quals due 1-2 semesters sooner (MIT semester 3 vs 5; Buffalo internal-MS entrants prelim at end of Y1), candidacy and completion clocks shortened (Florida candidacy 2 vs 3 yrs, degree 5 vs 6; Toronto candidacy Y3 vs Y4, cap 6 vs 7 yrs), so the generator shifts sections 4-11 earlier accordingly.",
+  "mid_phd_coursework_done": "Removes ONLY course-enrollment/registration subs (1c, 2a, 3a, 5a, 7f, 9a). It deliberately RETAINS the breadth/minor audits (6f), requirement audits (17f), and every exam, language, teaching, committee, proposal, dissertation, defense, and deposit node: no program in the source set credits milestones from prior doctoral study (Nebraska accepts no credit from a prior doctorate; transfer caps are 21-45 credits, never the full load), and non-waivable requirements (Stanford breadth, Cornell exams/teaching/language) must be re-verified against the new program. A mid-PhD transfer re-enters at the first unpassed gate, not at their prior stage.",
+  "post_candidacy": "Token semantics: skip tokens are INDEPENDENT flags, not a cascade — apply every token that is actually true for the entrant. A standard post-candidacy entrant activates post_quals AND post_candidacy (and coursework_done only if coursework is genuinely finished — engineering programs continue coursework after quals); in candidacy-first programs (Stanford files candidacy by end of Y2 BEFORE the Y3 qual) activate only the tokens actually satisfied. Applying post_quals+post_candidacy removes rotations/FYP (1e, 2b-2e, 2g, 2i, 4a-4f, 5c-5e), advisor and committee formation (1f, 3b, 5d via chain, 9b), plan-of-study and residency planning (3d, 3i), the en-route master's and second-year-paper chains (5f-8a, 7d, 8d, 9d), languages (3f, 6d-6e, 9h), SAP (7g, 9i), all exam and candidacy subs (sections 6-11 gates), and 11a-11b. The remaining plan is the proposal chain (11c-13a) unless post_proposal also applies, plus the recurring layer (annual reviews, committee meetings, teaching-quota subs where still owed) and research/writing/defense/deposit sections 13-21 — with ADDED clock management: candidacy expiry (3 yrs Berkeley; 5 Stanford/OSU/Wisconsin/Arizona/FSU; 7 Indiana/GT), minimum candidacy dwell before conferral (FSU 6 months; UT Austin two long semesters), and re-examination triggers for stale comps (Penn State >6 yrs; Wisconsin >5).",
+  "post_proposal": "Activates everything post_candidacy activates and additionally removes the proposal chain: 11c, 11d, 11e, 12a, 12b, 12d, and 13a. The entry point is 13b-13d — log the proposal-to-defense spacing floors as the binding constraint (Utah 8 months; Pitt candidacy 8 months pre-defense; GT 6 months and never the same term; Nebraska 7 months from comps; FSU 4 months; Florida 2 semesters), refresh IRB/compliance (13c), and launch/resume Aim execution (13d onward). Committee-standing rules still apply (no member changes within 6 months of the defense at Oregon), and the interim-meeting (17c) and circulation-window (19a) requirements are unchanged."
+ },
+ "field_notes": [
+  "Skip tokens are independent boolean flags, NOT a cascade: post_quals does NOT imply coursework_done — MIT, Penn State, Utah, Stanford, and Berkeley History all continue coursework after their early exams (MIT finalizes the program of study AFTER quals), so a post-quals engineering entrant keeps every coursework sub. Generators apply each token that is individually true.",
+  "Section gate flags mean 'contains at least one gate:true sub' BEFORE skips are applied; profiles can empty a section's gates (masters_entry can empty 8a; post_quals empties sections 4 and 6-7), so generators must recompute section-level gates after applying skip tokens.",
+  "Candidacy ordering varies and can precede the qualifying exam: Stanford files candidacy by END OF YEAR 2 (hard deadline) with the area qual following by end of Year 3, and Michigan reaches candidacy at the start of Year 3 — sub 7e (with prerequisite audit 5i) handles early filing, 11a is skipped as consumed, and sections 4, 6-7, and 9-11 must all be re-anchored per field.",
+  "En-route master's ordering: psychology/clinical defend the master's BEFORE the qualifying/candidacy exam (OSU: thesis by end-of-Y2 summer, candidacy exam Y3; Rutgers: MS by 5th semester, QE by 7th and the QE manuscript may not be solely thesis work) — in those fields the section 6-7 exam subs shift to Year 3 (sections 9-10) while the master's chain (5f, 6c, 7c, 8a) stays at Year 2.",
+  "Programs longer than 60 months use section 21 plus block cloning: for 6-8-year-normative programs (Berkeley History 6-7 yrs with a dedicated research year; Indiana Sociology 7-8; Oregon 6), clone sections 14-16 as additional 3-month research/writing blocks per extra year and shift sections 17-20 into the true final year (21d/21e are the directives); the clinical internship year lives in 21a-21c.",
+  "Clinical psychology runs a parallel placement track that must be instantiated from Year 1: practicum subs 1h (Y1 orientation/intake), 5h (Y2 supervised therapy), 9g (Y3 specialized) with the 16 hr/week cap, the proposal-before-internship-application rule (Rutgers Oct 15; Oregon Nov 1), APPIC applications at 13f, and the gated one-year full-time internship at 21a-21b (Rutgers Y5/6; OSU Clinical Y6).",
+  "Advisor timing inverts by field: lab sciences bind the advisor through Y1 rotations (1e/2b/3b; Pitt by end of August Y1; Purdue's formal match by Nov 1); psychology and most humanities assign at admission; MIT and Columbia EE choose the advisor AFTER quals — for those programs the generator MOVES 3b after the exam sections instead of skipping it.",
+  "Qual timing spans 3.5 years and format is field-determined, not name-determined: Y1 screens (Columbia January DQE, unpostponable; NC State course finals), Y1-summer subject exams with dismissal power (econ), Y2-Y3 research-document prelims with advisor firewalls or mandated-unrelated proposals (Minnesota vs Purdue), Y3-Y4 reading-list orals and portfolios (humanities, Arizona), coursework-GPA qualifiers with no exam at all (Georgia Tech), and grant-application or paper-critique formats (Pitt, Emory, Penn State) — sections 2, 4, 6-7, and 9-11 are re-anchored per field.",
+  "The foreign-language chain (3f, 6d, 6e, 9h) is humanities-only, shares one skip token (post_quals), and must be FULLY complete the semester before the qualifying exam (Berkeley); count runs 1-4 by subfield (US-history fields often need one; Ancient Greece & Rome needs four), and UF Biology and TAMU Economics explicitly disclaim any language requirement.",
+  "IRB/IACUC is a real milestone chain only in human-subjects/animal fields (2i for the first-year project, 13c within 60 days of the proposal at FSU, approval before ANY data collection at Oregon/Rutgers/UNC); engineering, physics, and chemistry handbooks contain RCR/ethics deadlines only — drop the IRB subs there.",
+  "The early independent research paper is a formal graded gate in econ, psychology, and political science (chain 2g, 4e-4f, 5c-5d, 7d, 8d, 9d: FYP, 619 Project, second-year/field papers with dismissal stakes at UVA) and is absent in engineering and coursework-heavy humanities; Oregon additionally requires the separate SAP breadth milestone (7g, 9i) with a second mentor, filed with the GEC before work begins.",
+  "Teaching subs (2f, 3e, 5b, 9f, 13e) are term-spread wrappers: each represents a semester-long appointment whose listed days are the active setup/logging/evaluation task-days, with the filed end-of-term evaluation as the checkable deliverable. Teaching is a hard degree gate in roughly a third of programs (Stanford 100% CA/TF by end Y4; Michigan five .50 GSI terms plus the Y1 Teaching Academy; Cornell 1+ year; Florida 2 semesters; Emory TATTO before candidacy), a funding mechanism elsewhere, and explicitly NOT required at Oregon psych and UCLA epi.",
+  "Publication gates attach only to STEM/biomed: at least one manuscript under external review before the defense (UNC), at least one peer-reviewed paper/preprint in the dissertation (Purdue), a 3-manuscript minimum (Buffalo), and a journal submission inside the qualifying exam itself (Rutgers QE portfolio); no humanities program in the set requires publication, and Berkeley History uniquely has no oral defense (Plan B filing).",
+  "Attempt caps and off-ramps: two attempts on the major exam is near-universal (UIUC's three is the sole generous outlier); final failure means dismissal in econ and lab sciences (UVA leave at end of Y1; Minnesota permanent removal; Oregon automatic termination cause) but converts to a terminal MS in much of engineering (CU Boulder automatic conversion; Utah MS-Thesis fallback with possible third attempt) — surface the local off-ramp at every gate sub.",
+  "Clocks, spacing, and calendars: candidacy starts an expiry clock (3 yrs Berkeley to 7 yrs Indiana/GT); mandatory proposal-to-defense spacing runs 4-8 months at public universities (Utah 8, GT 6-and-never-same-term, FSU 4, Florida 2 semesters, Nebraska 7 months from comps) — and Oregon's 6-month rule runs from dissertation-COMMITTEE DECLARATION to the final defense, not from the proposal; gate exams are fixed cohort events offered only 1-2 times per year (Columbia January-only; Utah 12th week; econ two-sittings-one-summer; language exams November/April), so generators must snap gate subs to actual offering dates rather than quarter boundaries."
+ ],
+ "sources": [
+  "https://bulletin.stanford.edu/programs/CS-PHD",
+  "https://naturalsciences.uoregon.edu/sites/default/files/2024-11/psychology-doctoral-student-handbook-fall-2024.pdf",
+  "https://psychology.osu.edu/graduate/resources/psychology-graduate-program-handbook",
+  "https://lsa.umich.edu/content/dam/psychassets/psychdocuments/graduatedocuments/2017-18%20Policies%20and%20Procedures%20Manual.pdf",
+  "https://psych.rutgers.edu/images/2023_Clinical_Psychology_Handbook.pdf",
+  "https://meche.mit.edu/sites/default/files/MechE_Grad_Guide.pdf",
+  "https://guide.wisc.edu/graduate/sociology/sociology-phd/",
+  "https://www.me.psu.edu/assets/docs/grad-student-handbook/ME-Grad-Handbook.pdf",
+  "https://www.mech.utah.edu/grad-handbook/program-requirements/phd-program-requirements/",
+  "https://sociology.indiana.edu/forms/guide_to_graduate_study-2025.pdf",
+  "https://history.berkeley.edu/sites/default/files/department_of_history_graduate_program_guide_2025-26.pdf",
+  "https://www.chem.purdue.edu/academic_programs/graduate/gradhandbook/2024-chemistry-graduate-student-handbook.pdf",
+  "https://sites.google.com/umn.edu/chemhandbook/",
+  "https://catalog.registrar.uiowa.edu/liberal-arts-sciences/history/history-phd/",
+  "https://history.arizona.edu/sites/default/files/2025-09/History-Department-Graduate-Handbook-2025-26.pdf",
+  "https://catalog.utexas.edu/graduate/areas-of-study/liberal-arts/english/degree-requirements/",
+  "https://english.cornell.edu/procedural-guide-doctoral-students-department-literatures-english-",
+  "https://biology.ufl.edu/wp-content/uploads/sites/25/handbook-final-2022.pdf",
+  "https://catalog.ku.edu/liberal-arts-sciences/english/phd/",
+  "https://sites.google.com/asu.edu/solsgradsuccess/doctoral-programs/biology-phd",
+  "https://ece.gatech.edu/academics/graduate/graduate-student-handbook/phd-degree",
+  "https://www.colorado.edu/ecee/academics/graduate-programs/doctor-philosophy/degree-requirements",
+  "https://www.ee.columbia.edu/requirements-doctoral-degree",
+  "https://annescollege.fsu.edu/sites/g/files/upcbnu4516/files/2025-08/HPE%20PhD%20Handbook%202025-26_FNL.pdf",
+  "https://graduate.unl.edu/academics/program-steps/doctoral-degree-steps-to-completion/",
+  "https://economics.virginia.edu/phd-structure",
+  "https://artsci.tamu.edu/economics/_files/_documents/_phd-forms/phd-handbook-2022-updated.pdf",
+  "https://as.nyu.edu/content/dam/nyu-as/econ/documents/2020%20Revised%20NYU%20Graduate%20Economics%20Handbook.pdf",
+  "https://catalog.illinois.edu/graduate/las/economics-phd/",
+  "https://reg.msu.edu/academicprograms/ProgramDetail.aspx?Program=ECONOM_PHD",
+  "https://physics.duke.edu/graduate/phd-requirements",
+  "https://sph.unc.edu/wp-content/uploads/sites/112/2025/08/2025-2026-Schoolwide-Doctoral-Handbook-for-posting-8-15.pdf",
+  "https://physics.sciences.ncsu.edu/graduate/ph-d-overview-and-milestones/",
+  "https://publichealth.buffalo.edu/content/sphhp/epidemiology-and-environmental-health/information-for-current-students/_jcr_content/par/download/file.res/Graduate%20Student%20Handbook%202025%20-%202026%20FINAL%203.pdf",
+  "https://grad.ucla.edu/graduate-program-requirements/program-requirements-for-epidemiology-7-2-2-2-2-2-2/",
+  "https://neurograd.ucsd.edu/handbook/prog-requirement/program-requirements1.html",
+  "https://biomed.emory.edu/_includes/documents/handbooks/ns.pdf",
+  "https://as.vanderbilt.edu/political-science/phd-degree-requirements/",
+  "https://www.politics.utoronto.ca/graduate/program-information/phd-program/milestones-time-completion",
+  "https://www.cnup.pitt.edu/sites/default/files/2025-26%20Guidelines,%20final.pdf"
+ ]
+}

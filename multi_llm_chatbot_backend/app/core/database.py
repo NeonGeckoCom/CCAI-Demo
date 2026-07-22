@@ -79,6 +79,25 @@ async def create_indexes():
             partialFilterExpression={"is_active": True},
         )
         await db.database.user_advisor_skills.create_index([("user_id", 1), ("is_active", 1)])
+
+        # Workspace tools + calendar/mail integrations
+        await db.database.user_workspace.create_index("user_id", unique=True)
+        await db.database.user_integrations.create_index(
+            [("user_id", 1), ("provider", 1)], unique=True
+        )
+
+        # Document library + knowledge markdown + wellness check-ins
+        await db.database.user_documents.create_index(
+            [("user_id", 1), ("filename", 1)], unique=True
+        )
+        await db.database.user_documents.create_index([("user_id", 1), ("updated_at", -1)])
+        await db.database.user_knowledge.create_index("user_id", unique=True)
+        await db.database.wellness_checkins.create_index(
+            [("user_id", 1), ("date", 1)], unique=True
+        )
+        await db.database.wellness_checkins.create_index([("user_id", 1), ("created_at", -1)])
+        await db.database.wellness_insights.create_index([("user_id", 1), ("created_at", -1)])
+        await db.database.insights_brain.create_index([("user_id", 1), ("created_at", -1)])
         
         logger.info("Database indexes created successfully")
     except Exception as e:

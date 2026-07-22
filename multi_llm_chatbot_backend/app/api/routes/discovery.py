@@ -814,6 +814,24 @@ async def discover_deliverables(
 ):
     """Generate handbook-based My Plan data without RAG for uploaded materials."""
     program, institution, material_texts, tools = await collect_discovery_inputs(request)
+
+    # Capture uploaded onboarding materials into the per-user document library
+    # (best-effort) so they show on the Documents page and feed chat knowledge.
+    for material in material_texts:
+        try:
+            from app.core.library import save_document_record
+            await save_document_record(
+                user_id=str(current_user.id),
+                filename=material.get("source") or "onboarding-material",
+                content=material.get("text") or "",
+                source="onboarding",
+                file_type=material.get("file_type") or "",
+            )
+        except Exception as library_error:
+            logger.warning(
+                "Library capture failed for %s: %s",
+                material.get("source"), library_error,
+            )
     if material_texts:
         try:
             llm_plan = await extract_plan_with_direct_llm(

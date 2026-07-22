@@ -11,6 +11,47 @@
    Every network call degrades gracefully: if the backend is unreachable the
    relevant method falls back to local/demo behavior so the UI never hard-fails.
 */
+// ---------------------------------------------------------------------------
+// Per-account localStorage namespacing. Every app key (phd-*) is transparently
+// suffixed with the signed-in account, so signing out and signing in as
+// someone else NEVER shows the previous person's documents, plan, chats, or
+// check-ins. Legacy unscoped data is migrated to the first account that reads
+// it. Auth/session keys and device-level settings stay unscoped.
+// ---------------------------------------------------------------------------
+(function () {
+  const GLOBAL_KEYS = new Set(["authToken", "user", "phd-api-base", "phd-coach-authed"]);
+  const APP_PREFIX = /^phd-/;
+  const raw = {
+    get: Storage.prototype.getItem,
+    set: Storage.prototype.setItem,
+    rem: Storage.prototype.removeItem,
+  };
+  const scope = () => {
+    try {
+      const u = JSON.parse(raw.get.call(window.localStorage, "user") || "null");
+      const id = u && (u.id || u._id || u.email);
+      return id ? String(id).toLowerCase() : "";
+    } catch (e) { return ""; }
+  };
+  const nsKey = (k) => {
+    if (typeof k !== "string" || !APP_PREFIX.test(k) || GLOBAL_KEYS.has(k)) return k;
+    const s = scope();
+    return s ? `${k}@@${s}` : k;
+  };
+  Storage.prototype.getItem = function (k) {
+    const nk = nsKey(k);
+    let v = raw.get.call(this, nk);
+    if (v == null && nk !== k) {
+      // One-time adoption: pre-namespacing data belongs to whoever signs in first.
+      const legacy = raw.get.call(this, k);
+      if (legacy != null) { raw.set.call(this, nk, legacy); raw.rem.call(this, k); v = legacy; }
+    }
+    return v;
+  };
+  Storage.prototype.setItem = function (k, v) { return raw.set.call(this, nsKey(k), v); };
+  Storage.prototype.removeItem = function (k) { return raw.rem.call(this, nsKey(k)); };
+})();
+
 (function () {
   const TOKEN_KEY = "authToken";   // same keys the backend/v2 used
   const USER_KEY = "user";
@@ -223,7 +264,7 @@
   // ---- Streaming chat -----------------------------------------------------
   // Calls onEvent({type, data}) for every NDJSON line the backend streams.
   // type ∈ "advisor" | "clarification" | "progress" | "error".
-  async function streamChat({ userInput, userMessageId, sessionId, responseLength = "medium", activeAdvisors, advisorSkill, studentContext, onEvent }) {
+  async function streamChat({ userInput, userMessageId, sessionId, responseLength = "medium", activeAdvisors, customAdvisors, advisorSkill, studentContext, onEvent }) {
     const res = await fetch(`${base()}/chat-stream`, {
       method: "POST", headers: authHeaders(),
       body: JSON.stringify({
@@ -232,6 +273,7 @@
         response_length: responseLength,
         chat_session_id: sessionId || null,
         active_advisors: activeAdvisors || null,
+        custom_advisors: (customAdvisors && customAdvisors.length) ? customAdvisors : null,
         advisor_skill: advisorSkill || null,
         student_context: studentContext || null
       })
@@ -266,6 +308,13 @@
     return jsonOrThrow(res);
   }
 
+  async function defenseAnswerFeedback({ format, items } = {}) {
+    const res = await fetch(`${base()}/api/workspace/defense/answer-feedback`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({ format: format || "defense", items: items || [] })
+    });
+    return jsonOrThrow(res);
+  }
   async function resolveDefenseMemberProfile(member) {
     const res = await fetch(`${base()}/api/defense/member-profile`, {
       method: "POST", headers: authHeaders(),
@@ -320,11 +369,252 @@
     return jsonOrThrow(res);
   }
 
+  // ---- Workspace sync (deadlines / notes / reading / funding / faculty) ----
+  // Per-user, backend-persisted state for the home tools. Callers should treat
+  // these as best-effort: localStorage stays the offline source of truth.
+  async function getWorkspaceState() {
+    const res = await fetch(`${base()}/api/workspace/state`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function putWorkspaceSection(section, items) {
+    const res = await fetch(`${base()}/api/workspace/state/${encodeURIComponent(section)}`, {
+      method: "PUT", headers: authHeaders(), body: JSON.stringify({ items })
+    });
+    return jsonOrThrow(res);
+  }
+  async function suggestReading({ topic, program, milestone, alreadyHave, count } = {}) {
+    const res = await fetch(`${base()}/api/workspace/reading/suggest`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        topic: topic || "", program: program || "", milestone: milestone || "",
+        already_have: alreadyHave || [], count: count || 6
+      })
+    });
+    return jsonOrThrow(res);
+  }
+  // ---- Plan builder (template-grounded generation + assistant retrofit) ----
+  async function planBaseTemplate() {
+    const res = await fetch(`${base()}/api/plan/base-template`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function planGenerate({ handbookText, program, institution, profile } = {}) {
+    const res = await fetch(`${base()}/api/plan/generate`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        handbook_text: handbookText || "", program: program || "", institution: institution || "",
+        profile: profile || {}
+      })
+    });
+    return jsonOrThrow(res);
+  }
+  async function planImport({ csvText, profile } = {}) {
+    const res = await fetch(`${base()}/api/plan/import`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({ csv_text: csvText || "", profile: profile || {} })
+    });
+    return jsonOrThrow(res);
+  }
+  async function planWalkthrough({ title, section, objective, notes, days, program, field } = {}) {
+    const res = await fetch(`${base()}/api/plan/walkthrough`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        title: title || "", section: section || "", objective: objective || "",
+        notes: notes || "", days: days || "", program: program || "", field: field || ""
+      })
+    });
+    return jsonOrThrow(res);
+  }
+  async function planRetrofit({ plan, change, profile } = {}) {
+    const res = await fetch(`${base()}/api/plan/retrofit`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({ plan: plan || {}, change: change || "", profile: profile || {} })
+    });
+    return jsonOrThrow(res);
+  }
+
+  async function suggestMeetingAgenda({ withName, withRole, program, milestone, milestoneTasks, priorNotes, focus } = {}) {
+    const res = await fetch(`${base()}/api/workspace/meeting/suggest`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        with_name: withName || "", with_role: withRole || "", program: program || "",
+        milestone: milestone || "", milestone_tasks: milestoneTasks || [],
+        prior_notes: priorNotes || "", focus: focus || ""
+      })
+    });
+    return jsonOrThrow(res);
+  }
+  async function analyzeMeetingRecording({ mediaBlob, agenda, withName, title } = {}) {
+    const form = new FormData();
+    form.append("media", mediaBlob, mediaBlob && mediaBlob.type && mediaBlob.type.includes("mp4") ? "meeting-audio.mp4" : "meeting-audio.webm");
+    form.append("agenda_json", JSON.stringify(agenda || []));
+    form.append("with_name", withName || "");
+    form.append("title", title || "");
+    const res = await fetch(`${base()}/api/workspace/meeting/analyze-recording`, {
+      method: "POST", headers: authHeaders(false), body: form
+    });
+    return jsonOrThrow(res);
+  }
+  async function extractMeetingActions({ notes, agenda } = {}) {
+    const res = await fetch(`${base()}/api/workspace/meeting/actions`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({ notes: notes || "", agenda: agenda || [] })
+    });
+    return jsonOrThrow(res);
+  }
+  async function citeUrl(url) {
+    const res = await fetch(`${base()}/api/workspace/citation/url`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify({ url })
+    });
+    return jsonOrThrow(res);
+  }
+  async function suggestFunding({ program, institution, topic, stage, count } = {}) {
+    const res = await fetch(`${base()}/api/workspace/funding/suggest`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        program: program || "", institution: institution || "",
+        topic: topic || "", stage: stage || "", count: count || 6
+      })
+    });
+    return jsonOrThrow(res);
+  }
+
+  // ---- Document library (server-persisted Documents page) ------------------
+  async function listLibraryDocs() {
+    const res = await fetch(`${base()}/api/library/documents`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function getLibraryDoc(id) {
+    const res = await fetch(`${base()}/api/library/documents/${id}`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function uploadLibraryDoc({ file, source }) {
+    if (!file) return null;
+    const form = new FormData();
+    form.append("file", file, file.name || "document.txt");
+    form.append("source", source || "documents");
+    const res = await fetch(`${base()}/api/library/documents`, {
+      method: "POST", headers: authHeaders(false), body: form
+    });
+    return jsonOrThrow(res);
+  }
+  async function saveLibraryDoc(id, { name, content, reanalyze } = {}) {
+    const res = await fetch(`${base()}/api/library/documents/${id}`, {
+      method: "PUT", headers: authHeaders(),
+      body: JSON.stringify({ name, content, reanalyze: !!reanalyze })
+    });
+    return jsonOrThrow(res);
+  }
+  async function deleteLibraryDoc(id) {
+    const res = await fetch(`${base()}/api/library/documents/${id}`, {
+      method: "DELETE", headers: authHeaders()
+    });
+    return jsonOrThrow(res);
+  }
+  async function analyzeLibraryDoc(id) {
+    const res = await fetch(`${base()}/api/library/documents/${id}/analyze`, {
+      method: "POST", headers: authHeaders()
+    });
+    return jsonOrThrow(res);
+  }
+  async function compareLibraryDoc(id, againstId) {
+    const res = await fetch(`${base()}/api/library/documents/${id}/compare`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify(againstId ? { against_id: againstId } : {})
+    });
+    return jsonOrThrow(res);
+  }
+  async function getKnowledge() {
+    const res = await fetch(`${base()}/api/library/knowledge`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function saveKnowledge(markdown) {
+    const res = await fetch(`${base()}/api/library/knowledge`, {
+      method: "PUT", headers: authHeaders(), body: JSON.stringify({ markdown })
+    });
+    return jsonOrThrow(res);
+  }
+
+  // ---- Wellness -------------------------------------------------------------
+  async function wellnessCheckin(payload) {
+    const res = await fetch(`${base()}/api/wellness/checkin`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify(payload || {})
+    });
+    return jsonOrThrow(res);
+  }
+  async function wellnessSummary() {
+    const res = await fetch(`${base()}/api/wellness/summary`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function wellnessHistory(days = 30) {
+    const res = await fetch(`${base()}/api/wellness/checkins?days=${days}`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function insightsBrain(context = {}, force = false) {
+    const res = await fetch(`${base()}/api/insights/brain`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify({ context, force })
+    });
+    return jsonOrThrow(res);
+  }
+  async function wellnessInsight(context = {}, force = false) {
+    const res = await fetch(`${base()}/api/wellness/insight`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify({ context, force })
+    });
+    return jsonOrThrow(res);
+  }
+
+  // ---- Calendar & mail integrations (Google / Outlook) ---------------------
+  async function integrationsStatus() {
+    const res = await fetch(`${base()}/api/integrations/status`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function integrationConnect(provider) {
+    const res = await fetch(`${base()}/api/integrations/${provider}/connect`, { headers: authHeaders() });
+    return jsonOrThrow(res); // { auth_url } — open in a popup
+  }
+  async function integrationDisconnect(provider) {
+    const res = await fetch(`${base()}/api/integrations/${provider}/disconnect`, {
+      method: "POST", headers: authHeaders()
+    });
+    return jsonOrThrow(res);
+  }
+  async function calendarNext(days = 14) {
+    const res = await fetch(`${base()}/api/integrations/calendar/next?days=${days}`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function calendarBrief() {
+    const res = await fetch(`${base()}/api/integrations/calendar/brief`, { headers: authHeaders() });
+    return jsonOrThrow(res);
+  }
+  async function calendarPush({ title, date, time, durationMinutes, notes, provider } = {}) {
+    const res = await fetch(`${base()}/api/integrations/calendar/push`, {
+      method: "POST", headers: authHeaders(),
+      body: JSON.stringify({
+        title: title || "Untitled", date: date || "", time: time || "",
+        duration_minutes: durationMinutes || 60, notes: notes || "", provider: provider || ""
+      })
+    });
+    return jsonOrThrow(res);
+  }
+  async function mailScanReadings(days = 14) {
+    const res = await fetch(`${base()}/api/integrations/mail/scan-readings`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify({ days })
+    });
+    return jsonOrThrow(res);
+  }
+
   window.CoachAPI = {
     base, token, isAuthed, setAuth, clearAuth, getUser, getRawUser: rawUser, initialsFor,
     login, signup, demoAuth, getConfig,
     listSessions, createSession, getSession, renameSession, deleteSession, truncateMessages, uploadDocument, saveMessage, switchChat, newChat,
     streamChat, replyToAdvisor,
-    resolveDefenseMemberProfile, parseDefenseMaterial, parseDefenseDeck, analyzeDefensePresentation, generateDefenseQuestions
+    resolveDefenseMemberProfile, parseDefenseMaterial, parseDefenseDeck, analyzeDefensePresentation, generateDefenseQuestions, defenseAnswerFeedback,
+    getWorkspaceState, putWorkspaceSection, suggestReading, suggestFunding, citeUrl,
+    suggestMeetingAgenda, extractMeetingActions, analyzeMeetingRecording,
+    planBaseTemplate, planGenerate, planRetrofit, planWalkthrough, planImport,
+    listLibraryDocs, getLibraryDoc, uploadLibraryDoc, saveLibraryDoc, deleteLibraryDoc, analyzeLibraryDoc, compareLibraryDoc,
+    getKnowledge, saveKnowledge,
+    wellnessCheckin, wellnessSummary, wellnessHistory, wellnessInsight, insightsBrain,
+    integrationsStatus, integrationConnect, integrationDisconnect,
+    calendarNext, calendarBrief, calendarPush, mailScanReadings
   };
 })();

@@ -189,11 +189,23 @@ class DefenseDeckParseResponse(BaseModel):
     slides: List[DefenseDeckSlide]
 
 
+class DefenseDeliveryFeedback(BaseModel):
+    """How the student spoke: pace, fillers, energy — from the recording."""
+    pace_wpm: Optional[int] = None
+    pace_verdict: str = ""              # "too fast" | "comfortable" | "too slow"
+    filler_count: Optional[int] = None
+    filler_examples: List[str] = Field(default_factory=list)
+    energy: str = ""
+    strengths: List[str] = Field(default_factory=list)
+    fixes: List[str] = Field(default_factory=list)
+
+
 class DefensePresentationAnalysisResponse(BaseModel):
     material: DefenseMaterial
     transcript: str = ""
     summary: str = ""
     delivery_notes: List[str] = Field(default_factory=list)
+    delivery: Optional[DefenseDeliveryFeedback] = None
     generation_method: Literal["multimodal_llm", "slides_only"]
 
 
@@ -1467,6 +1479,19 @@ def _presentation_analysis_user_prompt(deck_name: str, has_deck: bool, has_recor
                 "summary": "what the student argued in the talk, grounded in the slide deck file and recording",
                 "question_seed": "specific claims, methods, assumptions, evidence, limitations, and unclear points to question",
                 "delivery_notes": ["short observations about pacing, clarity, skipped/underexplained material"],
+                "delivery": {
+                    "pace_wpm": "estimated speaking pace as an integer (words per minute) from the audio",
+                    "pace_verdict": "'too fast' | 'comfortable' | 'too slow'",
+                    "filler_count": "integer estimate of filler words heard (um, uh, like, you know, so)",
+                    "filler_examples": ["the actual filler habits heard, e.g. \"'um' before every transition\""],
+                    "energy": "one line on vocal energy: monotone, engaging, trailing off at sentence ends, etc.",
+                    "strengths": ["2-3 delivery things done well, from the audio"],
+                    "fixes": ["2-3 concrete delivery fixes, most important first"],
+                },
+                "delivery_requirement": (
+                    "Base `delivery` ONLY on the attached recording's audio. If no recording is attached, "
+                    "set every delivery field to null/empty."
+                ),
             },
         },
         ensure_ascii=True,
@@ -1504,7 +1529,7 @@ async def _analyze_presentation_recording(
         )
     if not media_parts or multimodal is None:
         material = _presentation_analysis_material(deck_name, slides)
-        return material, "", "", [], "slides_only"
+        return material, "", "", [], None, "slides_only"
 
     raw = await multimodal(
         system_prompt=_presentation_analysis_system_prompt(),
@@ -1519,10 +1544,10 @@ async def _analyze_presentation_recording(
     except LLMJsonParseError as exc:
         logger.info("Defense presentation recording analysis returned %s; using slides only.", exc.reason)
         material = _presentation_analysis_material(deck_name, slides)
-        return material, "", "", [], "slides_only"
+        return material, "", "", [], None, "slides_only"
     if not isinstance(parsed, dict):
         material = _presentation_analysis_material(deck_name, slides)
-        return material, "", "", [], "slides_only"
+        return material, "", "", [], None, "slides_only"
 
     material = _presentation_analysis_material(deck_name, slides, parsed)
     delivery_notes_raw = parsed.get("delivery_notes") or []
@@ -1533,11 +1558,37 @@ async def _analyze_presentation_recording(
         for note in delivery_notes_raw
         if _compact_text(note, 500)
     ][:6]
+    delivery = None
+    delivery_raw = parsed.get("delivery")
+    if isinstance(delivery_raw, dict) and media_bytes:
+        def _int_or_none(v):
+            try:
+                n = int(float(v))
+                return n if 0 < n < 1000 else None
+            except (TypeError, ValueError):
+                return None
+        def _str_list(v, cap):
+            if not isinstance(v, list):
+                return []
+            return [_compact_text(x, 250) for x in v if _compact_text(x, 250)][:cap]
+        delivery = DefenseDeliveryFeedback(
+            pace_wpm=_int_or_none(delivery_raw.get("pace_wpm")),
+            pace_verdict=_compact_text(delivery_raw.get("pace_verdict"), 30),
+            filler_count=_int_or_none(delivery_raw.get("filler_count")),
+            filler_examples=_str_list(delivery_raw.get("filler_examples"), 4),
+            energy=_compact_text(delivery_raw.get("energy"), 250),
+            strengths=_str_list(delivery_raw.get("strengths"), 4),
+            fixes=_str_list(delivery_raw.get("fixes"), 4),
+        )
+        if not any([delivery.pace_wpm, delivery.filler_count, delivery.energy,
+                    delivery.strengths, delivery.fixes]):
+            delivery = None
     return (
         material,
         _compact_text(parsed.get("transcript"), 12_000),
         _compact_text(parsed.get("summary"), 3000),
         delivery_notes,
+        delivery,
         "multimodal_llm",
     )
 
@@ -1907,11 +1958,15 @@ def _candidate_question_count(requested_count: int) -> int:
 
 
 def _candidate_question_attempt_counts(requested_count: int) -> List[int]:
+    # First attempt asks for AT MOST the requested count and lets the model
+    # return fewer when the material only supports fewer — that's what makes
+    # session question counts vary naturally. Larger candidate pools are only
+    # used as rescue attempts when filtering leaves too few usable questions.
     counts = [
-        _candidate_question_count(requested_count),
-        min(18, max(requested_count * 2, requested_count + 4)),
-        min(12, requested_count + 2),
         requested_count,
+        min(12, requested_count + 2),
+        min(18, max(requested_count * 2, requested_count + 4)),
+        _candidate_question_count(requested_count),
     ]
     unique_counts = []
     for count in counts:
@@ -2327,6 +2382,11 @@ async def llm_profile_questions(
             "research_summary": _compact_text(request.research_summary, MAX_SUMMARY_CHARS),
             "materials": material_context,
             "question_count": candidate_count,
+            "count_guidance": (
+                "question_count is a MAXIMUM, not a quota. Return only questions genuinely "
+                "grounded in the supplied evidence — if the material honestly supports 4 "
+                "strong questions, return 4. Never pad with generic filler."
+            ),
             "minimum_accepted_questions": accepted_target,
             "target_question_distribution": target_distribution,
             "coverage_requirement": (
@@ -2399,7 +2459,9 @@ async def llm_profile_questions(
             best_questions = questions
             best_diagnostics = diagnostics
         coverage_repair_missing = list(diagnostics.missing_member_names)
-        if len(questions) >= request.question_count and not coverage_repair_missing:
+        # Accept once we have a usable, coverage-complete set — the count is
+        # allowed to land anywhere between minimum_usable and the requested max.
+        if len(questions) >= minimum_usable and not coverage_repair_missing:
             return questions, diagnostics
 
     if best_diagnostics is None:
@@ -2467,6 +2529,21 @@ async def parse_defense_material(
     text = _compact_text(text, MAX_DEFENSE_MATERIAL_TEXT_CHARS)
     if not text:
         raise HTTPException(status_code=400, detail="No readable text found in this material.")
+
+    # Capture into the per-user document library (best-effort) so defense
+    # materials show on the Documents page and feed the knowledge markdown.
+    try:
+        from app.core.library import save_document_record
+        await save_document_record(
+            user_id=str(current_user.id),
+            filename=file.filename or "defense-material",
+            content=text,
+            source="defense room",
+            file_type=resolve_file_type(file.content_type, file.filename),
+            size=len(file_bytes),
+        )
+    except Exception as library_error:
+        logger.warning("Library capture failed for %s: %s", file.filename, library_error)
 
     return DefenseMaterialParseResponse(
         name=file.filename or "Uploaded material",
@@ -2558,7 +2635,7 @@ async def analyze_defense_presentation(
     if not deck_bytes and not slides and not media_bytes:
         raise HTTPException(status_code=400, detail="No slide deck or presentation recording was provided.")
 
-    material, transcript, summary, delivery_notes, generation_method = await _analyze_presentation_recording(
+    material, transcript, summary, delivery_notes, delivery, generation_method = await _analyze_presentation_recording(
         deck_name=deck_name,
         slides=slides,
         deck_bytes=deck_bytes,
@@ -2566,13 +2643,53 @@ async def analyze_defense_presentation(
         media_bytes=media_bytes,
         media_mime_type=media_mime_type,
     )
+    # Remember the practice session so chat advisors know how it went.
+    try:
+        from app.core.library import schedule_event_memory
+
+        memory_lines = [f"Practiced presenting '{deck_name}'. {summary}".strip()]
+        memory_lines += [f"Delivery note: {note}" for note in (delivery_notes or [])[:3]]
+        if delivery:
+            memory_lines += [f"Strength: {s}" for s in (delivery.strengths or [])[:2]]
+            memory_lines += [f"To work on: {f}" for f in (delivery.fixes or [])[:2]]
+        schedule_event_memory(
+            str(current_user.id), "Defense & presentation practice", memory_lines
+        )
+    except Exception as memory_error:
+        logger.warning("Could not record presentation memory: %s", memory_error)
+
     return DefensePresentationAnalysisResponse(
         material=material,
         transcript=transcript,
         summary=summary,
         delivery_notes=delivery_notes,
+        delivery=delivery,
         generation_method=generation_method,
     )
+
+
+def _remember_defense_questions(
+    user: User, request: DefenseQuestionsRequest, questions: List[DefenseQuestion]
+) -> None:
+    """Fold a practice round into the student's long-term memory (best-effort)."""
+    try:
+        from app.core.library import schedule_event_memory
+
+        title = request.thesis_title or "their thesis"
+        members = ", ".join(
+            member.name for member in request.committee_members[:4]
+            if getattr(member, "name", "")
+        )
+        lines = [
+            f"Ran a {request.format} practice round on '{title}'"
+            + (f" with committee: {members}" if members else "")
+        ]
+        lines += [
+            f"Practice question ({q.member_name}): {q.q}" for q in questions[:6]
+        ]
+        schedule_event_memory(str(user.id), "Defense & presentation practice", lines)
+    except Exception as exc:
+        logger.warning("Could not record defense practice memory: %s", exc)
 
 
 @router.post("/defense/questions", response_model=DefenseQuestionsResponse)
@@ -2673,6 +2790,9 @@ async def defense_questions(
             recovery_diagnostics = diagnostics.model_copy(deep=True)
             recovery_diagnostics.accepted_count = len(recovered_questions)
             recovery_diagnostics.failure_reason = "llm_provider_recovered_with_profile_questions"
+            _remember_defense_questions(
+                current_user, request, recovered_questions[: request.question_count]
+            )
             return DefenseQuestionsResponse(
                 format=request.format,
                 questions=recovered_questions[: request.question_count],
@@ -2703,6 +2823,9 @@ async def defense_questions(
             repaired_diagnostics.missing_member_ids = []
             repaired_diagnostics.missing_member_names = []
             repaired_diagnostics.failure_reason = ""
+            _remember_defense_questions(
+                current_user, request, repaired_questions[: request.question_count]
+            )
             return DefenseQuestionsResponse(
                 format=request.format,
                 questions=repaired_questions[: request.question_count],
@@ -2753,6 +2876,7 @@ async def defense_questions(
         )
         diagnostics.failure_reason = ""
 
+    _remember_defense_questions(current_user, request, questions[: request.question_count])
     return DefenseQuestionsResponse(
         format=request.format,
         questions=questions[: request.question_count],

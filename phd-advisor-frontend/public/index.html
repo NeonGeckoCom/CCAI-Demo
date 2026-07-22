@@ -26,7 +26,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="coach-styles.css?v=rendered-pptx-slides-20260713" />
+  <link rel="stylesheet" href="coach-styles.css?v=brain-20260722" />
 </head>
 <body>
   <div id="root"></div>
@@ -60,6 +60,23 @@
     }
   </script>
 
+  <!-- Uppy — polished upload UI (drag-drop dashboard modal) for Documents -->
+  <link href="https://releases.transloadit.com/uppy/v3.27.3/uppy.min.css" rel="stylesheet" />
+  <script src="https://releases.transloadit.com/uppy/v3.27.3/uppy.min.js"></script>
+
+  <!-- TipTap — rich text editing for Documents (ESM; attaches window.TipTap
+       when loaded. Editor components fall back to a plain textarea until then). -->
+  <script type="module">
+    try {
+      const [{ Editor }, { default: StarterKit }] = await Promise.all([
+        import("https://esm.sh/@tiptap/core@2.11.5"),
+        import("https://esm.sh/@tiptap/starter-kit@2.11.5")
+      ]);
+      window.TipTap = { Editor, StarterKit };
+      window.dispatchEvent(new Event("tiptap-ready"));
+    } catch (e) { console.warn("TipTap failed to load; falling back to plain editor.", e); }
+  </script>
+
   <!-- React + Babel -->
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
@@ -70,34 +87,34 @@
   <script src="roadmap-engine.js?v=direct-handbook-network-20260713"></script>
 
   <!-- Real backend wiring (auth, streaming chat, sessions). Defines window.CoachAPI. -->
-  <script src="coach-api.js?v=deck-file-recording-gemini-20260713"></script>
+  <script src="coach-api.js?v=brain-20260722"></script>
 
   <!-- Shared Icon helper (must run before the tools module) -->
   <script type="text/babel" src="coach-shared.jsx?v=academic-combo-20260624" data-presets="react"></script>
 
   <!-- Functional persistent tools (notes, tasks, reading, pomodoro, bib) -->
-  <script type="text/babel" src="canvas-tools.jsx" data-presets="react"></script>
+  <script type="text/babel" src="canvas-tools.jsx?v=workspace5b-20260720" data-presets="react"></script>
 
   <!-- Committee Builder (chair helper + match scoring) -->
   <script type="text/babel" src="coach-committee.jsx" data-presets="react"></script>
 
   <!-- App: onboarding + dashboard (defines window.coachHelpers) -->
-  <script type="text/babel" src="coach-app.jsx?v=onboarding-profile-defaults-20260714b" data-presets="react"></script>
+  <script type="text/babel" src="coach-app.jsx?v=brain-20260722" data-presets="react"></script>
 
   <!-- Marketing landing + login (website-style home) -->
   <script type="text/babel" src="coach-landing.jsx?v=academic-combo-20260624" data-presets="react"></script>
 
   <!-- Insights / Workspace / Documents (warm redesign — uses coachHelpers) -->
-  <script type="text/babel" src="coach-views.jsx?v=chat-context-rag-20260625" data-presets="react"></script>
+  <script type="text/babel" src="coach-views.jsx?v=brain-20260722" data-presets="react"></script>
 
   <!-- Chat v3 — personas + skills in composer, single/multiple toggle, skill actions -->
-  <script type="text/babel" src="coach-chat.jsx?v=profile-context-20260708" data-presets="react"></script>
+  <script type="text/babel" src="coach-chat.jsx?v=committee-chat-20260720" data-presets="react"></script>
 
   <!-- Skills library (Chen's specialized-LLM skills) -->
   <script type="text/babel" src="coach-skills.jsx" data-presets="react"></script>
 
   <!-- Defense Room — mock defense / poster / talk practice (replaces Workspace page) -->
-  <script type="text/babel" src="coach-defense.jsx?v=defense-merged-fixes-20260714" data-presets="react"></script>
+  <script type="text/babel" src="coach-defense.jsx?v=delivery-feedback-20260721" data-presets="react"></script>
 
   <!-- Welcome tutorial — guided walkthrough -->
   <script type="text/babel" src="coach-tour.jsx" data-presets="react"></script>
@@ -105,7 +122,13 @@
   <!-- Per-page first-view walkthroughs (Documents / Insights / Skills / Defense) -->
   <script type="text/babel" src="coach-page-tours.jsx" data-presets="react"></script>
 
+  <!-- Spreadsheet-style My Plan page (defines window.CoachPlanSheet) -->
+  <script type="text/babel" src="coach-plan.jsx?v=brain-20260722" data-presets="react"></script>
+
+  <!-- Wellbeing page — daily check-ins, burnout signal, resources -->
+  <script type="text/babel" src="coach-wellness.jsx?v=insight-20260721" data-presets="react"></script>
+
   <!-- App: plan/step, recovery, chat, settings, router + mount -->
-  <script type="text/babel" src="coach-app2.jsx?v=onboarding-profile-defaults-20260714b" data-presets="react"></script>
+  <script type="text/babel" src="coach-app2.jsx?v=brain-20260722" data-presets="react"></script>
 </body>
 </html>

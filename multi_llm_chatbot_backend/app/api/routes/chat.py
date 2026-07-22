@@ -15,6 +15,7 @@ from app.core.bootstrap import chat_orchestrator
 from app.core.database import get_database
 from app.core.persona_filter import get_available_persona_ids, select_persona_ids
 from app.core.session_manager import get_session_manager
+from app.models.persona import Persona as ChatPersona
 from app.models.user import PersistMessage, ReplyToRef, User
 from app.models.chat import (
     ChatMessage,
@@ -210,6 +211,20 @@ async def chat_stream(
                 current_user,
             )
 
+            # Append the accumulated per-user knowledge markdown (learned from
+            # uploaded documents, linked pages, and wellbeing check-ins).
+            try:
+                from app.core.library import get_knowledge_context_block
+
+                knowledge_block = await get_knowledge_context_block(str(current_user.id))
+                if knowledge_block:
+                    base_prompt = session.student_context_prompt or ""
+                    session.student_context_prompt = (
+                        f"{base_prompt}\n\n{knowledge_block}".strip()
+                    )
+            except Exception as knowledge_error:
+                logger.warning("Could not attach knowledge context: %s", knowledge_error)
+
             # Append user message to in-memory session and persist to MongoDB
             session.append_message("user", message.user_input)
             if message.chat_session_id:
@@ -275,6 +290,37 @@ async def chat_stream(
                 user_disabled=current_user.disabled_advisors,
             )
 
+            # Ephemeral personas for real committee members (Defense Room adds
+            # them client-side with public profiles). They exist only for this
+            # request and speak as themselves, grounded in their profile.
+            custom_map = {}
+            for adv in (message.custom_advisors or [])[:3]:
+                cid = str(adv.get("id") or "").strip()
+                cname = str(adv.get("name") or "").strip()
+                if not cid.startswith("real-") or not cname:
+                    continue
+                title = str(adv.get("title") or "").strip()
+                institution = str(adv.get("institution") or "").strip()
+                areas = ", ".join(str(a) for a in (adv.get("research_areas") or [])[:8])
+                summary = str(adv.get("summary") or "").strip()[:2000]
+                prompt = (
+                    f"You are {cname}"
+                    + (f", {title}" if title else "")
+                    + (f" at {institution}" if institution else "")
+                    + ", serving on a PhD student's dissertation committee. "
+                    "Speak in first person as this real academic would: direct, collegial, "
+                    "grounded in your own research perspective. "
+                    + (f"Your research areas: {areas}. " if areas else "")
+                    + (f"Your public profile: {summary} " if summary else "")
+                    + "Give the student concrete, honest advice from your disciplinary lens. "
+                    "If asked about facts of your career you can't verify, say so plainly "
+                    "rather than inventing them."
+                )
+                custom_map[cid] = ChatPersona(
+                    id=cid, name=cname, system_prompt=prompt,
+                    llm=chat_orchestrator.llm_client, temperature=5,
+                )
+
             yield ChatStreamLine(
                 type="progress",
                 data={
@@ -287,12 +333,22 @@ async def chat_stream(
 
             # Honor the user's ordered selection. The composer offers up to
             # three advisors in Multiple mode; requests without a selection
-            # retain the historical single-advisor fallback.
-            selected_personas = select_persona_ids(
-                available,
-                message.active_advisors,
-                max_personas=3,
-            )
+            # retain the historical single-advisor fallback. Custom committee
+            # ids are pulled out first so the registry selection never sees them.
+            requested = message.active_advisors
+            custom_selected = [cid for cid in (requested or []) if cid in custom_map]
+            regular_requested = [cid for cid in (requested or []) if cid not in custom_map]
+            if requested is not None and not regular_requested and custom_selected:
+                selected_personas = []  # committee-only chat: no registry fallback
+            else:
+                selected_personas = select_persona_ids(
+                    available,
+                    regular_requested if requested is not None else None,
+                    max_personas=3,
+                )
+            selected_personas = (custom_selected + [
+                pid for pid in selected_personas if pid not in custom_selected
+            ])[:3]
 
             # Guard against race condition where the selected advisor
             # becomes unavailable (e.g. service update) between preference
@@ -325,7 +381,7 @@ async def chat_stream(
                 return
 
             selected_advisors = [
-                chat_orchestrator.get_persona(persona_id)
+                custom_map.get(persona_id) or chat_orchestrator.get_persona(persona_id)
                 for persona_id in selected_personas
             ]
             selected_names = [
@@ -356,7 +412,7 @@ async def chat_stream(
                 try:
                     # Guard against the persona being removed mid-request — return a
                     # fallback response instead of crashing and hanging the stream.
-                    persona = chat_orchestrator.get_persona(pid)
+                    persona = custom_map.get(pid) or chat_orchestrator.get_persona(pid)
                     if persona is None:
                         logger.warning("Persona %s was unregistered before response generation", pid)
                         await event_queue.put({
@@ -438,6 +494,7 @@ async def chat_stream(
             tasks = [asyncio.create_task(_run(pid)) for pid in selected_personas]
 
             completed = 0
+            memory_responses = []
             while completed < len(tasks):
                 event = await event_queue.get()
                 if isinstance(event, ChatStreamLine):
@@ -446,6 +503,10 @@ async def chat_stream(
 
                 completed += 1
                 result = event["result"]
+                memory_responses.append({
+                    "name": result.get("persona_name") or result.get("persona_id") or "Advisor",
+                    "response": result.get("response") or "",
+                })
                 if message.chat_session_id:
                     await persist_message(
                         message.chat_session_id,
@@ -479,6 +540,17 @@ async def chat_stream(
                 yield line.to_ndjson()
 
             await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Distill this exchange into the student's long-term memory notes
+            # (background LLM pass; failures never affect the chat itself).
+            try:
+                from app.core.library import schedule_chat_memory
+
+                schedule_chat_memory(
+                    str(current_user.id), message.user_input, memory_responses
+                )
+            except Exception as memory_error:
+                logger.warning("Could not schedule chat memory: %s", memory_error)
 
             yield ChatStreamLine(
                 type="progress",

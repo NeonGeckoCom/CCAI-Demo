@@ -27,6 +27,12 @@ from app.api.routes.preferences import router as preferences_router
 from app.api.routes.advisor_skills import router as advisor_skills_router
 from app.api.routes.discovery import router as discovery_router
 from app.api.routes.defense import router as defense_router
+from app.api.routes.workspace import router as workspace_router
+from app.api.routes.integrations import router as integrations_router
+from app.api.routes.plan_builder import router as plan_builder_router
+from app.api.routes.library import router as library_router
+from app.api.routes.wellness import router as wellness_router
+from app.api.routes.insights import router as insights_router
 
 import logging
 
@@ -77,6 +83,12 @@ app.include_router(preferences_router, prefix="/api", tags=["preferences"])
 app.include_router(advisor_skills_router, prefix="/api", tags=["advisor-skills"])
 app.include_router(discovery_router, prefix="/api", tags=["discovery"])
 app.include_router(defense_router, prefix="/api", tags=["defense"])
+app.include_router(workspace_router, prefix="/api", tags=["workspace"])
+app.include_router(integrations_router, prefix="/api", tags=["integrations"])
+app.include_router(plan_builder_router, prefix="/api", tags=["plan-builder"])
+app.include_router(library_router, prefix="/api", tags=["library"])
+app.include_router(wellness_router, prefix="/api", tags=["wellness"])
+app.include_router(insights_router, prefix="/api", tags=["insights"])
 
 # Serve bundled avatar images
 _avatars_dir = Path(__file__).resolve().parent / "assets" / "avatars"

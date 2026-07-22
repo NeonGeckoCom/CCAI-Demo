@@ -37,7 +37,21 @@ services:
         value: /app/phd_config.yaml
 
       - key: GEMINI_MODEL
-        value: gemini-3-flash-preview
+        value: gemini-3.5-flash-lite
+
+      # Calendar & mail integrations (Google Calendar/Gmail, Outlook/Graph).
+      # Optional — the Settings page shows "not configured" until these are set.
+      # OAUTH_REDIRECT_BASE must be this service's public URL.
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: MS_OAUTH_CLIENT_ID
+        sync: false
+      - key: MS_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: OAUTH_REDIRECT_BASE
+        value: https://phd-navigator-api.onrender.com
 
       # Origins allowed to call this API. Must include the Vercel frontend, or the
       # browser blocks every request with a CORS error.

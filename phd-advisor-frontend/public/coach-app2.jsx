@@ -666,6 +666,167 @@ const HELP_FAQ = [
 const SETTINGS_INSTITUTIONS = window.UNIVERSITY_OPTIONS || [];
 const SETTINGS_PROGRAMS = window.PROGRAM_OPTIONS || [];
 
+// ============================================================================
+// IMPORTANT FACULTY — who matters to your PhD, their role, and how often you
+// mean to meet them. Overdue meetings get flagged here and in the morning brief.
+// ============================================================================
+const FACULTY_KEY = "phd-coach-faculty-v1";
+const FACULTY_ROLES = ["Advisor", "Co-advisor", "Committee chair", "Committee member", "Mentor", "Collaborator", "Program director"];
+const FACULTY_CADENCES = [
+  ["weekly", "Weekly", 7], ["biweekly", "Every 2 weeks", 14], ["monthly", "Monthly", 31],
+  ["quarterly", "Quarterly", 92], ["as-needed", "As needed", 0]
+];
+const cadenceDays = (c) => (FACULTY_CADENCES.find(x => x[0] === c) || [0, "", 0])[2];
+const cadenceLabel = (c) => (FACULTY_CADENCES.find(x => x[0] === c) || ["", "As needed"])[1];
+function facultyMeetState(f) {
+  const days = cadenceDays(f.cadence);
+  if (!days) return null;
+  if (!f.lastMet) return { overdue: true, text: "no meeting logged yet" };
+  const since = Math.floor((Date.now() - new Date(f.lastMet + "T00:00:00")) / 86400000);
+  if (isNaN(since)) return null;
+  if (since > days) return { overdue: true, text: `overdue — last met ${since}d ago` };
+  return { overdue: false, text: `last met ${since === 0 ? "today" : since + "d ago"}` };
+}
+
+function FacultyCard() {
+  const [items, setItems] = window.useSyncedStore(FACULTY_KEY, [], "faculty");
+  const [f, setF] = useS2({ name: "", role: FACULTY_ROLES[0], cadence: "biweekly", email: "" });
+  const add = () => {
+    if (!f.name.trim()) return;
+    setItems([...items, { id: "f" + Date.now(), ...f, name: f.name.trim(), email: f.email.trim(), lastMet: "" }]);
+    setF({ name: "", role: FACULTY_ROLES[0], cadence: "biweekly", email: "" });
+  };
+  const patch = (id, p) => setItems(items.map(x => x.id === id ? { ...x, ...p } : x));
+  const metToday = (id) => patch(id, { lastMet: new Date().toISOString().slice(0, 10) });
+
+  return (
+    <div className="card card-pad" style={{ marginBottom: 16 }}>
+      <div className="card-h"><span className="ico"><Ico name="Users" size={14} /></span> Important faculty</div>
+      <div style={{ fontSize: 12.5, color: "var(--text-2)", margin: "2px 0 10px" }}>
+        Advisors, committee members, and mentors — with how often you want to meet, so nobody slips through the cracks.
+      </div>
+      <div className="fac-add">
+        <input style={{ flex: 2 }} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} onKeyDown={e => { if (e.key === "Enter") add(); }} placeholder="Name (e.g. Dr. Rivera)" />
+        <select value={f.role} onChange={e => setF({ ...f, role: e.target.value })} aria-label="Role">
+          {FACULTY_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <select value={f.cadence} onChange={e => setF({ ...f, cadence: e.target.value })} aria-label="Meeting cadence">
+          {FACULTY_CADENCES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+        <button className="tool-add" onClick={add} aria-label="Add faculty member"><Ico name="Plus" size={14} /></button>
+      </div>
+      <div className="fac-add" style={{ marginTop: 6 }}>
+        <input style={{ flex: 1 }} value={f.email} onChange={e => setF({ ...f, email: e.target.value })} onKeyDown={e => { if (e.key === "Enter") add(); }} placeholder="Email (optional — lets email import spot their readings)" />
+      </div>
+      <div className="fac-list">
+        {items.length === 0 && <div className="tool-empty">No faculty added yet. Start with your advisor.</div>}
+        {items.map(m => { const ms = facultyMeetState(m); return (
+          <div key={m.id} className="fac-row">
+            <span className="fac-av">{(m.name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0].toUpperCase()).join("")}</span>
+            <div className="fac-main">
+              <span className="fac-name">{m.name}{m.email && <a className="fac-mail" href={`mailto:${m.email}`} title={m.email}><Ico name="Mail" size={11} /></a>}</span>
+              <span className="fac-meta">
+                <select className="fac-inline" value={m.role} onChange={e => patch(m.id, { role: e.target.value })} aria-label="Role">
+                  {FACULTY_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                ·
+                <select className="fac-inline" value={m.cadence} onChange={e => patch(m.id, { cadence: e.target.value })} aria-label="Meeting cadence">
+                  {FACULTY_CADENCES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                </select>
+              </span>
+              {ms && <span className={`fac-state ${ms.overdue ? "overdue" : ""}`}><Ico name={ms.overdue ? "AlertTriangle" : "CheckCircle2"} size={11} /> {ms.text}</span>}
+            </div>
+            <button className="btn sm" onClick={() => metToday(m.id)} title="Log that you met today"><Ico name="CalendarCheck" size={13} /> Met today</button>
+            <button className="tool-del" onClick={() => setItems(items.filter(x => x.id !== m.id))} aria-label="Remove"><Ico name="X" size={12} /></button>
+          </div>
+        ); })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// CALENDAR & MAIL — Google / Outlook connections powering the morning brief,
+// deadline sync, and reading-queue email import.
+// ============================================================================
+function IntegrationsCard() {
+  const [status, setStatus] = useS2(null);
+  const [busy, setBusy] = useS2("");
+  const [err, setErr] = useS2("");
+  const refresh = () => {
+    if (!window.CoachAPI || !window.CoachAPI.isAuthed()) return;
+    window.CoachAPI.integrationsStatus().then(setStatus).catch(() => setStatus(null));
+  };
+  useE2(() => {
+    refresh();
+    const onMsg = (e) => {
+      if (e.data && e.data.type === "phd-integration") {
+        refresh();
+        try { sessionStorage.removeItem("phd-coach-brief-v1"); } catch (x) {}
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  const connect = async (provider) => {
+    setBusy(provider); setErr("");
+    try {
+      const { auth_url } = await window.CoachAPI.integrationConnect(provider);
+      window.open(auth_url, "phd-oauth", "width=540,height=680,menubar=no,toolbar=no");
+    } catch (e) {
+      setErr(e.message || `Couldn't start the ${provider} connection.`);
+    } finally { setBusy(""); }
+  };
+  const disconnect = async (provider) => {
+    setBusy(provider);
+    try { await window.CoachAPI.integrationDisconnect(provider); refresh(); } catch (e) {}
+    setBusy("");
+    try { sessionStorage.removeItem("phd-coach-brief-v1"); } catch (x) {}
+  };
+
+  const row = (provider, label, icon, blurb) => {
+    const s = (status || {})[provider] || {};
+    return (
+      <div className="intg-row" key={provider}>
+        <span className="intg-ico"><Ico name={icon} size={16} /></span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{label}
+            {s.connected && <span className="intg-on"><Ico name="CheckCircle2" size={11} /> connected{s.account_email ? ` · ${s.account_email}` : ""}</span>}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-2)" }}>{blurb}</div>
+        </div>
+        {s.connected ? (
+          <button className="btn sm" disabled={busy === provider} onClick={() => disconnect(provider)}><Ico name="Unplug" size={13} /> Disconnect</button>
+        ) : (
+          <button className="btn sm primary" disabled={busy === provider || status === null || s.configured === false}
+            title={s.configured === false ? "Not configured on this server — set the OAuth env vars" : undefined}
+            onClick={() => connect(provider)}>
+            <Ico name="Plug" size={13} color="#fff" /> Connect
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="card card-pad" style={{ marginBottom: 16 }}>
+      <div className="card-h"><span className="ico"><Ico name="CalendarDays" size={14} /></span> Calendar &amp; mail</div>
+      <div style={{ fontSize: 12.5, color: "var(--text-2)", margin: "2px 0 10px" }}>
+        Connect a calendar to see your next meeting on Home, sync deadlines, and let email import pull readings your advisor sends you.
+      </div>
+      {row("google", "Google Calendar + Gmail", "Calendar", "Morning brief, deadline sync, and reading import from Gmail.")}
+      {row("microsoft", "Outlook Calendar + Mail", "CalendarDays", "Morning brief, deadline sync, and reading import from Outlook.")}
+      {err && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--rose)", display: "flex", gap: 6, alignItems: "center" }}><Ico name="AlertTriangle" size={13} /> {err}</div>}
+      {status && status.google && !status.google.configured && !status.microsoft.configured && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-3)" }}>
+          This server has no OAuth apps configured yet — an admin needs to set GOOGLE_OAUTH_CLIENT_ID/SECRET or MS_OAUTH_CLIENT_ID/SECRET.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HelpCenter({ onClose, onReplayTour }) {
   const sections = (window.COACH_TOUR_STEPS || []).filter(s => s.view);
   useE2(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
@@ -698,7 +859,7 @@ function HelpCenter({ onClose, onReplayTour }) {
   );
 }
 
-function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs = {}, setPrefs, engagement = {}, unlocked = {}, onRevealAll, onResetDrip, onToggleHidden, onRebuild, onReplayOnboarding, onSignOut }) {
+function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs = {}, setPrefs, engagement = {}, unlocked = {}, onRevealAll, onResetDrip, onToggleHidden, onRebuild, onLoadTemplate, onReplayOnboarding, onSignOut }) {
   const [help, setHelp] = useS2(false);
   const currentInstitution = prefs.institution || roadmap?.program?.institution || "";
   const currentProgram = prefs.program || roadmap?.program?.name || "";
@@ -748,6 +909,12 @@ function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs 
           />
         </div>
       </div>
+
+      {/* Important faculty — roles + meeting cadence */}
+      <FacultyCard />
+
+      {/* Calendar & mail connections */}
+      <IntegrationsCard />
 
       {/* Display density */}
       <div className="card card-pad" style={{ marginBottom: 16 }}>
@@ -829,6 +996,12 @@ function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs 
           <div><div style={{ fontWeight: 600, fontSize: 14 }}>Rebuild plan</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>Start the setup over from scratch</div></div>
           <button className="btn sm" onClick={onRebuild}><Ico name="RefreshCw" size={14} /> Rebuild</button>
         </div>
+        {onLoadTemplate && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+            <div><div style={{ fontWeight: 600, fontSize: 14 }}>Load default template</div><div style={{ fontSize: 12, color: "var(--text-2)" }}>The research-backed 5-year plan — quarters with week-sized steps</div></div>
+            <button className="btn sm" onClick={onLoadTemplate}><Ico name="LayoutTemplate" size={14} /> Load</button>
+          </div>
+        )}
       </div>
 
       {/* Account */}
@@ -1205,6 +1378,38 @@ function CoachRoot() {
   const resetDrip = () => { setEngagement(e => ({ messages: 0, visits: e.visits || 0 })); setSeenUnlocks([]); setPrefs(p => ({ ...p, revealAll: false, hidden: [] })); setUnlockPopup(null); };
   const academicProfile = useM2(() => rebuildProfile || buildAcademicProfile(signedInUserProfile(), prefs, roadmap), [rebuildProfile, prefs, roadmap, authed]);
 
+  // Meeting action items → the current step's to-do list. Fired by the Meeting
+  // Agenda tool so "Add to my to-dos" updates This Week live, no reload needed.
+  useE2(() => {
+    const onAdd = (e) => {
+      const items = (((e || {}).detail || {}).items || []).map(t => String(t).trim()).filter(Boolean);
+      if (!items.length) return;
+      setRoadmap(r => {
+        if (!r || !Array.isArray(r.steps)) return r;
+        const cur = r.steps.find(s => s.status === "current") || r.steps.find(s => s.status === "redo") || r.steps[0];
+        if (!cur) return r;
+        const merged = [...(cur.subtasks || [])];
+        items.forEach(t => { if (!merged.includes(t)) merged.push(t); });
+        return { ...r, steps: r.steps.map(s => s.id === cur.id ? { ...s, subtasks: merged } : s) };
+      });
+      setToast(`${items.length} action item${items.length === 1 ? "" : "s"} added to your to-do list`);
+    };
+    window.addEventListener("phd-add-todos", onAdd);
+    return () => window.removeEventListener("phd-add-todos", onAdd);
+  }, []);
+
+  // Defense Room "ask a follow-up" → jump into Chat pre-seeded (the persona
+  // selection is written to localStorage before this fires).
+  useE2(() => {
+    const onOpenChat = (e) => {
+      const seed = (((e || {}).detail || {}).seed || "").trim();
+      if (seed) setChatSeed(seed);
+      setView("chat");
+    };
+    window.addEventListener("phd-open-chat", onOpenChat);
+    return () => window.removeEventListener("phd-open-chat", onOpenChat);
+  }, []);
+
   useE2(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem(H.THEME_KEY, theme); } catch (e) {} }, [theme]);
   useE2(() => { H.saveJSON(H.RM_KEY, roadmap); }, [roadmap]);
   useE2(() => { H.saveJSON(H.TASK_KEY, [...doneTasks]); }, [doneTasks]);
@@ -1246,6 +1451,19 @@ function CoachRoot() {
     setRoadmap(res.roadmap);
     setSosOpen(false);
     setRecovered(res.detour);
+  };
+
+  // Settings → Your plan → Load default template (the research-backed 5-year plan)
+  const loadTemplatePlan = async () => {
+    if (!confirm("Replace your current plan with the default 5-year PhD template? Done checkmarks survive where titles match.")) return;
+    try {
+      const rm = await window.CoachPlanUtils.loadDefaultTemplate({ roadmap, doneTasks, setDoneTasks });
+      setRoadmap(rm);
+      setToast("Default PhD template loaded — tailor it in My Plan.");
+      setView("plan");
+    } catch (e) {
+      setToast((e && e.message) || "Couldn't load the template — is the backend running?");
+    }
   };
 
   // 1) Not signed in → marketing landing / login. Auth is real (CoachAPI):
@@ -1294,16 +1512,20 @@ function CoachRoot() {
 
   let body;
   if (v === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} onNav={setView} onOpenSos={() => setSosOpen(true)} onOpenStep={openWorkspace} focused={focused} theme={theme} />;
-  else if (v === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
+  else if (v === "plan") body = window.CoachPlanSheet
+    ? <window.CoachPlanSheet roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} touchStep={touchStep} onOpenSos={() => setSosOpen(true)} onNav={setView} onOpenStep={openWorkspace} onAsk={askInChat} />
+    : <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
   else if (v === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} unlocked={unlocked} onMessage={bumpMessages} />;
   else if (v === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
-  else if (v === "insights") body = <window.CoachInsights onNav={setView} />;
+  else if (v === "insights") body = <window.CoachInsights onNav={setView} roadmap={roadmap} doneTasks={doneTasks} />;
   else if (v === "defense") body = <window.CoachDefenseRoom roadmap={roadmap} onNav={setView} onToast={setToast} />;
   else if (v === "documents") body = <window.CoachDocuments roadmap={roadmap} />;
+  else if (v === "wellness") body = <window.CoachWellness onNav={setView} roadmap={roadmap} />;
   else body = <SettingsView roadmap={roadmap} setRoadmap={setRoadmap} theme={theme} onToggleTheme={toggleTheme}
     prefs={prefs} setPrefs={setPrefs} engagement={engagement} unlocked={unlocked}
     onRevealAll={revealAllNow} onResetDrip={resetDrip} onToggleHidden={toggleHidden}
     onRebuild={() => { if (confirm("Rebuild your plan from scratch? Progress clears.")) { setRebuildProfile(buildAcademicProfile(signedInUserProfile(), prefs, roadmap)); setRoadmap(null); setDoneTasks(new Set()); } }}
+    onLoadTemplate={loadTemplatePlan}
     onReplayOnboarding={() => { setView("home"); setShowTour(true); }}
     onSignOut={signOut} />;
 
@@ -1312,7 +1534,7 @@ function CoachRoot() {
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <window.CoachRail view={view} onNav={setView} user={window.MOCK_USER} skillsUnlocked={unlocked.skills} onSignOut={signOut} />
       <main className="main" id="main-content" tabIndex={-1}>
-        <div className="topbar">
+        <div className={v === "documents" ? "topbar compact" : "topbar"}>
           <div style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
             <Ico name="Compass" size={15} /> {roadmap.program?.name || "PhD Navigator"}
             {prefs.modelMode === "private" && <span className="private-pill" title="On-device / private models"><Ico name="ShieldCheck" size={12} /> Private</span>}

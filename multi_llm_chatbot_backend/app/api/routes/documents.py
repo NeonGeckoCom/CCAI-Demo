@@ -206,6 +206,21 @@ async def upload_document(
         session.uploaded_files.append(file.filename)
         session.total_upload_size += len(file_bytes)
 
+        # Capture into the per-user document library (best-effort) so the
+        # Documents page lists chat uploads and analysis can learn from them.
+        try:
+            from app.core.library import save_document_record
+            await save_document_record(
+                user_id=str(current_user.id),
+                filename=file.filename,
+                content=content,
+                source="chat",
+                file_type=file_type,
+                size=len(file_bytes),
+            )
+        except Exception as library_error:
+            logger.warning("Library capture failed for %s: %s", file.filename, library_error)
+
         doc_metadata = rag_result.get("document_metadata", {})
         doc_title = doc_metadata.get("title", file.filename)
 

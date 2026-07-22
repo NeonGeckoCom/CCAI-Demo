@@ -254,7 +254,7 @@ class MongoDBConfig(BaseModel):
 
 class GeminiConfig(BaseModel):
     api_key: str = Field(default=os.getenv("GEMINI_API_KEY"))
-    model: str = "gemini-3-flash-preview"
+    model: str = "gemini-3.5-flash-lite"
 
     @model_validator(mode="after")
     def _warn_gemini_envvar(self):
