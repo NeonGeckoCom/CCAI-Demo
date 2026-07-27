@@ -57,15 +57,135 @@ function buildAcademicProfile(user, prefs = {}, roadmap = null) {
 // ============================================================================
 // PLAN / STEP VIEW  (spine + focused current step + live tools)
 // ============================================================================
+// ---- My Plan CSV (V2 roadmap model) ---------------------------------------
+// Import/export the plan as a flat CSV so students can edit it in a spreadsheet
+// and bring it back — the convenience the spreadsheet build had, on this UI.
+// Subtask lettering to mirror the spreadsheet: step 1 → 1a, 1b, 1c … (a-z, aa…).
+const planLetter = (n) => { let s = ""; n = Math.max(0, Math.floor(n)); do { s = String.fromCharCode(97 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0); return s; };
+const planCsvEsc = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+function planToCsv(roadmap, doneTasks) {
+  const rows = [["code", "title", "phase", "timeline", "objective", "gate", "status"]];
+  (roadmap.steps || []).forEach((s, i) => {
+    rows.push([i + 1, s.title, s.phase || "", s.estimate || "", s.objective || "", s.gate ? "gate" : "", s.status || ""]);
+    (s.subtasks || []).forEach((t, j) => {
+      const done = doneTasks && doneTasks.has(`${s.id}::${t}`);
+      rows.push([`${i + 1}${planLetter(j)}`, t, "", "", "", "", done ? "done" : "todo"]);
+    });
+  });
+  return rows.map(r => r.map(planCsvEsc).join(",")).join("\n");
+}
+function parsePlanCsv(text) {
+  const rows = []; let row = [], cell = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQ = false; } else cell += c; }
+    else if (c === '"') inQ = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cell); cell = ""; if (row.some(x => x.trim())) rows.push(row); row = []; }
+    else cell += c;
+  }
+  row.push(cell); if (row.some(x => x.trim())) rows.push(row);
+  return rows;
+}
+function csvToRoadmap(text, base, stamp) {
+  const rows = parsePlanCsv(text); if (!rows.length) return null;
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const col = (n) => head.indexOf(n);
+  const ci = { code: col("code"), title: col("title"), phase: col("phase"), timeline: col("timeline"), objective: col("objective"), gate: col("gate"), status: col("status") };
+  if (ci.code < 0 || ci.title < 0) return null;
+  const steps = []; const done = new Set();
+  const g = (r, k) => ci[k] >= 0 ? (r[ci[k]] || "").trim() : "";
+  rows.slice(1).forEach(r => {
+    const code = (r[ci.code] || "").trim(); const title = (r[ci.title] || "").trim();
+    if (!code || !title) return;
+    if (/^\d+$/.test(code)) {
+      steps.push({ id: `csv-${stamp}-${steps.length}`, title, phase: g(r, "phase") || "Custom", icon: "Flag",
+        estimate: g(r, "timeline"), objective: g(r, "objective"), gate: /gate|true|1/i.test(g(r, "gate")),
+        status: g(r, "status") || "locked", subtasks: [], add: [], retire: [], custom: true });
+    } else if (steps.length) {
+      const s = steps[steps.length - 1]; s.subtasks.push(title);
+      if (/done/i.test(g(r, "status"))) done.add(`${s.id}::${title}`);
+    }
+  });
+  if (!steps.length) return null;
+  if (!steps.some(s => s.status === "current" || s.status === "redo")) {
+    const idx = steps.findIndex(s => s.status !== "done");
+    steps[idx >= 0 ? idx : 0].status = "current";
+  }
+  return { roadmap: { ...base, steps }, done };
+}
+
+// Inline "how to do this" walkthrough for one subtask — the AI writes concrete
+// mini-steps you can check off (ported from the spreadsheet's row expansion),
+// cached per subtask in localStorage. Degrades to an "ask your advisors" link.
+const PLAN_WT_KEY = "phd-plan-walkthrough-v1";
+function PlanHowTo({ roadmap, step, sub, code, onAsk }) {
+  const wtId = `${step.id}::${sub}`;
+  const readAll = () => { try { return JSON.parse(localStorage.getItem(PLAN_WT_KEY) || "{}"); } catch (e) { return {}; } };
+  const [entry, setEntry] = useS2(() => readAll()[wtId] || null);
+  const [busy, setBusy] = useS2(false);
+  const [err, setErr] = useS2("");
+  const save = (next) => { const m = readAll(); m[wtId] = next; try { localStorage.setItem(PLAN_WT_KEY, JSON.stringify(m)); } catch (e) {} setEntry(next); };
+  const authed = window.CoachAPI && window.CoachAPI.isAuthed && window.CoachAPI.isAuthed();
+  const gen = async () => {
+    if (!window.CoachAPI || !window.CoachAPI.planWalkthrough) { setErr("Sign in with the backend running for AI walkthroughs."); return; }
+    setBusy(true); setErr("");
+    try {
+      const res = await window.CoachAPI.planWalkthrough({
+        title: sub, section: step.title, objective: step.objective,
+        program: roadmap.program && roadmap.program.name,
+        field: roadmap.program && roadmap.program.name
+      });
+      save({ wt: res, checked: [] });
+    } catch (e) { setErr(e.message || "Couldn't reach the assistant — is the backend running?"); }
+    finally { setBusy(false); }
+  };
+  useE2(() => { if (!entry && authed) gen(); }, []);
+  const wt = entry && entry.wt;
+  const checked = new Set((entry && entry.checked) || []);
+  const toggle = (i) => { const n = new Set(checked); n.has(i) ? n.delete(i) : n.add(i); save({ ...entry, checked: [...n] }); };
+  const steps = (wt && wt.steps) || [];
+  const doneN = steps.filter((_, i) => checked.has(i)).length;
+  return (
+    <div className="howto">
+      {busy && !wt && <div className="howto-load"><Ico name="Loader" size={13} className="spin" /> Writing the how-to for {code}…</div>}
+      {err && <div className="howto-err"><Ico name="AlertTriangle" size={12} /> {err} {authed && <button className="btn sm" onClick={gen}>Retry</button>}</div>}
+      {!busy && !wt && !err && (
+        <button className="btn sm primary" onClick={gen}><Ico name="Sparkles" size={13} color="#fff" /> Show me how to do this</button>
+      )}
+      {wt && (
+        <>
+          {wt.overview && <p className="howto-overview">{wt.overview}</p>}
+          <div className="howto-h"><Ico name="ListChecks" size={12} /> How to do {code} · {doneN}/{steps.length}
+            <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={gen} disabled={busy} title="Rewrite the walkthrough"><Ico name={busy ? "Loader" : "RefreshCw"} size={12} className={busy ? "spin" : ""} /> Regenerate</button>
+          </div>
+          <div className="howto-steps">
+            {steps.map((st, i) => (
+              <button key={i} className={`howto-step ${checked.has(i) ? "done" : ""}`} onClick={() => toggle(i)}>
+                <span className="howto-cb">{checked.has(i) && <Ico name="Check" size={11} color="#fff" />}</span>
+                <span className="howto-step-t">{st.title || st.text || st}{st.detail ? <span className="howto-step-d">{st.detail}</span> : null}</span>
+              </button>
+            ))}
+          </div>
+          <button className="btn sm" onClick={() => onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${sub} Assume I'm new to this and give concrete first actions.`)}>
+            <Ico name="MessageCircle" size={13} /> Ask your advisors for more
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touchStep, onCelebrate, onOpenSos, onAsk, onNav, onOpenStep, skillsUnlocked = true }) {
   const [selected, setSelected] = useS2(() => {
     const c = roadmap.steps.findIndex(s => s.status === "current");
     return c >= 0 ? c : 0;
   });
   const [openTask, setOpenTask] = useS2(-1); // which sub-task's "how to" drawer is open
-  const [editPlan, setEditPlan] = useS2(false); // reorder / rename milestones
+  const [editPlan, setEditPlan] = useS2(false); // full inline editing of everything
   const [dragIdx, setDragIdx] = useS2(null);
   const [renameId, setRenameId] = useS2(null);
+  const csvRef = React.useRef(null);
 
   // Move a milestone from index `from` to index `to`, keeping the selection on it.
   const moveStep = (from, to) => {
@@ -79,21 +199,19 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
   const renameStep = (id, title) => setRoadmap({ ...roadmap, steps: roadmap.steps.map(s => s.id === id ? { ...s, title } : s) });
   const [taskEdit, setTaskEdit] = useS2(null);   // subtask index being renamed
   const [newTask, setNewTask] = useS2("");
-  const [toolPicker, setToolPicker] = useS2(false);
-  useE2(() => { setTaskEdit(null); setNewTask(""); setToolPicker(false); setOpenTask(-1); }, [selected]);
+  const [selectedSub, setSelectedSub] = useS2(null); // sub-milestone open in the sheet (null = major)
+  // Which milestones have their sub-milestones revealed in the spine (caret
+  // toggle, spreadsheet-style). Current/redo milestones start expanded.
+  const [spineOpen, setSpineOpen] = useS2(() => new Set(
+    roadmap.steps.filter(s => s.status === "current" || s.status === "redo").map(s => s.id)
+  ));
+  const toggleSpine = (id, e) => {
+    if (e) e.stopPropagation();
+    setSpineOpen(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  useE2(() => { setTaskEdit(null); setNewTask(""); setOpenTask(-1); }, [selected]);
 
   const step = roadmap.steps[selected];
-  const fs = RE2.computeFeatureState(roadmap, selected);
-  // Per-step tool overrides layered on top of the engine's lifecycle:
-  // toolsAdd = user pinned it here, toolsRemove = user took it off this step.
-  const toolsAdd = step.toolsAdd || [];
-  const toolsRemove = step.toolsRemove || [];
-  const effActive = [
-    ...fs.active.filter(f => !toolsRemove.includes(f)),
-    ...toolsAdd.filter(f => !fs.active.includes(f) && !toolsRemove.includes(f))
-  ];
-  const liveTools = effActive.filter(f => window.hasTool(f));
-  const chipOnly = effActive.filter(f => !window.hasTool(f));
   const activeCount = roadmap.steps.filter(s => s.status === "current" || s.status === "redo").length;
 
   const patchStep = (patch) => setRoadmap({ ...roadmap, steps: roadmap.steps.map(s => s.id === step.id ? { ...s, ...patch } : s) });
@@ -106,6 +224,10 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
   const risks = RE2.risks ? RE2.risks(step.templateId || step.id) : [];
   const stuck = H.stallDays ? H.stallDays(roadmap, activity) : 0;
   const stepIsCurrentNow = step.status === "current" || step.status === "redo";
+  // Sub-milestone view (spreadsheet-style 2a/2b rows opened from the spine).
+  const subT = selectedSub != null ? step.subtasks[selectedSub] : null;
+  const subView = !editPlan && subT != null;
+  const subCode = subView ? `${stepNum}${planLetter(selectedSub)}` : "";
 
   const toggleTask = (t) => {
     setDoneTasks(prev => { const n = new Set(prev); const k = tkey(t); n.has(k) ? n.delete(k) : n.add(k); return n; });
@@ -125,7 +247,6 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
     const ni = res.roadmap.steps.findIndex(s => s.status === "current");
     if (ni >= 0) { touchStep && touchStep(res.roadmap.steps[ni].id); setSelected(ni); }
   };
-  // Parallel work: run this step alongside whatever else is in flight.
   const workAlso = (id) => { setRoadmap(RE2.addCurrent(roadmap, id).roadmap); touchStep && touchStep(id); };
   const stopHere = (id) => setRoadmap(RE2.stopCurrent(roadmap, id).roadmap);
 
@@ -149,47 +270,40 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
     setTaskEdit(null);
     if (!t || t === old || step.subtasks.includes(t)) return;
     setSubtasks(step.subtasks.map((x, j) => j === i ? t : x));
-    // carry the checked state over to the renamed task
     setDoneTasks(prev => {
       const n = new Set(prev);
       if (n.has(tkey(old))) { n.delete(tkey(old)); n.add(`${step.id}::${t}`); }
       return n;
     });
   };
-
-  // ---- Tool add / remove -----------------------------------------------------
-  const addTool = (f) => patchStep({
-    toolsAdd: toolsRemove.includes(f) ? toolsAdd : [...toolsAdd, f],
-    toolsRemove: toolsRemove.filter(x => x !== f)
-  });
-  const removeTool = (f) => patchStep(
-    toolsAdd.includes(f)
-      ? { toolsAdd: toolsAdd.filter(x => x !== f) }
-      : { toolsRemove: [...toolsRemove, f] }
-  );
+  const moveSub = (i, dir) => {
+    const j = i + dir; if (j < 0 || j >= step.subtasks.length) return;
+    const arr = step.subtasks.slice(); const [m] = arr.splice(i, 1); arr.splice(j, 0, m);
+    setSubtasks(arr);
+  };
 
   // ---- Add / remove plan sections -------------------------------------------
-  const addMilestone = () => {
-    const id = `custom-${Date.now()}`;
-    const base = roadmap.steps[selected];
-    const s = {
-      id, title: "New milestone", phase: base?.phase || "Custom", icon: "Flag",
-      estimate: "You set the pace", objective: "Describe what finishing this section looks like.",
-      status: "locked", subtasks: [], add: [], retire: [], custom: true
-    };
+  const makeMilestone = () => ({
+    id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    title: "New milestone", phase: step?.phase || "Custom", icon: "Flag",
+    estimate: "You set the pace", objective: "Describe what finishing this section looks like.",
+    status: "locked", subtasks: [], add: [], retire: [], custom: true
+  });
+  const addMilestoneAt = (index) => {
+    const s = makeMilestone();
     const steps = roadmap.steps.slice();
-    steps.splice(selected + 1, 0, s);
+    steps.splice(index, 0, s);
     setRoadmap({ ...roadmap, steps });
-    setSelected(selected + 1);
+    setSelected(index);
     setEditPlan(true);
-    setRenameId(id);
+    setRenameId(s.id);
   };
+  const addMilestone = () => addMilestoneAt(selected + 1);
   const removeStepById = (id) => {
     if (roadmap.steps.length <= 1) return;
     const victim = roadmap.steps.find(s => s.id === id);
     if (!victim || !confirm(`Remove "${victim.title}" from your plan?`)) return;
     let steps = roadmap.steps.filter(s => s.id !== id);
-    // never leave the plan with nothing in flight
     if (!steps.some(s => s.status === "current" || s.status === "redo")) {
       const idx = steps.findIndex(s => s.status !== "done");
       if (idx >= 0) steps = steps.map((s, i) => i === idx ? { ...s, status: "current" } : s);
@@ -198,26 +312,85 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
     setSelected(sel => Math.max(0, Math.min(sel, steps.length - 1)));
   };
 
+  // ---- CSV import / export ---------------------------------------------------
+  const exportCsv = () => {
+    const blob = new Blob([planToCsv(roadmap, doneTasks)], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `my-plan-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  };
+  const importCsv = (e) => {
+    const file = e.target.files && e.target.files[0]; if (e.target) e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = csvToRoadmap(String(reader.result || ""), roadmap, Date.now());
+      if (!parsed) { alert("Couldn't read that CSV. It needs a header row with at least: code, title (plus optional phase, timeline, objective, gate, status). Tip: export first to see the format."); return; }
+      if (!confirm("Replace your current plan with this CSV? Your progress checkmarks come from the file's status column.")) return;
+      setRoadmap(parsed.roadmap);
+      if (setDoneTasks) setDoneTasks(parsed.done);
+      setSelected(0);
+    };
+    reader.readAsText(file);
+  };
+
   const doneCount = roadmap.steps.filter(s => s.status === "done").length;
   const pct = Math.round((doneCount / roadmap.steps.length) * 100);
+  const nextGate = roadmap.steps.find(s => s.gate && s.status !== "done");
+  const stepPct = step.subtasks.length ? Math.round((doneN / step.subtasks.length) * 100) : 0;
 
   let lastPhase = null;
 
   return (
     <div className="page">
-      <div className="greeting" style={{ marginBottom: 16, display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h1 className="display" style={{ fontSize: 24 }}>{roadmap.program?.name || "Your plan"}</h1>
+      <div className="greeting" style={{ marginBottom: 12, display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          {editPlan ? (
+            <input className="pe-input pe-title" style={{ fontSize: 24, fontWeight: 600 }} value={roadmap.program?.name || ""}
+              onChange={e => setRoadmap({ ...roadmap, program: { ...(roadmap.program || {}), name: e.target.value } })}
+              placeholder="Name your plan" />
+          ) : (
+            <h1 className="display" style={{ fontSize: 24 }}>{roadmap.program?.name || "Your plan"}</h1>
+          )}
           <div className="sub">{doneCount} of {roadmap.steps.length} milestones complete · {pct}%</div>
         </div>
-        <button className={`btn sm ${editPlan ? "primary" : ""}`} onClick={() => { setEditPlan(e => !e); setRenameId(null); }}>
-          <Ico name={editPlan ? "Check" : "Pencil"} size={14} color={editPlan ? "#fff" : undefined} /> {editPlan ? "Done editing" : "Edit plan"}
-        </button>
+        <div className="plan-toolbar">
+          <input ref={csvRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={importCsv} />
+          <button className="btn sm" onClick={() => csvRef.current && csvRef.current.click()} title="Replace your plan from a CSV file"><Ico name="Upload" size={13} /> Import CSV</button>
+          <button className="btn sm" onClick={exportCsv} title="Download your plan as a CSV to edit in a spreadsheet"><Ico name="Download" size={13} /> Export CSV</button>
+          <button className="btn sm" onClick={addMilestone} title="Add a new section after the selected one"><Ico name="Plus" size={13} /> Add section</button>
+          <button className={`btn sm ${editPlan ? "primary" : ""}`} onClick={() => { setEditPlan(e => !e); setRenameId(null); setSelectedSub(null); }}>
+            <Ico name={editPlan ? "Check" : "Pencil"} size={14} color={editPlan ? "#fff" : undefined} /> {editPlan ? "Done editing" : "Edit plan"}
+          </button>
+        </div>
+      </div>
+
+      {/* Graduation slider — your walk from Start to the cap, plus what's now/next */}
+      <div className="plan-glance">
+        <div className="grad-slider">
+          <span className="grad-end start" title="Start"><Ico name="Flag" size={11} /></span>
+          <div className="grad-track">
+            <div className="grad-fill" style={{ width: `${pct}%` }} />
+            <div className="grad-cap" style={{ left: `${pct}%` }} title={`${pct}% · ${doneCount} of ${roadmap.steps.length} milestones`}>
+              <Ico name="GraduationCap" size={13} color="#fff" />
+            </div>
+          </div>
+          <span className="grad-end finish" title="Graduation"><Ico name="GraduationCap" size={15} /></span>
+        </div>
+        <div className="plan-glance-meta">
+          <span className="pg-chip strong"><Ico name="GraduationCap" size={12} /> {pct}% · {doneCount}/{roadmap.steps.length} milestones</span>
+          {isCurrent && !editPlan && <span className="pg-chip"><Ico name="MapPin" size={12} /> Now: <strong>{step.title}</strong></span>}
+          {nextGate && <span className="pg-chip"><Ico name="Flag" size={12} /> Next gate: <strong>{nextGate.title}</strong></span>}
+          {editPlan && <span className="pg-chip edit"><Ico name="Pencil" size={12} /> Editing — everything below is editable; drag to reorder.</span>}
+        </div>
       </div>
 
       <div className="step-wrap">
         {/* Spine */}
         <div className="spine">
+          {editPlan && <button className="btn sm spine-add" style={{ marginBottom: 8 }} onClick={() => addMilestoneAt(0)}><Ico name="Plus" size={14} /> Add section at top</button>}
           {roadmap.steps.map((s, i) => {
             const showPhase = s.phase !== lastPhase; lastPhase = s.phase;
             const dotClass = s.status === "done" ? "done" : s.status === "current" ? "current"
@@ -228,36 +401,61 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
                 {editPlan ? (
                   <div className={`spine-item editing ${i === selected ? "sel" : ""} ${dragIdx === i ? "dragging" : ""}`}
                     draggable onDragStart={() => setDragIdx(i)} onDragOver={e => e.preventDefault()}
-                    onDrop={() => { if (dragIdx != null) moveStep(dragIdx, i); setDragIdx(null); }} onDragEnd={() => setDragIdx(null)}>
+                    onDrop={() => { if (dragIdx != null) moveStep(dragIdx, i); setDragIdx(null); }} onDragEnd={() => setDragIdx(null)}
+                    onClick={() => setSelected(i)}>
                     <span className="spine-drag" title="Drag to reorder"><Ico name="GripVertical" size={15} /></span>
                     <span className={`spine-dot ${dotClass} ${s.gate ? "gate" : ""}`}>{i + 1}</span>
                     <span style={{ flex: 1, minWidth: 0 }}>
                       {renameId === s.id ? (
                         <input className="spine-rename" autoFocus defaultValue={s.title}
+                          onClick={e => e.stopPropagation()}
                           onBlur={e => { renameStep(s.id, e.target.value.trim() || s.title); setRenameId(null); }}
                           onKeyDown={e => { if (e.key === "Enter") { renameStep(s.id, e.target.value.trim() || s.title); setRenameId(null); } }} />
                       ) : (
-                        <span className="spine-t1" onClick={() => setRenameId(s.id)} title="Rename">{s.title} <Ico name="Pencil" size={11} /></span>
+                        <span className="spine-t1" onClick={e => { e.stopPropagation(); setRenameId(s.id); }} title="Rename">{s.title} <Ico name="Pencil" size={11} /></span>
                       )}
-                      <span className="spine-t2">{s.estimate}</span>
                     </span>
                     <span className="spine-move">
-                      <button disabled={i === 0} onClick={() => moveStep(i, i - 1)} aria-label="Move up"><Ico name="ChevronUp" size={14} /></button>
-                      <button disabled={i === roadmap.steps.length - 1} onClick={() => moveStep(i, i + 1)} aria-label="Move down"><Ico name="ChevronDown" size={14} /></button>
+                      <button disabled={i === 0} onClick={e => { e.stopPropagation(); moveStep(i, i - 1); }} aria-label="Move up"><Ico name="ChevronUp" size={14} /></button>
+                      <button disabled={i === roadmap.steps.length - 1} onClick={e => { e.stopPropagation(); moveStep(i, i + 1); }} aria-label="Move down"><Ico name="ChevronDown" size={14} /></button>
                     </span>
-                    <button className="spine-del" disabled={roadmap.steps.length <= 1} onClick={() => removeStepById(s.id)} aria-label="Remove milestone" title="Remove this section"><Ico name="Trash2" size={13} /></button>
+                    <button className="spine-del" disabled={roadmap.steps.length <= 1} onClick={e => { e.stopPropagation(); removeStepById(s.id); }} aria-label="Remove milestone" title="Remove this section"><Ico name="Trash2" size={13} /></button>
                   </div>
                 ) : (
-                  <button className={`spine-item ${i === selected ? "sel" : ""}`} onClick={() => { setSelected(i); onOpenStep && onOpenStep(s.id); }}>
+                  <>
+                  <button className={`spine-item ${i === selected && selectedSub == null ? "sel" : ""}`}
+                    onClick={() => { setSelected(i); setSelectedSub(null); setSpineOpen(prev => new Set(prev).add(s.id)); }}>
                     <span className={`spine-dot ${dotClass} ${s.gate ? "gate" : ""}`}>
                       {s.status === "done" ? <Ico name="Check" size={14} color="#fff" />
                         : s.recovery ? <Ico name="AlertTriangle" size={13} color="#fff" /> : i + 1}
                     </span>
-                    <span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
                       <span className="spine-t1">{s.title} {s.gate && <span className="spine-flag">gate</span>}{s.status === "redo" && <span className="spine-flag">redo</span>}</span>
-                      <span className="spine-t2">{s.estimate}</span>
                     </span>
+                    {s.subtasks.length > 0 && (
+                      <span className="spine-caret" role="button" aria-label={spineOpen.has(s.id) ? "Hide sub-milestones" : "Show sub-milestones"}
+                        onClick={(e) => toggleSpine(s.id, e)}>
+                        <Ico name={spineOpen.has(s.id) ? "ChevronDown" : "ChevronRight"} size={14} />
+                      </span>
+                    )}
                   </button>
+                  {spineOpen.has(s.id) && s.subtasks.length > 0 && (
+                    <div className="spine-subs">
+                      {s.subtasks.map((t, j) => {
+                        const sd = doneTasks.has(`${s.id}::${t}`);
+                        const isSel = i === selected && selectedSub === j;
+                        return (
+                          <button key={j} className={`spine-sub ${isSel ? "sel" : ""} ${sd ? "done" : ""}`}
+                            onClick={() => { setSelected(i); setSelectedSub(isSel ? null : j); }}>
+                            <span className="spine-sub-code">{i + 1}{planLetter(j)}</span>
+                            <span className="spine-sub-t">{t}</span>
+                            {sd && <Ico name="Check" size={11} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  </>
                 )}
               </React.Fragment>
             );
@@ -267,43 +465,111 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
 
         {/* Step sheet */}
         <div>
-          <div className={`step-head ${step.recovery ? "recovery" : ""}`}>
-            <div className="step-num">{step.recovery ? "!" : stepNum}</div>
-            <div style={{ flex: 1 }}>
-              <div className="eyebrow"><Ico name={step.icon} size={13} /> {step.recovery ? "Recovery" : isDone ? "Completed" : `Step ${stepNum} · ${step.phase}`}</div>
-              <h1 className="display">{step.title}</h1>
-              <p className="obj">{step.objective}</p>
-              <div className="meta">
-                <span className="chip"><Ico name="Clock" size={12} /> {step.estimate}</span>
-                {step.deliverableSource && <span className="chip"><Ico name="FileText" size={12} /> Source: {step.deliverableSource}</span>}
-                {step.deliverable && !step.handbookDerived && <span className="chip deliv-sat"><Ico name="CheckCircle2" size={12} /> Satisfies: {step.deliverable}</span>}
-                {stepIsCurrentNow && stuck >= (H.STALL_DAYS || 14) && (
-                  <span className="chip chip-risk"><Ico name="AlertTriangle" size={12} /> Stuck {stuck} days — let's unblock it</span>
-                )}
+          {subView ? (
+            <>
+              {/* Sub-milestone sheet: its own head, the milestone's tips, and
+                  the how-to walkthrough as its concrete steps to complete. */}
+              <div className="step-head">
+                <div className="step-num" style={{ fontSize: 16 }}>{subCode}</div>
+                <div style={{ flex: 1 }}>
+                  <div className="eyebrow"><Ico name="CornerDownRight" size={13} /> Milestone {stepNum} · {step.title}</div>
+                  <h1 className="display" style={{ fontSize: 24 }}>{subT}</h1>
+                  <div className="meta">
+                    <span className={`chip ${doneTasks.has(tkey(subT)) ? "deliv-sat" : ""}`}>
+                      <Ico name={doneTasks.has(tkey(subT)) ? "CheckCircle2" : "Circle"} size={12} /> {doneTasks.has(tkey(subT)) ? "Done" : "To do"}
+                    </span>
+                    <span className="chip"><Ico name="ListChecks" size={12} /> Sub-milestone {selectedSub + 1} of {step.subtasks.length}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <button className="btn soft" onClick={() => toggleTask(subT)}>
+                    <Ico name={doneTasks.has(tkey(subT)) ? "Undo2" : "Check"} size={14} /> {doneTasks.has(tkey(subT)) ? `Mark ${subCode} not done` : `Mark ${subCode} done`}
+                  </button>
+                  <button className="btn" onClick={() => setSelectedSub(null)}><Ico name="ArrowLeft" size={14} /> Back to milestone {stepNum}</button>
+                </div>
+              </div>
+              {risks.length > 0 && (
+                <div className="risks">
+                  <div className="risks-h"><Ico name="Lightbulb" size={14} /> What trips people up here</div>
+                  <ul className="risks-list">
+                    {risks.map((r, i) => <li key={i}><Ico name="AlertTriangle" size={12} /> <span>{r}</span></li>)}
+                  </ul>
+                </div>
+              )}
+              <div className="section-label"><span className="ic"><Ico name="ListChecks" size={13} /></span> Steps to complete {subCode} — and how to do them</div>
+              <div className="subsheet-howto">
+                <PlanHowTo key={`${step.id}::${subT}`} roadmap={roadmap} step={step} sub={subT} code={subCode} onAsk={onAsk} />
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                {selectedSub > 0 && <button className="btn sm" onClick={() => setSelectedSub(selectedSub - 1)}><Ico name="ChevronLeft" size={13} /> {stepNum}{planLetter(selectedSub - 1)}</button>}
+                {selectedSub < step.subtasks.length - 1 && <button className="btn sm" onClick={() => setSelectedSub(selectedSub + 1)}>{stepNum}{planLetter(selectedSub + 1)} <Ico name="ChevronRight" size={13} /></button>}
+              </div>
+            </>
+          ) : (
+          <>
+          {editPlan ? (
+            <div className="step-head editing">
+              <div className="step-num">{stepNum}</div>
+              <div style={{ flex: 1 }}>
+                <div className="pe-row">
+                  <input className="pe-input pe-eyebrow" value={step.phase || ""} onChange={e => patchStep({ phase: e.target.value })} placeholder="Phase (e.g. Research)" />
+                  <label className="pe-gate" title="A gate is a formal checkpoint that blocks progress until passed">
+                    <input type="checkbox" checked={!!step.gate} onChange={e => patchStep({ gate: e.target.checked })} /> Gate
+                  </label>
+                </div>
+                <input className="pe-input pe-title" value={step.title} onChange={e => patchStep({ title: e.target.value })} placeholder="Milestone title" />
+                <textarea className="pe-input pe-obj" value={step.objective || ""} onChange={e => patchStep({ objective: e.target.value })} placeholder="What does finishing this section look like?" rows={2} />
+              </div>
+              <div className="pe-head-acts">
+                <button className="btn sm" onClick={() => addMilestoneAt(selected)} title="Add a section before this one"><Ico name="ArrowUp" size={13} /> Add above</button>
+                <button className="btn sm" onClick={() => addMilestoneAt(selected + 1)} title="Add a section after this one"><Ico name="ArrowDown" size={13} /> Add below</button>
+                <button className="btn sm danger" disabled={roadmap.steps.length <= 1} onClick={() => removeStepById(step.id)}><Ico name="Trash2" size={13} /> Delete</button>
               </div>
             </div>
-            {!isCurrent ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {!isDone && (
-                  <button className="btn soft" onClick={() => workAlso(step.id)} title="Progress is not linear. Keep everything else going and run this in parallel.">
-                    <Ico name="Plus" size={14} /> Work on this too
-                  </button>
+          ) : (
+            <div className={`step-head ${step.recovery ? "recovery" : ""}`}>
+              <div className="step-num">{step.recovery ? "!" : stepNum}</div>
+              <div style={{ flex: 1 }}>
+                <div className="eyebrow"><Ico name={step.icon} size={13} /> {step.recovery ? "Recovery" : isDone ? "Completed" : `Step ${stepNum} · ${step.phase}`}</div>
+                <h1 className="display">{step.title}</h1>
+                <p className="obj">{step.objective}</p>
+                <div className="meta">
+                                    {step.deliverableSource && <span className="chip"><Ico name="FileText" size={12} /> Source: {step.deliverableSource}</span>}
+                  {step.deliverable && !step.handbookDerived && <span className="chip deliv-sat"><Ico name="CheckCircle2" size={12} /> Satisfies: {step.deliverable}</span>}
+                  {stepIsCurrentNow && stuck >= (H.STALL_DAYS || 14) && (
+                    <span className="chip chip-risk"><Ico name="AlertTriangle" size={12} /> Stuck {stuck} days — let's unblock it</span>
+                  )}
+                </div>
+                {step.subtasks.length > 0 && (
+                  <div className="pe-prog">
+                    <div className="pe-prog-bar"><span style={{ width: `${stepPct}%` }} /></div>
+                    <span className="pe-prog-l">{allDone ? "All steps done — nice work." : `${doneN}/${step.subtasks.length} steps done`}</span>
+                  </div>
                 )}
-                <button className="btn" onClick={() => setCurrent(step.id)} title="Make this your only active step">
-                  <Ico name={isDone ? "Undo2" : "MapPin"} size={14} /> {isDone ? "Step back here" : "Focus only here"}
-                </button>
               </div>
-            ) : (
-              activeCount > 1 && (
-                <button className="btn" onClick={() => stopHere(step.id)} title="Set this back to not started">
-                  <Ico name="Pause" size={14} /> Stop working here
-                </button>
-              )
-            )}
-          </div>
+              {!isCurrent ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {!isDone && (
+                    <button className="btn soft" onClick={() => workAlso(step.id)} title="Progress is not linear. Keep everything else going and run this in parallel.">
+                      <Ico name="Plus" size={14} /> Work on this too
+                    </button>
+                  )}
+                  <button className="btn" onClick={() => setCurrent(step.id)} title="Make this your only active step">
+                    <Ico name={isDone ? "Undo2" : "MapPin"} size={14} /> {isDone ? "Step back here" : "Focus only here"}
+                  </button>
+                </div>
+              ) : (
+                activeCount > 1 && (
+                  <button className="btn" onClick={() => stopHere(step.id)} title="Set this back to not started">
+                    <Ico name="Pause" size={14} /> Stop working here
+                  </button>
+                )
+              )}
+            </div>
+          )}
 
           {/* What trips people up here — surfaces tacit knowledge at the right moment */}
-          {risks.length > 0 && (
+          {!editPlan && risks.length > 0 && (
             <div className="risks">
               <div className="risks-h"><Ico name="Lightbulb" size={14} /> What trips people up here</div>
               <ul className="risks-list">
@@ -312,7 +578,7 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
             </div>
           )}
 
-          {isDone && (
+          {isDone && !editPlan && (
             <div className="tip tip-coach" style={{ marginBottom: 16 }}>
               <span className="tip-ico"><Ico name="Check" size={15} color="#fff" /></span>
               <div className="tip-body">You finished this milestone. Browsing it for reference — jump to your current step in the list anytime.</div>
@@ -320,86 +586,67 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
           )}
 
           {/* Committee Builder — full workbench for the committee step */}
-          {(step.id === "committee" || step.templateId === "committee") && window.CommitteeBuilder && (
+          {!editPlan && (step.id === "committee" || step.templateId === "committee") && window.CommitteeBuilder && (
             <>
               <div className="section-label"><span className="ic"><Ico name="Users" size={13} /></span> Committee builder · score real names or get suggestions</div>
               <window.CommitteeBuilder />
             </>
           )}
 
-          {/* Live tools — user-editable per step */}
-          <div className="section-label" style={{ display: "flex", alignItems: "center" }}>
-            <span className="ic"><Ico name="Wrench" size={13} /></span> Your tools for this step
-            <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => setToolPicker(o => !o)}>
-              <Ico name={toolPicker ? "ChevronUp" : "Plus"} size={13} /> {toolPicker ? "Close" : "Add tool"}
-            </button>
-          </div>
-          {toolPicker && (
-            <div className="feat-picker">
-              {Object.keys(RE2.FEATURES).filter(f => !effActive.includes(f)).map(f => {
-                const feat = RE2.feature(f);
-                return (
-                  <button key={f} className="feat-add-chip" onClick={() => addTool(f)} title={feat.blurb}>
-                    <Ico name={feat.icon} size={12} /> {feat.name} <Ico name="Plus" size={11} />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {liveTools.length > 0 ? (
-            <div className="toolgrid">
-              {liveTools.map(f => (
-                <div className="tool-wrap" key={f}>
-                  <button className="tool-x" onClick={() => removeTool(f)} title="Remove this tool from the step"><Ico name="X" size={12} /></button>
-                  {window.renderTool(f)}
-                </div>
-              ))}
-            </div>
-          ) : chipOnly.length === 0 && (
-            <div style={{ fontSize: 12.5, color: "var(--text-3)", marginBottom: 14 }}>No tools on this step yet. Add the ones you want here.</div>
-          )}
-
-          {/* Checklist — fully editable: add, rename, remove */}
-          <div className="section-label"><span className="ic"><Ico name="ListChecks" size={13} /></span> Steps to complete · {doneN}/{step.subtasks.length}</div>
+          {/* Checklist — the heart of the page: milestones to complete + how to
+              do each (AI walkthrough on expand). Fully editable in edit mode. */}
+          <div className="section-label"><span className="ic"><Ico name="ListChecks" size={13} /></span> Steps to complete &amp; how to do them · {doneN}/{step.subtasks.length}</div>
           <div className="tasklist">
-            {step.subtasks.map((t, i) => {
-              const d = doneTasks.has(tkey(t));
-              const open = openTask === i;
-              return (
-                <div key={i} className={`taskrow ${d ? "done" : ""} ${open ? "open" : ""}`}>
+            {editPlan ? (
+              step.subtasks.map((t, i) => (
+                <div key={i} className="taskrow editing">
                   <div className="taskrow-main">
-                    <button className="cb" onClick={() => toggleTask(t)} aria-label={d ? "Mark not done" : "Mark done"}>{d && <Ico name="Check" size={12} color="#fff" />}</button>
-                    {taskEdit === i ? (
-                      <input className="spine-rename" style={{ flex: 1 }} autoFocus defaultValue={t}
-                        onBlur={e => renameTask(i, e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") renameTask(i, e.target.value); if (e.key === "Escape") setTaskEdit(null); }} />
-                    ) : (
-                      <button className="taskrow-text" onClick={() => setOpenTask(open ? -1 : i)}>{t}</button>
-                    )}
-                    <span className="taskrow-tools">
-                      <button className="dv-act" onClick={() => setTaskEdit(taskEdit === i ? null : i)} title="Edit this to-do"><Ico name="Pencil" size={13} /></button>
-                      <button className="dv-act danger" onClick={() => removeTask(i)} title="Remove this to-do"><Ico name="X" size={13} /></button>
+                    <span className="taskrow-code">{stepNum}{planLetter(i)}</span>
+                    <span className="spine-move">
+                      <button disabled={i === 0} onClick={() => moveSub(i, -1)} aria-label="Move up"><Ico name="ChevronUp" size={13} /></button>
+                      <button disabled={i === step.subtasks.length - 1} onClick={() => moveSub(i, 1)} aria-label="Move down"><Ico name="ChevronDown" size={13} /></button>
                     </span>
-                    <button className="taskrow-go" onClick={() => setOpenTask(open ? -1 : i)} aria-label="How do I do this?">
-                      <span className="taskrow-help">How?</span> <Ico name={open ? "ChevronUp" : "ChevronDown"} size={15} />
-                    </button>
+                    <input className="spine-rename" style={{ flex: 1 }} defaultValue={t} key={`e-${step.id}-${i}-${t}`}
+                      onBlur={e => renameTask(i, e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }} />
+                    <button className="dv-act danger" onClick={() => removeTask(i)} title="Remove this to-do"><Ico name="X" size={13} /></button>
                   </div>
-                  {open && (
-                    <div className="taskrow-actions">
-                      <button className="btn sm primary" onClick={() => onAsk && onAsk(`I'm a PhD student working on "${step.title}". Walk me through, step by step, how to: ${t} Assume I'm new to this and give concrete first actions.`)}>
-                        <Ico name="MessageCircle" size={13} color="#fff" /> Ask your advisors how
-                      </button>
-                      {skillsUnlocked && (
-                        <button className="btn sm" onClick={() => onNav && onNav("skills")}>
-                          <Ico name="Sparkles" size={13} /> Find a tool for this
-                        </button>
-                      )}
-                      {!d && <button className="btn sm ghost" onClick={() => { toggleTask(t); setOpenTask(-1); }}><Ico name="Check" size={13} /> Mark done</button>}
-                    </div>
-                  )}
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              step.subtasks.map((t, i) => {
+                const d = doneTasks.has(tkey(t));
+                const open = openTask === i;
+                return (
+                  <div key={i} className={`taskrow ${d ? "done" : ""} ${open ? "open" : ""}`}>
+                    <div className="taskrow-main">
+                      <span className="taskrow-code">{stepNum}{planLetter(i)}</span>
+                      <button className="cb" onClick={() => toggleTask(t)} aria-label={d ? "Mark not done" : "Mark done"}>{d && <Ico name="Check" size={12} color="#fff" />}</button>
+                      {taskEdit === i ? (
+                        <input className="spine-rename" style={{ flex: 1 }} autoFocus defaultValue={t}
+                          onBlur={e => renameTask(i, e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") renameTask(i, e.target.value); if (e.key === "Escape") setTaskEdit(null); }} />
+                      ) : (
+                        <button className="taskrow-text" onClick={() => setOpenTask(open ? -1 : i)}>{t}</button>
+                      )}
+                      <span className="taskrow-tools">
+                        <button className="dv-act" onClick={() => setTaskEdit(taskEdit === i ? null : i)} title="Edit this to-do"><Ico name="Pencil" size={13} /></button>
+                        <button className="dv-act danger" onClick={() => removeTask(i)} title="Remove this to-do"><Ico name="X" size={13} /></button>
+                      </span>
+                      <button className="taskrow-go" onClick={() => setOpenTask(open ? -1 : i)} aria-label="How do I do this?">
+                        <span className="taskrow-help">How?</span> <Ico name={open ? "ChevronUp" : "ChevronDown"} size={15} />
+                      </button>
+                    </div>
+                    {open && (
+                      <div className="taskrow-actions">
+                        <PlanHowTo roadmap={roadmap} step={step} sub={t} code={`${stepNum}${planLetter(i)}`} onAsk={onAsk} />
+                        {!d && <button className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => { toggleTask(t); setOpenTask(-1); }}><Ico name="Check" size={13} /> Mark {stepNum}{planLetter(i)} done</button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
             <div className="task-add">
               <input className="def-add-input" value={newTask} onChange={e => setNewTask(e.target.value)}
                 placeholder="Add your own to-do for this section..."
@@ -408,39 +655,8 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
             </div>
           </div>
 
-          {/* What changes */}
-          {(step.add.length > 0 || step.retire.length > 0) && (
-            <>
-              <div className="section-label"><span className="ic"><Ico name="Replace" size={13} /></span> How your tools change here</div>
-              <div className="changes">
-                <div className="change-col add">
-                  <div className="cc-h"><Ico name="PlusCircle" size={14} /> Unlocked now</div>
-                  {step.add.length === 0 ? <span style={{ fontSize: 12, color: "var(--text-3)" }}>Nothing new.</span>
-                    : step.add.map(f => <span key={f} className="chip-feat"><Ico name={RE2.feature(f).icon} size={12} /> {RE2.feature(f).name}</span>)}
-                </div>
-                <div className="change-col ret">
-                  <div className="cc-h"><Ico name="MinusCircle" size={14} /> Retires when done</div>
-                  {step.retire.length === 0 ? <span style={{ fontSize: 12, color: "var(--text-3)" }}>Nothing retires.</span>
-                    : step.retire.map(f => <span key={f} className="chip-feat"><Ico name={RE2.feature(f).icon} size={12} /> {RE2.feature(f).name}</span>)}
-                </div>
-              </div>
-            </>
-          )}
-
-          {chipOnly.length > 0 && (
-            <>
-              <div className="section-label"><span className="ic"><Ico name="Boxes" size={13} /></span> Also active</div>
-              <div>{chipOnly.map(f => (
-                <span key={f} className="chip-feat">
-                  <Ico name={RE2.feature(f).icon} size={12} /> {RE2.feature(f).name}
-                  <button className="chipx" onClick={() => removeTool(f)} title="Remove this tool from the step"><Ico name="X" size={10} /></button>
-                </span>
-              ))}</div>
-            </>
-          )}
-
           {/* Complete CTA */}
-          {isCurrent && (
+          {isCurrent && !editPlan && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24, padding: "18px 20px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
               <div style={{ fontSize: 13.5, color: "var(--text-2)" }}>
                 {allDone ? <><b style={{ color: "var(--text)" }}>All steps checked.</b> Ready to celebrate this milestone.</> : `${step.subtasks.length - doneN} step${step.subtasks.length - doneN === 1 ? "" : "s"} left`}
@@ -449,6 +665,8 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
                 <Ico name="Flag" size={15} color="#fff" /> Complete milestone
               </button>
             </div>
+          )}
+          </>
           )}
         </div>
       </div>
@@ -1512,9 +1730,9 @@ function CoachRoot() {
 
   let body;
   if (v === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} onNav={setView} onOpenSos={() => setSosOpen(true)} onOpenStep={openWorkspace} focused={focused} theme={theme} />;
-  else if (v === "plan") body = window.CoachPlanSheet
-    ? <window.CoachPlanSheet roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} touchStep={touchStep} onOpenSos={() => setSosOpen(true)} onNav={setView} onOpenStep={openWorkspace} onAsk={askInChat} />
-    : <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
+  // My Plan uses the V2 PlanView (the version deployed on main); the newer
+  // spreadsheet (CoachPlanSheet) is retired while we redo this section.
+  else if (v === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
   else if (v === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} unlocked={unlocked} onMessage={bumpMessages} />;
   else if (v === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
   else if (v === "insights") body = <window.CoachInsights onNav={setView} roadmap={roadmap} doneTasks={doneTasks} />;

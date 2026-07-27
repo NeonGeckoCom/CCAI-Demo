@@ -25,15 +25,6 @@ function phaseColor(phase) {
   let h = 0; for (let i = 0; i < p.length; i++) h = (h * 31 + p.charCodeAt(i)) | 0;
   return PHASE_PALETTE[Math.abs(h) % PHASE_PALETTE.length];
 }
-// Where a plan row came from — handbook, web search, or the built-in template.
-function sourceMeta(src) {
-  const s = String(src || "").trim();
-  if (!s) return { icon: "HelpCircle", label: "—", full: "Source not recorded" };
-  if (/perplexity|web/i.test(s)) return { icon: "Globe", label: "Web search", full: s };
-  if (/template|built-in/i.test(s)) return { icon: "LayoutTemplate", label: "Template", full: s };
-  return { icon: "FileText", label: s.length > 22 ? s.slice(0, 20) + "…" : s, full: s };
-}
-
 function yearOf(months, idx) {
   const m = parseInt(String(months || "").match(/\d+/) || "", 10);
   return isNaN(m) ? Math.floor(idx / 4) + 1 : Math.max(1, Math.ceil(m / 12));
@@ -640,7 +631,7 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
       {view === "overview" ? (
       <div className="sheet">
         <div className="sheet-head">
-          <span className="sh-code">#</span><span className="sh-title">Task</span><span className="sh-time">Source</span>
+          <span className="sh-code">#</span><span className="sh-title">Task</span><span className="sh-time">Time</span>
           <span className="sh-status">Status</span><span className="sh-acts" />
         </div>
         {(() => { let lastYear = 0; return steps.map((s, i) => {
@@ -660,9 +651,8 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
                 <span className="sh-code"><b>{i + 1}</b>{s.gate && <IcoP name="Flag" size={10} className="sheet-gate" />}</span>
                 <input className="sheet-cell title sec" defaultValue={s.title} key={`t-${s.id}-${s.title}`}
                   onBlur={e => { const v = e.target.value.trim(); if (v && v !== s.title) patchStep(s.id, { title: v }); }} />
-                {(() => { const sm = sourceMeta(s.source || s.deliverableSource); return (
-                  <span className="sheet-cell src" title={sm.full}><IcoP name={sm.icon} size={11} /> {sm.label}</span>
-                ); })()}
+                <input className="sheet-cell time" defaultValue={s.months || ""} key={`m-${s.id}-${s.months}`} placeholder="mo 1-3"
+                  onBlur={e => patchStep(s.id, { months: e.target.value.trim() })} />
                 <button className={`sheet-work ${active ? "on" : ""}`} onClick={() => toggleWork(s)}
                   title={active ? "You're working here — click to pause" : "Work on this section"}>
                   <IcoP name={active ? "CircleDot" : s.status === "done" ? "CheckCircle2" : "Play"} size={13} />
@@ -689,9 +679,8 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
                       <input className="sheet-cell title" defaultValue={t} key={`s-${s.id}-${j}-${t}`}
                         onBlur={e => setSub(s, t, e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }} />
-                      {(() => { const sm = sourceMeta(meta.source || s.source || s.deliverableSource); return (
-                        <span className="sheet-cell src" title={sm.full}><IcoP name={sm.icon} size={11} /> {sm.label}</span>
-                      ); })()}
+                      <input className="sheet-cell time" defaultValue={meta.days || ""} key={`d-${s.id}-${j}-${meta.days}`} placeholder="1w"
+                        onBlur={e => patchMeta(s.id, t, { days: e.target.value.trim() })} />
                       <button className={`sheet-status ${st}`} onClick={() => cycleStatus(s, t)} title="Click to cycle: todo → doing → done → skip">
                         <IcoP name={statusIcon(st)} size={13} /> {st}
                       </button>

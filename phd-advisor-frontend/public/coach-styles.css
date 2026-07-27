@@ -2044,7 +2044,7 @@ button, input, textarea, select { font-family: inherit; }
    =========================================================================== */
 .plan-toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
 .sheet { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-sm); overflow: hidden; }
-.sheet-head, .sheet-sec, .sheet-row { display: grid; grid-template-columns: 52px minmax(200px, 2.2fr) 132px 108px minmax(140px, 1.6fr) 118px; align-items: center; gap: 6px; padding: 0 10px; }
+.sheet-head, .sheet-sec, .sheet-row { display: grid; grid-template-columns: 52px minmax(200px, 2.2fr) 84px 108px minmax(140px, 1.6fr) 118px; align-items: center; gap: 6px; padding: 0 10px; }
 .sheet-head { background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); padding-top: 8px; padding-bottom: 8px; }
 .sheet-sec { position: relative; background: var(--surface-2); border-top: 1px solid var(--border); padding-top: 6px; padding-bottom: 6px; }
 .sheet-sec.active { background: var(--primary-soft); }
@@ -2113,7 +2113,7 @@ button, input, textarea, select { font-family: inherit; }
 .wt-list.amber li::marker { color: var(--amber); }
 
 /* Notes column removed — 5-column sheet; inline expansion panel */
-.sheet-head, .sheet-sec, .sheet-row { grid-template-columns: 64px minmax(220px, 3fr) 140px 116px 122px; }
+.sheet-head, .sheet-sec, .sheet-row { grid-template-columns: 64px minmax(220px, 3fr) 92px 116px 122px; }
 @media (max-width: 900px) { .sheet-head, .sheet-sec, .sheet-row { grid-template-columns: 56px minmax(150px, 2.4fr) 70px 100px 96px; } }
 .sh-code.linky { display: inline-flex; align-items: center; gap: 3px; }
 .sheet-row.open { background: var(--primary-soft); border-bottom: none; }
@@ -2486,8 +2486,6 @@ button, input, textarea, select { font-family: inherit; }
 .jn2-dot.on { background: var(--primary); width: 20px; border-radius: 999px; }
 .ws-page-n { font-size: 11.5px; font-weight: 700; color: var(--text-3); min-width: 30px; text-align: center; }
 
-/* Plan sheet — source column (replaces the editable time column) */
-.sheet-cell.src { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: default; }
 
 /* ============================================================================
    REMINDERS — home half-row + four-horizon board on My Plan
@@ -2568,3 +2566,122 @@ button, input, textarea, select { font-family: inherit; }
 .ins-brain-feeds { display: flex; gap: 6px; flex-wrap: wrap; }
 .ins-brain-edit { width: 100%; min-height: 300px; border: 1px solid var(--border-input); border-radius: 12px; padding: 12px 14px; font-size: 12.5px; line-height: 1.6; font-family: ui-monospace, monospace; background: var(--surface); color: var(--text); resize: vertical; }
 .ins-brain-t { font-size: 11px; color: var(--text-3); margin-left: auto; }
+
+/* ============================================================================
+   MY PLAN (V2) — inline editing, CSV toolbar, progress, at-a-glance
+   ========================================================================== */
+.plan-toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.plan-glance { display: flex; flex-direction: column; align-items: stretch; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
+.plan-glance-bar { flex: 1; min-width: 120px; height: 8px; background: var(--surface-3); border-radius: 5px; overflow: hidden; }
+.plan-glance-bar span { display: block; height: 100%; background: var(--grad); border-radius: 5px; transition: width .5s ease; }
+.plan-glance-meta { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
+.plan-glance-meta strong { color: var(--text); font-weight: 600; }
+.plan-glance-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.plan-glance-edit { color: var(--primary-deep) !important; }
+
+/* Inline field editing in the step head */
+.step-head.editing { align-items: flex-start; }
+.pe-input { width: 100%; border: 1px solid var(--border-input); border-radius: 10px; padding: 8px 11px; font-size: 14px; font-family: inherit; background: var(--surface); color: var(--text); }
+.pe-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-ring); }
+.pe-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.pe-obj { resize: vertical; line-height: 1.5; margin-bottom: 8px; }
+.pe-est { font-size: 12.5px; color: var(--text-2); }
+.pe-row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.pe-eyebrow { flex: 1; font-size: 12px; }
+.pe-gate { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; cursor: pointer; }
+.pe-gate input { width: 15px; height: 15px; accent-color: var(--primary); }
+.pe-head-acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.pe-head-acts .btn.danger { color: var(--rose); }
+
+/* Per-step progress (celebrate small wins) */
+.pe-prog { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.pe-prog-bar { flex: 1; max-width: 260px; height: 6px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+.pe-prog-bar span { display: block; height: 100%; background: var(--sage); border-radius: 4px; transition: width .4s ease; }
+.pe-prog-l { font-size: 11.5px; color: var(--text-3); font-weight: 600; }
+
+/* Editable subtask rows */
+.taskrow.editing { padding: 4px 0; }
+.taskrow.editing .taskrow-main { gap: 8px; }
+
+/* Standalone Reminders home block — keep the compact card design (not full width) */
+.dh-rem-block { max-width: 560px; }
+
+/* Home reminders — all horizons grouped by urgency, compact in the half-row */
+.rem-group { margin-top: 8px; }
+.rem-group:first-of-type { margin-top: 2px; }
+.rem-group-h { display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+.rem-group-h .dh-count { margin-left: 4px; }
+.dh-half-row > .dh-card { height: 100%; }
+
+/* My Plan — spreadsheet-style subtask codes (1a, 1b, 1c …) */
+.taskrow-code { flex-shrink: 0; min-width: 26px; font-size: 11px; font-weight: 800; color: var(--primary-deep); font-variant-numeric: tabular-nums; letter-spacing: .02em; text-align: center; padding: 2px 5px; background: var(--primary-soft); border-radius: 6px; }
+.taskrow.done .taskrow-code { opacity: .55; }
+.taskrow.editing .taskrow-code { align-self: center; }
+
+/* My Plan — inline "how to do this" walkthrough per subtask */
+.howto { display: flex; flex-direction: column; gap: 8px; }
+.howto-load, .howto-err { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); }
+.howto-err { color: var(--rose); }
+.howto-overview { font-size: 13px; line-height: 1.6; color: var(--text-2); margin: 0; }
+.howto-h { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+.howto-steps { display: flex; flex-direction: column; gap: 5px; }
+.howto-step { display: flex; align-items: flex-start; gap: 9px; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; cursor: pointer; transition: border-color .12s ease; }
+.howto-step:hover { border-color: var(--primary); }
+.howto-step.done { opacity: .6; }
+.howto-step.done .howto-step-t { text-decoration: line-through; }
+.howto-cb { flex-shrink: 0; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--border-2); display: grid; place-items: center; margin-top: 1px; }
+.howto-step.done .howto-cb { background: var(--sage); border-color: var(--sage); }
+.howto-step-t { font-size: 13px; line-height: 1.5; color: var(--text); display: flex; flex-direction: column; gap: 2px; }
+.howto-step-d { font-size: 11.5px; color: var(--text-3); line-height: 1.5; }
+
+/* My Plan — graduation slider (cap slides Start → Graduation with progress) */
+.grad-slider { display: flex; align-items: center; gap: 10px; width: 100%; }
+.grad-end { flex-shrink: 0; display: grid; place-items: center; color: var(--text-3); }
+.grad-end.finish { width: 30px; height: 30px; border-radius: 50%; background: var(--surface-2); color: var(--primary-deep); border: 1px solid var(--border); }
+.grad-track { position: relative; flex: 1; height: 10px; background: var(--surface-3); border-radius: 6px; }
+.grad-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--grad); border-radius: 6px; transition: width .6s cubic-bezier(.4,0,.2,1); }
+.grad-cap { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 50%; background: var(--grad); display: grid; place-items: center; box-shadow: 0 3px 10px -3px var(--primary-ring); border: 2px solid var(--surface); transition: left .6s cubic-bezier(.4,0,.2,1); z-index: 1; }
+.grad-pct { font-weight: 700; color: var(--text) !important; }
+
+/* Home meeting card — clickable meeting rows */
+.dh-meet.clickable { display: block; width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--border); cursor: pointer; border-radius: 8px; }
+.dh-meet.clickable:first-of-type { border-top: none; }
+.dh-meet.clickable:hover { background: var(--surface-2); }
+
+/* My Plan — spine sub-milestones (caret-revealed 2a/2b rows) + glance chips */
+.spine-caret { flex-shrink: 0; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: var(--text-3); }
+.spine-caret:hover { background: var(--surface-3); color: var(--text); }
+.spine-subs { margin: 2px 0 6px 30px; display: flex; flex-direction: column; gap: 2px; border-left: 2px solid var(--border); padding-left: 8px; }
+.spine-sub { display: flex; align-items: center; gap: 8px; text-align: left; background: none; border: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; color: var(--text-2); }
+.spine-sub:hover { background: var(--surface-2); }
+.spine-sub.sel { background: var(--primary-soft); color: var(--primary-deep); }
+.spine-sub.done { color: var(--text-3); }
+.spine-sub.done .spine-sub-t { text-decoration: line-through; }
+.spine-sub-code { flex-shrink: 0; min-width: 24px; text-align: center; font-size: 10px; font-weight: 800; color: var(--primary-deep); background: var(--primary-soft); border-radius: 5px; padding: 1px 4px; }
+.spine-sub.sel .spine-sub-code { background: var(--surface); }
+.spine-sub-t { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); background: var(--surface-2); border-radius: 999px; padding: 4px 12px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.pg-chip strong { color: var(--text); font-weight: 600; }
+.pg-chip.strong { color: var(--text); font-weight: 700; background: var(--primary-soft); }
+.pg-chip.edit { color: var(--primary-deep); white-space: normal; }
+.subsheet-howto { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px 18px; box-shadow: var(--shadow-sm); }
+
+/* Spine caret — far right, vertically centered with the milestone title */
+.spine-caret { margin-left: auto; align-self: center; }
+
+/* Insights — AI-composed dashboard sections (living brain layout) */
+.ins-sec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 980px) { .ins-sec-grid { grid-template-columns: 1fr; } }
+.ins-sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 8px; }
+.ins-sec.tone-win { border-left: 3px solid var(--sage); }
+.ins-sec.tone-win .ins-focus-ico { background: var(--sage-soft); color: var(--sage); }
+.ins-sec.tone-watch { border-left: 3px solid var(--amber); }
+.ins-sec.tone-watch .ins-focus-ico { background: var(--amber-soft); color: var(--amber); }
+.ins-sec-h { display: flex; gap: 10px; align-items: center; }
+.ins-chart-note { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--text-2); line-height: 1.55; margin: 0; }
+.ins-highlight { align-items: flex-start; justify-content: center; background: var(--primary-soft); border-color: transparent; }
+.ins-hl-stat { font-family: Fraunces, serif; font-size: 30px; font-weight: 700; color: var(--primary-deep); line-height: 1.1; }
+.ins-hl-label { font-size: 13px; font-weight: 700; }
+.ins-hl-c { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+.ins-wbars { display: flex; align-items: flex-end; gap: 4px; height: 72px; margin-top: 4px; }
+.ins-wbar { width: 100%; max-width: 16px; border-radius: 4px 4px 2px 2px; background: var(--chart-a); }

@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 BRAIN_COLLECTION = "insights_brain"
-FOCUS_KEYS = ("work", "mental", "timeline")
+SECTION_TYPES = ("narrative", "chart", "actions", "highlight")
+CHART_SERIES = ("mood_stress", "work_hours", "phase_progress", "library")
+NARRATIVE_ICONS = ("PenTool", "Heart", "TrendingUp", "Lightbulb", "AlertTriangle", "Sparkles", "BookOpen", "Users", "Flag")
+TONES = ("win", "watch", "info")
 
 
 class BrainRequest(BaseModel):
@@ -35,19 +38,67 @@ class BrainRequest(BaseModel):
 
 def _public(doc: Dict[str, Any], cached: bool) -> Dict[str, Any]:
     return {
-        "focus": doc.get("focus") or {},
+        "sections": doc.get("sections") or [],
         "created_at": doc["created_at"].isoformat(),
         "cached": cached,
     }
 
 
-def _fallback_focus() -> Dict[str, Any]:
-    empty = {
-        "headline": "Not enough signal yet",
-        "narrative": "Keep using the app — chat, documents, check-ins, and meetings all feed this page.",
-        "suggestions": [],
-    }
-    return {k: dict(empty) for k in FOCUS_KEYS}
+def _fallback_sections() -> List[Dict[str, Any]]:
+    return [
+        {"type": "narrative", "title": "Your brain is warming up", "icon": "Sparkles", "tone": "info",
+         "body": "Keep using the app — chat, documents, meetings, check-ins, and defense practice all feed this page. The more it knows, the sharper the feedback gets."},
+        {"type": "chart", "series": "phase_progress", "title": "Where your plan stands", "comment": "Task completion by phase, straight from My Plan."},
+    ]
+
+
+def _clean_sections(raw: Any) -> List[Dict[str, Any]]:
+    """Validate the LLM's dashboard layout down to render-safe sections."""
+    out: List[Dict[str, Any]] = []
+    for sec in (raw or []):
+        if not isinstance(sec, dict):
+            continue
+        t = str(sec.get("type") or "")
+        if t not in SECTION_TYPES:
+            continue
+        if t == "narrative":
+            body = str(sec.get("body") or "").strip()
+            if not body:
+                continue
+            out.append({
+                "type": "narrative",
+                "title": str(sec.get("title") or "")[:120],
+                "icon": sec.get("icon") if sec.get("icon") in NARRATIVE_ICONS else "Sparkles",
+                "tone": sec.get("tone") if sec.get("tone") in TONES else "info",
+                "body": body[:1200],
+            })
+        elif t == "chart":
+            if sec.get("series") not in CHART_SERIES:
+                continue
+            out.append({
+                "type": "chart",
+                "series": sec["series"],
+                "title": str(sec.get("title") or "")[:120],
+                "comment": str(sec.get("comment") or "")[:400],
+            })
+        elif t == "actions":
+            items = [str(i)[:300] for i in (sec.get("items") or [])[:4] if str(i).strip()]
+            if not items:
+                continue
+            out.append({"type": "actions", "title": str(sec.get("title") or "Do next")[:120], "items": items})
+        elif t == "highlight":
+            stat = str(sec.get("stat") or "").strip()
+            if not stat:
+                continue
+            out.append({
+                "type": "highlight",
+                "stat": stat[:60],
+                "label": str(sec.get("label") or "")[:120],
+                "comment": str(sec.get("comment") or "")[:300],
+            })
+        if len(out) >= 9:
+            break
+    return out
 
 
 @router.post("/insights/brain")
@@ -96,22 +147,29 @@ async def insights_brain(
         for d in docs[:12]
     ]
 
+    # Data availability — the model may only request charts that have data.
+    mood_days = len([c for c in (wellness.get("recent") or []) if c.get("mood") is not None])
+    work_days = len([c for c in (wellness.get("recent") or []) if c.get("work_hours") is not None])
+    phases_with_tasks = len([p for p in (plan.get("phases") or []) if (p or {}).get("tasksTotal")])
+
     system_prompt = (
-        "You are the analytical brain of a PhD coaching app. From everything "
-        "the app knows about one student, produce a candid, personal analysis "
-        "in three focus areas:\n"
-        "1. work — quality of work: is what they're producing what they want "
-        "it to be? Ground it in their documents, drafts, and chat history.\n"
-        "2. mental — are they doing OK? Ground it in check-ins, burnout "
-        "signal, and notes. Warm and honest, never clinical or diagnostic.\n"
-        "3. timeline — are they making progress? Where are they slower than "
-        "they need to be, and what concrete strategies would speed things up?\n"
-        "Rules: reference their actual data — names, numbers, deadlines, "
-        "quotes from notes. If a focus area has thin data, say so honestly "
-        "instead of inventing. Respond ONLY with JSON: {\"work\": {...}, "
-        "\"mental\": {...}, \"timeline\": {...}} where each value is "
-        "{\"headline\": string (max 10 words), \"narrative\": string (3-5 "
-        "sentences), \"suggestions\": [string, ...] (2-3 concrete actions)}."
+        "You are the living brain of a PhD coaching app: a markdown memory file "
+        "that watches everything the student does and composes their personal "
+        "Insights dashboard. You decide the layout: which charts to show, what "
+        "feedback to give, what to celebrate, what to warn about. Cover three "
+        "themes across your sections: quality of work (is it what they want it "
+        "to be?), mental wellbeing (are they doing OK?), and timeline progress "
+        "(faster, or smarter?).\n"
+        "Respond ONLY with JSON: {\"sections\": [4-8 section objects]} where each is one of:\n"
+        '{\"type\":\"narrative\",\"title\":str,\"icon\":one of PenTool|Heart|TrendingUp|Lightbulb|AlertTriangle|Sparkles|BookOpen|Users|Flag,\"tone\":\"win\"|\"watch\"|\"info\",\"body\":str 2-4 personal sentences}\n'
+        '{\"type\":\"chart\",\"series\":\"mood_stress\"|\"work_hours\"|\"phase_progress\"|\"library\",\"title\":str,\"comment\":str one-line personal takeaway about what THEIR data shows}\n'
+        '{\"type\":\"actions\",\"title\":str,\"items\":[2-4 concrete actions]}\n'
+        '{\"type\":\"highlight\",\"stat\":short stat like \"6-day streak\",\"label\":str,\"comment\":str}\n'
+        "Rules: reference their actual data — names, numbers, deadlines, quotes "
+        "from notes; never invent. Include a chart section ONLY if its data "
+        "exists per the availability flags. Celebrate at least one real win "
+        "(tone \"win\") when any exists. Be honest about thin data. Lead with "
+        "what matters most for THIS student right now."
     )
     user_prompt = (
         f"PLAN CONTEXT (from the student's live plan):\n{json.dumps(plan)[:2500]}\n\n"
@@ -120,10 +178,12 @@ async def insights_brain(
         f"Recent check-ins:\n{chr(10).join(checkin_lines) or '(none)'}\n\n"
         f"DOCUMENT LIBRARY:\n{chr(10).join(doc_lines) or '(empty)'}\n\n"
         f"EVERYTHING THE COACH KNOWS (accumulated notes from chat, documents, "
-        f"meetings, defense practice, wellbeing):\n{knowledge_md or '(nothing yet)'}"
+        f"meetings, defense practice, wellbeing):\n{knowledge_md or '(nothing yet)'}\n\n"
+        f"CHART DATA AVAILABILITY: mood_stress={mood_days} days; work_hours={work_days} days; "
+        f"phase_progress={phases_with_tasks} phases with tasks; library={len(docs)} documents."
     )
 
-    focus = None
+    sections = None
     try:
         from app.llm.clients.provider_manager import create_llm_client
 
@@ -131,28 +191,21 @@ async def insights_brain(
         raw = await llm.generate(
             system_prompt=system_prompt,
             context=[{"role": "user", "content": user_prompt}],
-            temperature=0.4,
-            max_tokens=1400,
+            temperature=0.5,
+            max_tokens=1800,
             response_mime_type="application/json",
         )
         cleaned = re.sub(r"^```(?:json)?|```$", "", (raw or "").strip(), flags=re.MULTILINE).strip()
         parsed = json.loads(cleaned)
-        focus = {}
-        for key in FOCUS_KEYS:
-            section = parsed.get(key) or {}
-            focus[key] = {
-                "headline": str(section.get("headline") or "")[:120],
-                "narrative": str(section.get("narrative") or "")[:1200],
-                "suggestions": [str(s)[:300] for s in (section.get("suggestions") or [])[:3]],
-            }
-        if not any(focus[k]["narrative"] for k in FOCUS_KEYS):
-            focus = None
+        sections = _clean_sections(parsed.get("sections"))
+        if not sections:
+            sections = None
     except Exception as exc:
         logger.warning("Insights brain generation failed for %s: %s", user_id, exc)
 
-    if focus is None:
-        focus = _fallback_focus()
+    if sections is None:
+        sections = _fallback_sections()
 
-    record = {"user_id": user_id, "focus": focus, "created_at": _now()}
+    record = {"user_id": user_id, "sections": sections, "created_at": _now()}
     await db[BRAIN_COLLECTION].insert_one(record)
     return _public(record, cached=False)

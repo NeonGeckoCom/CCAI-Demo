@@ -119,6 +119,32 @@ function InsPhaseBars({ phases }) {
   );
 }
 
+// Work hours per day — single measure, single hue, tooltips + caption.
+function InsWorkBars({ recent }) {
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const c = (recent || []).find(x => x.date === key);
+    days.push({ key, label: d.toLocaleDateString(undefined, { weekday: "narrow" }), h: c && c.work_hours != null ? c.work_hours : null });
+  }
+  if (!days.some(d => d.h != null)) return <div className="ins-chart-empty">No work-hour logs yet — add them in the Wellbeing check-in.</div>;
+  const max = Math.max(8, ...days.map(d => d.h || 0));
+  return (
+    <div>
+      <div className="ins-wbars">
+        {days.map(d => (
+          <div key={d.key} className="well-chart-col" title={`${d.key}: ${d.h != null ? d.h + "h worked" : "not logged"}`}>
+            <div className="ins-wbar" style={{ height: d.h != null ? `${Math.max(4, (d.h / max) * 100)}%` : "3%", opacity: d.h != null ? 1 : .25 }} />
+            <span className="well-chart-l">{d.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="well-chart-cap">Work hours, last 14 days</div>
+    </div>
+  );
+}
+
 function CoachInsights({ onNav, roadmap, doneTasks }) {
   const authed = window.CoachAPI && window.CoachAPI.isAuthed && window.CoachAPI.isAuthed();
   const [brain, setBrain] = useSV(null);
@@ -185,12 +211,30 @@ function CoachInsights({ onNav, roadmap, doneTasks }) {
     } catch (e) {}
   };
 
-  const FOCUS_META = [
-    { key: "work", icon: "PenTool", label: "Quality of work", sub: "Is it what you want it to be?" },
-    { key: "mental", icon: "Heart", label: "Mental wellbeing", sub: "Are you doing OK?" },
-    { key: "timeline", icon: "TrendingUp", label: "Timeline & progress", sub: "Faster, or smarter?" },
+  // The AI composes the dashboard layout; charts always render from the
+  // student's real local data so numbers can't be hallucinated.
+  const libraryTiles = (
+    <div className="ins-tiles">
+      <div className="ins-tile"><span className="ins-tile-n">{ctx.plan.done_steps}<em>/{ctx.plan.total_steps}</em></span><span className="ins-tile-l">Milestones done</span></div>
+      <div className="ins-tile"><span className="ins-tile-n">{tasksDone}<em>/{tasksTotal}</em></span><span className="ins-tile-l">Tasks done</span></div>
+      <div className="ins-tile"><span className="ins-tile-n">{docs.length}</span><span className="ins-tile-l">Documents analyzed</span></div>
+      <div className="ins-tile"><span className="ins-tile-n">{libraryWords >= 1000 ? `${Math.round(libraryWords / 1000)}k` : libraryWords}</span><span className="ins-tile-l">Words in your library</span></div>
+    </div>
+  );
+  const chartFor = (series) =>
+    series === "mood_stress" ? <InsMoodChart recent={(wellness && wellness.recent) || []} />
+    : series === "work_hours" ? <InsWorkBars recent={(wellness && wellness.recent) || []} />
+    : series === "phase_progress" ? <InsPhaseBars phases={phases} />
+    : libraryTiles;
+  const hasCheckins = !!(wellness && wellness.recent && wellness.recent.length);
+  const localSections = [
+    ...(hasCheckins ? [{ type: "chart", series: "mood_stress", title: "Mood & stress, last 14 days", comment: "" }] : []),
+    { type: "chart", series: "phase_progress", title: "Progress by phase", comment: "" },
+    { type: "chart", series: "library", title: "Your work at a glance", comment: "" },
+    { type: "narrative", title: authed ? "Writing your feedback…" : "Sign in for living feedback", icon: "Sparkles", tone: "info",
+      body: authed ? "The brain reads everything it knows about you and composes this page fresh. Hit Regenerate any time it feels stale." : "Charts run from this device's data. Sign in with the backend running and the brain writes personal feedback, celebrations, and warnings here." },
   ];
-  const focus = (brain && brain.focus) || {};
+  const sections = brain && brain.sections && brain.sections.length ? brain.sections : localSections;
 
   return (
     <div className="page">
@@ -206,36 +250,32 @@ function CoachInsights({ onNav, roadmap, doneTasks }) {
 
       {!authed && <div className="doc-upload-err"><IcoV name="WifiOff" size={15} /> Sign in with the backend running to generate insights — charts below still use this device's data.</div>}
 
-      <div className="ins-focus-grid">
-        {FOCUS_META.map(f => {
-          const sec = focus[f.key] || {};
+      <div className="ins-sec-grid">
+        {sections.map((sec, i) => {
+          if (sec.type === "highlight") return (
+            <div key={i} className="ins-sec ins-highlight">
+              <span className="ins-hl-stat">{sec.stat}</span>
+              <span className="ins-hl-label">{sec.label}</span>
+              {sec.comment && <span className="ins-hl-c">{sec.comment}</span>}
+            </div>
+          );
+          if (sec.type === "actions") return (
+            <div key={i} className="ins-sec">
+              <div className="ins-sec-h"><span className="ins-focus-ico"><IcoV name="ListChecks" size={15} /></span><div className="ins-focus-l">{sec.title}</div></div>
+              <ul className="ins-focus-sug">{(sec.items || []).map((a, j) => <li key={j}>{a}</li>)}</ul>
+            </div>
+          );
+          if (sec.type === "chart") return (
+            <div key={i} className="ins-sec">
+              {sec.title && <div className="ins-sec-h"><span className="ins-focus-ico"><IcoV name="BarChart3" size={15} /></span><div className="ins-focus-l">{sec.title}</div></div>}
+              {chartFor(sec.series)}
+              {sec.comment && <p className="ins-chart-note"><IcoV name="Sparkles" size={11} /> {sec.comment}</p>}
+            </div>
+          );
           return (
-            <div key={f.key} className="ins-focus">
-              <div className="ins-focus-h">
-                <span className="ins-focus-ico"><IcoV name={f.icon} size={15} /></span>
-                <div><div className="ins-focus-l">{f.label}</div><div className="ins-focus-s">{f.sub}</div></div>
-              </div>
-              {busy && !sec.narrative ? (
-                <div className="ins-chart-empty"><IcoV name="Loader" size={13} className="spin" /> Reading everything…</div>
-              ) : (
-                <>
-                  {sec.headline && <div className="ins-focus-head">{sec.headline}</div>}
-                  {sec.narrative && <p className="ins-focus-n">{sec.narrative}</p>}
-                  {(sec.suggestions || []).length > 0 && (
-                    <ul className="ins-focus-sug">{sec.suggestions.map((s, i) => <li key={i}>{s}</li>)}</ul>
-                  )}
-                </>
-              )}
-              {f.key === "mental" && <InsMoodChart recent={(wellness && wellness.recent) || []} />}
-              {f.key === "timeline" && <InsPhaseBars phases={phases} />}
-              {f.key === "work" && (
-                <div className="ins-tiles">
-                  <div className="ins-tile"><span className="ins-tile-n">{ctx.plan.done_steps}<em>/{ctx.plan.total_steps}</em></span><span className="ins-tile-l">Milestones done</span></div>
-                  <div className="ins-tile"><span className="ins-tile-n">{tasksDone}<em>/{tasksTotal}</em></span><span className="ins-tile-l">Tasks done</span></div>
-                  <div className="ins-tile"><span className="ins-tile-n">{docs.length}</span><span className="ins-tile-l">Documents analyzed</span></div>
-                  <div className="ins-tile"><span className="ins-tile-n">{libraryWords >= 1000 ? `${Math.round(libraryWords / 1000)}k` : libraryWords}</span><span className="ins-tile-l">Words in your library</span></div>
-                </div>
-              )}
+            <div key={i} className={`ins-sec tone-${sec.tone || "info"}`}>
+              <div className="ins-sec-h"><span className="ins-focus-ico"><IcoV name={sec.icon || "Sparkles"} size={15} /></span><div className="ins-focus-l">{sec.title}</div></div>
+              <p className="ins-focus-n">{sec.body}</p>
             </div>
           );
         })}

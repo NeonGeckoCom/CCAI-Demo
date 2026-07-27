@@ -683,10 +683,12 @@ function RemindersPanel({ mode = "home", onNav }) {
   const remove = (id) => persist(items.filter(r => r.id !== id));
   const open = items.filter(r => !r.done);
 
-  const Row = ({ r, showBucket }) => {
+  // Plain render helpers (NOT inner components) — using them as elements keeps
+  // the <input> identity stable across renders so it never loses focus mid-type.
+  const renderRow = (r, showBucket) => {
     const b = REM_BUCKETS.find(x => x.id === r.bucket) || REM_BUCKETS[1];
     return (
-      <div className={`rem-row ${r.done ? "done" : ""}`}>
+      <div key={r.id} className={`rem-row ${r.done ? "done" : ""}`}>
         <button className="dh-cb" onClick={() => toggle(r.id)} aria-label={r.done ? "Mark not done" : "Mark done"}>
           {r.done && <Icon name="Check" size={12} color="#fff" />}
         </button>
@@ -697,7 +699,7 @@ function RemindersPanel({ mode = "home", onNav }) {
     );
   };
 
-  const AddBar = () => (
+  const addBar = (
     <div className="rem-add">
       <input value={text} onChange={e => setText(e.target.value)} placeholder="Remember to…"
         onKeyDown={e => { if (e.key === "Enter") add(); }} />
@@ -709,26 +711,27 @@ function RemindersPanel({ mode = "home", onNav }) {
   );
 
   if (mode === "home") {
-    // Compact: urgent + this-week reminders; long-horizon counts link to Plan.
-    const near = open.filter(r => r.bucket === "urgent" || r.bucket === "week")
-      .sort((a, b) => (a.bucket === "urgent" ? 0 : 1) - (b.bucket === "urgent" ? 0 : 1));
-    const farCount = open.filter(r => r.bucket === "semester" || r.bucket === "year").length;
+    // Compact: every horizon shown, grouped by urgency (urgent → this year).
     return (
-      <div className="dh-card" style={{ marginBottom: 18 }}>
+      <div className="dh-card" style={{ marginBottom: 0, height: "100%" }}>
         <div className="dh-card-head">
           <span className="dh-eyebrow">Reminders</span>
-          <span className="dh-count">{near.length} open</span>
+          <span className="dh-count">{open.length} open</span>
         </div>
-        <AddBar />
-        {near.length === 0
-          ? <div className="dh-today-empty"><p>Nothing to remember right now. Add anything you can't afford to drop.</p></div>
-          : <div className="rem-list">{near.slice(0, 7).map(r => <Row key={r.id} r={r} showBucket />)}
-              {near.length > 7 && <button className="linkish dh-more" onClick={() => onNav && onNav("plan")}>+{near.length - 7} more in My Plan</button>}
-            </div>}
-        {farCount > 0 && (
-          <button className="linkish dh-more" onClick={() => onNav && onNav("plan")}>
-            {farCount} semester/year reminder{farCount === 1 ? "" : "s"} in My Plan →
-          </button>
+        {addBar}
+        {open.length === 0 ? (
+          <div className="dh-today-empty"><p>Nothing to remember right now. Add anything you can't afford to drop.</p></div>
+        ) : (
+          REM_BUCKETS.map(b => {
+            const bucketItems = open.filter(r => r.bucket === b.id);
+            if (!bucketItems.length) return null;
+            return (
+              <div key={b.id} className="rem-group">
+                <div className="rem-group-h" style={{ color: b.accent }}><Icon name={b.icon} size={11} /> {b.label} <span className="dh-count">{bucketItems.length}</span></div>
+                {bucketItems.map(r => renderRow(r, false))}
+              </div>
+            );
+          })
         )}
       </div>
     );
@@ -741,7 +744,7 @@ function RemindersPanel({ mode = "home", onNav }) {
         <span className="dh-eyebrow">Reminders</span>
         <span className="dh-count">{open.length} open · done ones auto-fade</span>
       </div>
-      <AddBar />
+      {addBar}
       <div className="rem-cols">
         {REM_BUCKETS.map(b => {
           const bucketItems = items.filter(r => r.bucket === b.id).sort((a, x) => (a.done ? 1 : 0) - (x.done ? 1 : 0));
@@ -750,7 +753,7 @@ function RemindersPanel({ mode = "home", onNav }) {
               <div className="rem-col-h" style={{ color: b.accent }}><Icon name={b.icon} size={13} /> {b.label} <span className="dh-count">{bucketItems.filter(r => !r.done).length}</span></div>
               {bucketItems.length === 0
                 ? <div className="rem-empty">—</div>
-                : bucketItems.map(r => <Row key={r.id} r={r} />)}
+                : bucketItems.map(r => renderRow(r, false))}
             </div>
           );
         })}
@@ -785,7 +788,7 @@ const HOME_LAYOUT_KEY = "phd-coach-home-layout-v1";
 const HOME_SECTIONS = [
   { id: "journey", name: "Your journey", icon: "Route", desc: "Horizontal milestone timeline with your current step and plan actions." },
   { id: "stats", name: "Stat tiles", icon: "LayoutDashboard", desc: "Plan progress, next deadline, and next meeting at a glance." },
-  { id: "week", name: "This week", icon: "ListChecks", desc: "This step's tasks plus every deadline due in the next 7 days." },
+  { id: "week", name: "This week", icon: "ListChecks", desc: "This step's tasks and reminders, side by side, plus deadlines due in the next 7 days." },
   { id: "tools", name: "Workspace tools", icon: "Wrench", desc: "Your picked tools — notes, deadlines, reading, funding, and more." }
 ];
 function loadHomeLayout() {
@@ -794,7 +797,14 @@ function loadHomeLayout() {
   if (!Array.isArray(stored)) return base;
   const known = stored.filter(e => e && HOME_SECTIONS.some(s => s.id === e.id))
     .map(e => ({ id: e.id, on: e.on !== false }));
-  HOME_SECTIONS.forEach(s => { if (!known.some(e => e.id === s.id)) known.push({ id: s.id, on: true }); });
+  // Insert any section missing from the saved layout at its canonical position
+  // (so a newly added block like Reminders lands next to its neighbors and is
+  // visible, not appended out of sight at the very bottom).
+  HOME_SECTIONS.forEach((s, idx) => {
+    if (!known.some(e => e.id === s.id)) {
+      known.splice(Math.min(idx, known.length), 0, { id: s.id, on: true });
+    }
+  });
   return known;
 }
 
@@ -1004,6 +1014,7 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
   // --- Tools on Home (up to HOME_TOOLS_MAX), chosen in the Tools popup -------
   const [homeTools, setHomeTools] = useState(loadHomeTools);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [meetingsOpen, setMeetingsOpen] = useState(false); // Meeting Agenda modal (home card front door)
   useEffect(() => { saveJSON(HOME_TOOLS_KEY, homeTools); }, [homeTools]);
   const homeToolIds = homeTools.map(t => t.id);
   const toggleTool = (id) => setHomeTools(prev =>
@@ -1113,8 +1124,9 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
       </div>
     ),
     week: () => (
+      <>
       <div className="dh-half-row">
-      <div className="dh-card dh-today" style={{ marginBottom: 18 }}>
+      <div className="dh-card dh-today" style={{ marginBottom: 0, height: "100%" }}>
         <div className="dh-card-head">
           <span className="dh-eyebrow accent">This week</span>
           <span className="dh-count">{doneToday} of {todo.length} done</span>
@@ -1152,34 +1164,44 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
           </div>
         )}
       </div>
-      <div>
-        <RemindersPanel mode="home" onNav={onNav} />
-        {(() => {
+      <RemindersPanel mode="home" onNav={onNav} />
+      </div>
+      {(() => {
           // Meeting notes, promoted: the latest conversations and what you owe.
-          const meetings = (loadJSON("phd-coach-meetings-v1", []) || []).slice(-2).reverse();
+          // The card is the front door — it opens the real Meeting Agenda tool
+          // directly (create, edit, view all), not the widget picker.
+          const meetings = [...(loadJSON("phd-coach-meetings-v1", []) || [])]
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 2);
           return (
-            <div className="dh-card" style={{ marginBottom: 18 }}>
+            <div className="dh-card" style={{ margin: "14px 0 18px" }}>
               <div className="dh-card-head">
                 <span className="dh-eyebrow">Meeting notes</span>
-                <button className="linkish dh-more" style={{ margin: 0 }} onClick={() => setToolsOpen(true)}>Open meeting log →</button>
+                <button className="linkish dh-more" style={{ margin: 0 }} onClick={() => setMeetingsOpen(true)}>Open meeting log →</button>
               </div>
               {meetings.length === 0 ? (
-                <div className="dh-today-empty"><p>No meetings logged yet. Notes you take here feed your coach's memory.</p></div>
-              ) : meetings.map((m, i) => {
-                const openActs = (m.actions || []).filter(a => a && !a.done);
-                return (
-                  <div key={i} className="dh-meet">
-                    <div className="dh-meet-h"><Icon name="Users" size={13} /> <strong>{m.withName || "Advisor"}</strong><span className="dh-meet-d">{m.date || ""}</span></div>
-                    {m.notes && <div className="dh-meet-n">{String(m.notes).slice(0, 140)}{String(m.notes).length > 140 ? "…" : ""}</div>}
-                    {openActs.length > 0 && <div className="dh-meet-a"><Icon name="ListChecks" size={11} /> {openActs.length} open action item{openActs.length === 1 ? "" : "s"}</div>}
-                  </div>
-                );
-              })}
+                <div className="dh-today-empty">
+                  <p>No meetings logged yet. Notes you take here feed your coach's memory.</p>
+                  <button className="btn sm primary" onClick={() => setMeetingsOpen(true)}><Icon name="Plus" size={13} color="#fff" /> Log a meeting</button>
+                </div>
+              ) : (
+                <>
+                  {meetings.map((m, i) => {
+                    const openActs = (m.actions || []).filter(a => a && !a.done);
+                    return (
+                      <button key={i} className="dh-meet clickable" onClick={() => setMeetingsOpen(true)} title="Open this meeting">
+                        <div className="dh-meet-h"><Icon name="Users" size={13} /> <strong>{m.withName || "Advisor"}</strong><span className="dh-meet-d">{m.date || ""}</span></div>
+                        {m.notes && <div className="dh-meet-n">{String(m.notes).slice(0, 140)}{String(m.notes).length > 140 ? "…" : ""}</div>}
+                        {openActs.length > 0 && <div className="dh-meet-a"><Icon name="ListChecks" size={11} /> {openActs.length} open action item{openActs.length === 1 ? "" : "s"}</div>}
+                      </button>
+                    );
+                  })}
+                  <button className="btn sm" style={{ marginTop: 8 }} onClick={() => setMeetingsOpen(true)}><Icon name="Plus" size={13} /> Log a meeting</button>
+                </>
+              )}
             </div>
           );
         })()}
-      </div>
-      </div>
+      </>
     ),
     tools: () => window.renderTool ? (
       <>
@@ -1252,6 +1274,24 @@ function Dashboard({ roadmap, onNav, onOpenSos, doneTasks, setDoneTasks, activit
 
       {toolsOpen && (
         <ToolsPopup selected={homeToolIds} onToggle={toggleTool} onClose={() => setToolsOpen(false)} />
+      )}
+      {meetingsOpen && (
+        <div className="backdrop" onClick={() => setMeetingsOpen(false)}>
+          <div className="modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Meeting log">
+            <div className="modal-h">
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--primary-soft)", color: "var(--primary-deep)", display: "grid", placeItems: "center", flexShrink: 0 }}><Icon name="MessageSquare" size={18} /></div>
+                <div><h2 className="display">Meeting log</h2><p>Agendas, notes, and action items. Everything you write here feeds your coach's memory and Documents.</p></div>
+              </div>
+              <button className="modal-x" onClick={() => setMeetingsOpen(false)} aria-label="Close"><Icon name="X" size={14} /></button>
+            </div>
+            <div className="modal-b">
+              {window.renderTool && window.hasTool && window.hasTool("meeting-prep")
+                ? window.renderTool("meeting-prep")
+                : <p style={{ fontSize: 13, color: "var(--text-2)" }}>The meeting tool didn't load — refresh the page and try again.</p>}
+            </div>
+          </div>
+        </div>
       )}
       {customize && (
         <HomeCustomizePopup layout={layout} onToggle={toggleSection} onMove={moveSection}
