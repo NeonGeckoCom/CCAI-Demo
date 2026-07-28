@@ -53,6 +53,9 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = " ".join([
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.readonly",
+    # drive.file = only files this app creates — lets "Open in Google Docs"
+    # push a document into the student's Drive and open it for editing.
+    "https://www.googleapis.com/auth/drive.file",
     "openid", "email",
 ])
 MS_AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
@@ -441,6 +444,48 @@ async def calendar_brief(current_user: User = Depends(get_current_active_user)):
     except Exception as e:
         logger.warning("Calendar brief generation failed: %s", e)
     return result
+
+
+class DriveDocRequest(BaseModel):
+    name: str = "Document"
+    html: str = ""
+
+
+@router.post("/integrations/google/drive/doc")
+async def create_drive_doc(body: DriveDocRequest,
+                           current_user: User = Depends(get_current_active_user)):
+    """Create a real, editable Google Doc from the document's content and
+    return its edit URL. Requires the Google connection (drive.file scope)."""
+    token = await _valid_access_token(str(current_user.id), "google")
+    if not token:
+        raise HTTPException(status_code=409,
+                            detail="Google isn't connected — connect Google first, then try again.")
+    metadata = {"name": (body.name or "Document")[:200],
+                "mimeType": "application/vnd.google-apps.document"}
+    boundary = "phdnav-drive-doc"
+    payload = (
+        f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+        f"{json.dumps(metadata)}\r\n"
+        f"--{boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n"
+        f"{body.html or '<p></p>'}\r\n--{boundary}--"
+    )
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.post(
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+            content=payload.encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": f"multipart/related; boundary={boundary}"},
+        )
+    if res.status_code == 403:
+        raise HTTPException(status_code=403,
+                            detail="Google needs Drive access — disconnect and reconnect Google to grant it.")
+    if res.status_code >= 400:
+        logger.warning("Drive doc create failed (%s): %s", res.status_code, res.text[:300])
+        raise HTTPException(status_code=502, detail="Google Drive rejected the document.")
+    data = res.json()
+    doc_id = data.get("id", "")
+    return {"id": doc_id,
+            "url": data.get("webViewLink") or f"https://docs.google.com/document/d/{doc_id}/edit"}
 
 
 class PushEventRequest(BaseModel):

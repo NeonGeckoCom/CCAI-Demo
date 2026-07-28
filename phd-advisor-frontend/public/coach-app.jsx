@@ -458,13 +458,14 @@ function Rail({ view, onNav, user, skillsUnlocked = true, onSignOut }) {
     { id: "home", label: "Home", icon: "Home" },
     { id: "plan", label: "My Plan", icon: "Map", badge: "live" },
     { id: "chat", label: "Chat", icon: "MessageCircle" },
+    { id: "meetings", label: "Meetings", icon: "MessageSquare" },
     { id: "skills", label: "Skills", icon: "Sparkles" },
     { id: "insights", label: "Insights", icon: "Lightbulb" },
     { id: "defense", label: "Defense Room", icon: "Presentation" },
     { id: "documents", label: "Documents", icon: "FileText" },
     { id: "wellness", label: "Wellbeing", icon: "Heart" },
     { id: "settings", label: "Settings", icon: "Settings" }
-  ].filter(it => it.id !== "skills" || skillsUnlocked); // Skills stays hidden until unlocked in chat
+  ].filter(it => it.id !== "skills"); // Skills page temporarily hidden for beta
   return (
     <nav className="rail" aria-label="Primary">
       <div className="rail-brand">

@@ -35,6 +35,9 @@ router = APIRouter()
 WORKSPACE_SECTIONS = {
     "deadlines", "notes", "reading", "funding", "faculty",
     "tasks", "bibliography", "pomodoro", "meetings", "reminders",
+    # Plan backup: "roadmap" holds the roadmap object, "progress" the list of
+    # completed task keys — synced so sign-in on a new device restores the plan.
+    "roadmap", "progress",
 }
 MAX_SECTION_BYTES = 2_000_000  # ~2MB per section (audio notes are data URLs)
 

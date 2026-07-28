@@ -430,12 +430,17 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
                         : s.recovery ? <Ico name="AlertTriangle" size={13} color="#fff" /> : i + 1}
                     </span>
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <span className="spine-t1">{s.title} {s.gate && <span className="spine-flag">gate</span>}{s.status === "redo" && <span className="spine-flag">redo</span>}</span>
+                      {/* No "gate" badge here any more — a gate is already legible
+                          from its ringed dot, and the row reads better with the
+                          disclosure caret in that space. "redo" stays: it is a
+                          state you have to act on, not a property of the step. */}
+                      <span className="spine-t1">{s.title}{s.status === "redo" && <span className="spine-flag">redo</span>}</span>
                     </span>
                     {s.subtasks.length > 0 && (
-                      <span className="spine-caret" role="button" aria-label={spineOpen.has(s.id) ? "Hide sub-milestones" : "Show sub-milestones"}
+                      <span className={`spine-caret ${spineOpen.has(s.id) ? "open" : ""}`} role="button"
+                        aria-label={spineOpen.has(s.id) ? "Hide sub-milestones" : "Show sub-milestones"}
                         onClick={(e) => toggleSpine(s.id, e)}>
-                        <Ico name={spineOpen.has(s.id) ? "ChevronDown" : "ChevronRight"} size={14} />
+                        <Ico name="ChevronDown" size={14} />
                       </span>
                     )}
                   </button>
@@ -875,7 +880,6 @@ const HELP_GLOSSARY = [
   ["Candidacy", "Officially cleared to do dissertation research (the paperwork after prelims)."]
 ];
 const HELP_FAQ = [
-  ["Why don't I see Skills yet?", "Skills unlock after 5 chat messages — or turn on “Reveal everything now” in Settings → Feature unlocks."],
   ["How do I simplify my home screen?", "Set Display density to “Just what I need” in Settings."],
   ["Something went wrong with my research", "Use “Something came up?” on Home or My Plan — describe it in plain words and your plan re-routes around it."],
   ["Are my conversations private?", "Choose on-device / private models in Settings to keep processing local (slightly lower accuracy)."],
@@ -1097,7 +1101,8 @@ function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs 
       return { ...r, program: { ...program, [key === "program" ? "name" : "institution"]: clean } };
     });
   };
-  const unlockRows = [["multiple", "Compare advisors (Multiple mode)", "after 1 message", 1], ["skills", "Skills library", "after 5 messages", 5], ["personas10", "All 10 advisors", "after 15 messages", 15]];
+  // "skills" omitted — the Skills page is temporarily hidden for beta.
+  const unlockRows = [["multiple", "Compare advisors (Multiple mode)", "after 1 message", 1], ["personas10", "All 10 advisors", "after 15 messages", 15]];
 
   return (
     <div className="page page-narrow">
@@ -1546,6 +1551,7 @@ function CoachRoot() {
   const [toast, setToast] = useS2("");
   const [showTour, setShowTour] = useS2(false);
   const [authMode, setAuthMode] = useS2("login"); // login | signup
+  const [restoring, setRestoring] = useS2(false); // fetching a returning user's saved plan
   const [palette, setPalette] = useS2(false); // ⌘K command palette
   const [activity, setActivity] = useS2(() => H.loadJSON(H.ACT_KEY, {})); // per-step last-touched
   const touchStep = (id) => { if (id) setActivity(a => ({ ...a, [id]: Date.now() })); };
@@ -1578,7 +1584,7 @@ function CoachRoot() {
   const reached = (thr) => prefs.revealAll || engagement.messages >= thr;
   const unlocked = useM2(() => ({
     multiple:   reached(1)  && !isHidden("multiple"),
-    skills:     reached(5)  && !isHidden("skills"),
+    skills:     false, // Skills page temporarily hidden for beta
     personas10: reached(15) && !isHidden("personas10")
   }), [prefs.revealAll, prefs.hidden, engagement.messages]);
   const focused = prefs.density === "focused";
@@ -1631,6 +1637,18 @@ function CoachRoot() {
   useE2(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem(H.THEME_KEY, theme); } catch (e) {} }, [theme]);
   useE2(() => { H.saveJSON(H.RM_KEY, roadmap); }, [roadmap]);
   useE2(() => { H.saveJSON(H.TASK_KEY, [...doneTasks]); }, [doneTasks]);
+  // Best-effort backend backup of the plan + progress, so signing in from a new
+  // browser restores the dashboard instead of re-running onboarding.
+  useE2(() => {
+    if (!authed || !roadmap || !window.CoachAPI || window.CoachAPI.token() === "demo-token") return;
+    const t = setTimeout(() => { window.CoachAPI.putWorkspaceSection("roadmap", roadmap).catch(() => {}); }, 1200);
+    return () => clearTimeout(t);
+  }, [roadmap, authed]);
+  useE2(() => {
+    if (!authed || !roadmap || !window.CoachAPI || window.CoachAPI.token() === "demo-token") return;
+    const t = setTimeout(() => { window.CoachAPI.putWorkspaceSection("progress", [...doneTasks]).catch(() => {}); }, 1200);
+    return () => clearTimeout(t);
+  }, [doneTasks, authed]);
   useE2(() => { H.saveJSON(H.ACT_KEY, activity); }, [activity]);
   useE2(() => { H.saveJSON(H.PREFS_KEY, prefs); }, [prefs]);
   useE2(() => { H.saveJSON(H.ENGAGE_KEY, engagement); }, [engagement]);
@@ -1692,6 +1710,58 @@ function CoachRoot() {
     else if (window.CoachAPI) window.MOCK_USER = window.CoachAPI.getUser();
     setRebuildProfile(null);
     if (isNew) { setRoadmap(null); setDoneTasks(new Set()); }
+    else {
+      // localStorage is namespaced per account, and this component's state was
+      // initialized before sign-in (unscoped). Re-read the signed-in account's
+      // saved data now so returning users land on their dashboard, not onboarding.
+      const localRm = H.normalizeStoredRoadmap
+        ? H.normalizeStoredRoadmap(H.loadJSON(H.RM_KEY, null))
+        : H.loadJSON(H.RM_KEY, null);
+      setDoneTasks(new Set(H.loadJSON(H.TASK_KEY, [])));
+      setActivity(H.loadJSON(H.ACT_KEY, {}));
+      setPrefs(H.loadJSON(H.PREFS_KEY, { density: "full", revealAll: true, modelMode: "cloud", hidden: [] }));
+      setEngagement(H.loadJSON(H.ENGAGE_KEY, { messages: 0, visits: 0 }));
+      setSeenUnlocks(H.loadJSON(H.UNLOCKS_KEY, []));
+      // Always replace in-memory state (a previous account's plan may still be
+      // mounted after sign-out on this same page load).
+      setRoadmap(localRm || null);
+      if (!localRm) {
+        // Sign-in must land on the dashboard, never onboarding. Try the backend
+        // backup first; if the account has no saved plan anywhere, build the
+        // standard template plan (same as onboarding's Skip) and say so.
+        setRestoring(true);
+        (async () => {
+          let rm = null;
+          if (window.CoachAPI && window.CoachAPI.token() !== "demo-token") {
+            try {
+              const state = await window.CoachAPI.getWorkspaceState();
+              const saved = state && state.sections && state.sections.roadmap;
+              if (saved && Array.isArray(saved.steps) && saved.steps.length) {
+                rm = H.normalizeStoredRoadmap ? H.normalizeStoredRoadmap(saved) : saved;
+                const prog = state.sections.progress;
+                if (Array.isArray(prog)) setDoneTasks(new Set(prog));
+              }
+            } catch (e) {}
+          }
+          if (!rm) {
+            try {
+              const u = (window.CoachAPI && window.CoachAPI.getUser()) || {};
+              const programName = u.program || DEFAULT_ACADEMIC_PROGRAM;
+              const institution = u.institution || "";
+              const deliverables = await RE2.discoverDeliverables({ program: programName, institution, materials: [] });
+              rm = RE2.generateRoadmap({
+                program: { name: programName, institution }, deliverables,
+                startPosition: "coursework", workflow: { writeStyle: "unsure", publish: false }
+              });
+              if (H.normalizeStoredRoadmap) rm = H.normalizeStoredRoadmap(rm);
+              setToast("We started you on the standard plan — personalize it with your handbook in Settings → Your plan.");
+            } catch (e) { rm = null; }
+          }
+          if (rm) setRoadmap(rm);
+          setRestoring(false);
+        })();
+      }
+    }
     setAuthed(true);
     setView("home");
   };
@@ -1715,6 +1785,17 @@ function CoachRoot() {
       onSignIn={() => { setAuthMode("login"); setGate("login"); }} />;
   }
 
+  // 1.5) Signed in on a fresh browser → hold while the saved plan downloads,
+  // so returning users never flash into (or get stuck in) onboarding.
+  if (restoring && !roadmap) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, background: "var(--bg)" }}>
+        <Ico name="Loader" size={28} className="spin" />
+        <div style={{ fontSize: 14, color: "var(--text-2)" }}>Loading your plan…</div>
+      </div>
+    );
+  }
+
   // 2) Signed in, no plan yet → onboarding (onboarding hands up density/model prefs)
   if (!roadmap) {
     return <window.CoachOnboarding
@@ -1734,11 +1815,12 @@ function CoachRoot() {
   // spreadsheet (CoachPlanSheet) is retired while we redo this section.
   else if (v === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
   else if (v === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} unlocked={unlocked} onMessage={bumpMessages} />;
+  else if (v === "meetings") body = <window.CoachMeetings onToast={setToast} />;
   else if (v === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
   else if (v === "insights") body = <window.CoachInsights onNav={setView} roadmap={roadmap} doneTasks={doneTasks} />;
   else if (v === "defense") body = <window.CoachDefenseRoom roadmap={roadmap} onNav={setView} onToast={setToast} />;
   else if (v === "documents") body = <window.CoachDocuments roadmap={roadmap} />;
-  else if (v === "wellness") body = <window.CoachWellness onNav={setView} roadmap={roadmap} />;
+  else if (v === "wellness") body = <window.CoachWellness onNav={setView} roadmap={roadmap} setRoadmap={setRoadmap} onToast={setToast} />;
   else body = <SettingsView roadmap={roadmap} setRoadmap={setRoadmap} theme={theme} onToggleTheme={toggleTheme}
     prefs={prefs} setPrefs={setPrefs} engagement={engagement} unlocked={unlocked}
     onRevealAll={revealAllNow} onResetDrip={resetDrip} onToggleHidden={toggleHidden}

@@ -105,72 +105,226 @@ function EngineShowcase({ onGetStarted }) {
 // ============================================================================
 // MARKETING LANDING (website home — not the app dashboard)
 // ============================================================================
+// Mini product mocks for the tour tabs — decorative, aria-hidden, and (like the
+// lens panel below) built from window.ADVISORS so a rebrand flows through.
+function TourVisual({ id, lenses }) {
+  const a0 = lenses[0] || { name: "Methodologist", color: "var(--sage)", icon: "Users" };
+  const a1 = lenses[1] || { name: "Planner", color: "var(--amber)", icon: "Users" };
+  if (id === "plan") return (
+    <div className="lp2-visual" aria-hidden="true">
+      <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
+      <div className="lp2-vis-h"><IcoL name="Map" size={12} /> Your roadmap</div>
+      {[
+        { t: "Coursework & program of study", s: "done" },
+        { t: "Form your committee", s: "done" },
+        { t: "Comprehensive exam", s: "cur", here: true },
+        { t: "Dissertation proposal", s: "todo" },
+        { t: "Data collection", s: "todo" },
+        { t: "Defense", s: "todo" }
+      ].map((m, i) => (
+        <div className="lp2-mock-item" key={i}>
+          <span className={`lp2-mock-dot ${m.s}`}>{m.s === "done" && <IcoL name="Check" size={10} color="var(--on-accent)" />}</span>
+          <span style={m.s === "cur" ? { fontWeight: 700, color: "var(--text)" } : null}>{m.t}</span>
+          {m.here && <span className="lp2-here">you are here</span>}
+        </div>
+      ))}
+    </div>
+  );
+  if (id === "lenses") return (
+    <div className="lp2-visual" aria-hidden="true">
+      <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
+      <div className="lp2-bubble me"><div className="bd">My pilot data came back weaker than I hoped. Do I still propose this term?</div></div>
+      <div className="lp2-bubble">
+        <span className="av" style={{ background: a0.color }}><IcoL name={a0.icon} size={14} color="#fff" /></span>
+        <div className="bd"><div className="nm">{a0.name}</div>Weak pilot data can still justify the study — reframe it as feasibility evidence and tighten your power analysis before the proposal.</div>
+      </div>
+      <div className="lp2-bubble">
+        <span className="av" style={{ background: a1.color }}><IcoL name={a1.icon} size={14} color="#fff" /></span>
+        <div className="bd"><div className="nm">{a1.name}</div>Your comps are done and your committee is set — proposing this term keeps you on the timeline we mapped. Here's the week-by-week path.</div>
+      </div>
+      <div className="lp2-input-mock"><IcoL name="MessageCircle" size={13} /> Ask any lens anything…</div>
+    </div>
+  );
+  if (id === "defense") return (
+    <div className="lp2-visual" aria-hidden="true">
+      <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
+      <div className="lp2-vis-h"><IcoL name="Presentation" size={12} /> Mock defense · question 3 of 6</div>
+      <div className="lp2-q-card">
+        <div className="lp2-q-who"><IcoL name="UserCheck" size={12} /> Methods examiner asks</div>
+        <div className="lp2-q-t">"Why is your sample size sufficient given the effect you're claiming?"</div>
+      </div>
+      <div className="lp2-wave">{[14, 26, 20, 32, 24, 30, 18, 28, 34, 22, 27, 16, 24, 30, 20].map((h, i) => <span key={i} style={{ height: h }} />)}</div>
+      <div className="lp2-chip-row">
+        <span className="lp2-chip"><IcoL name="Check" size={11} /> Strong framing</span>
+        <span className="lp2-chip"><IcoL name="AlertTriangle" size={11} /> Cite your power analysis</span>
+        <span className="lp2-chip"><IcoL name="RefreshCw" size={11} /> Try again</span>
+      </div>
+    </div>
+  );
+  if (id === "documents") return (
+    <div className="lp2-visual" aria-hidden="true">
+      <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
+      <div className="lp2-vis-h"><IcoL name="FileText" size={12} /> Your library</div>
+      <div className="lp2-file"><span className="fx"><IcoL name="BookOpen" size={14} /></span><span><div className="fn">Program handbook 2026.pdf</div><div className="fs">Analyzed — 14 milestones extracted into your plan</div></span></div>
+      <div className="lp2-file"><span className="fx"><IcoL name="FileText" size={14} /></span><span><div className="fn">Proposal draft v3.docx</div><div className="fs">Compared with v2 — 6 sections changed</div></span></div>
+      <div className="lp2-file"><span className="fx"><IcoL name="Mail" size={14} /></span><span><div className="fn">Advisor email — timeline notes</div><div className="fs">Added to your knowledge base</div></span></div>
+      <div className="lp2-chip-row" style={{ marginTop: 12 }}>
+        <span className="lp2-chip"><IcoL name="Sparkles" size={11} /> Knowledge base updated — your panel can use it in chat</span>
+      </div>
+    </div>
+  );
+  return (
+    <div className="lp2-visual" aria-hidden="true">
+      <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
+      <div className="lp2-vis-h"><IcoL name="BarChart3" size={12} /> Momentum · last 5 weeks</div>
+      <div className="lp2-bars">{[34, 52, 40, 66, 84].map((h, i) => <span key={i} style={{ height: `${h}%` }} />)}</div>
+      <div className="lp2-bars-x"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>this week</span></div>
+      <div className="lp2-chip-row" style={{ marginTop: 14 }}>
+        <span className="lp2-chip"><span className="dot" style={{ background: "var(--sage)" }} /> Steady pace on Comps</span>
+        <span className="lp2-chip"><IcoL name="HeartPulse" size={11} /> Check-in: doing okay</span>
+      </div>
+    </div>
+  );
+}
+
 function CoachLanding({ onGetStarted, onSignIn }) {
-  const advisors = (window.ADVISORS || []).slice(0, 3);
-  const moreAdvisors = (window.ADVISORS || []).slice(3);
+  // The lens panel is rendered entirely from window.ADVISORS so names, counts,
+  // and branding stay correct as the panel is rebranded — nothing hard-coded.
+  // "Lenses" on the marketing site: the same window.ADVISORS records, named for
+  // what they are to a visitor — different ways of reading the same work. The
+  // word "advisor" is reserved on this page for the student's real one.
+  const allLenses = window.ADVISORS || [];
+  const lenses = allLenses.slice(0, 3);
+  const moreLenses = allLenses.slice(3);
+  const [tab, setTab] = useSL("plan");
   const steps = [
-    { icon: "GraduationCap", title: "Tell us your program", body: "Add your institution, department, degree stage, and handbook." },
-    { icon: "Map", title: "Get a starter roadmap", body: "See common milestones, upcoming steps, and missing information — then confirm what we found." },
-    { icon: "Sparkles", title: "Personalize over time", body: "Add documents, meeting notes, deadlines, and research plans as your PhD develops." }
+    { icon: "GraduationCap", title: "Tell us your program", body: "Add your institution, program, and degree stage — then upload your program handbook and we'll pull the real milestones out of it." },
+    { icon: "Map", title: "Get your roadmap", body: "See your program's actual requirements as a step-by-step plan — confirm what we found, fix what we missed, and start where you are." },
+    { icon: "Sparkles", title: "Work the plan", body: "Each step unlocks the tools that fit it — readings, meeting agendas, defense practice — and the plan updates as your PhD develops." }
   ];
-  const features = [
-    { icon: "Compass", title: "One living plan", body: "Your program's milestones, your deadlines, and your next three steps — in one place that updates as things change, from first topic to submitting your finished dissertation." },
-    { icon: "Users", title: "Advisors on demand", body: "Six specialized AI mentors who know exactly where you are in your plan and tailor every answer to your current step." },
-    { icon: "LifeBuoy", title: "Re-plans when things go wrong", body: "Data rejected? Committee change? Describe what happened in plain words and your plan re-routes with concrete recovery steps." }
+  const TOUR = [
+    { id: "plan", icon: "Map", label: "My Plan", title: "A living plan built from your program's real requirements", body: "Upload your handbook and the AI turns it into a step-by-step roadmap — milestones, gates, and paperwork included. Reorder it, rename it, make it yours.",
+      points: ["Milestones extracted from your handbook, not a generic list", "Your next steps always up top, with the fine print attached", "Every step carries its own to-dos, notes, and tools"] },
+    { id: "lenses", icon: "Users", label: "Lenses", title: "Ask once, see it through every lens that matters", body: "A methodologist reads your question differently from a writing coach. Each lens is tuned to one way of looking at your work, and all of them read the same plan you do — so the answers land on your current step, not on a generic PhD.",
+      points: [allLenses.length ? `${allLenses.length} lenses, each looking at your work differently` : "Every lens looks at your work differently", "Every answer tied to where you are in the plan", "Follow up with one lens, or put the question to all of them"] },
+    { id: "defense", icon: "Presentation", label: "Defense Room", title: "Walk in having already answered the hard questions", body: "Rehearse your defense, job talk, or poster session against a simulated committee. Upload your deck, record your answers, and get concrete feedback.",
+      points: ["Committee questions generated from your research and materials", "Record answers and get question-by-question feedback", "Practice modes for the defense, job talks, and posters"] },
+    { id: "documents", icon: "FileText", label: "Documents", title: "A library that feeds everything else", body: "Handbook, drafts, notes, and forms live in one place. The AI analyzes them, compares versions, and builds a knowledge base every lens reads before it answers.",
+      points: ["AI analysis and version comparison on every document", "Uploads during onboarding land here automatically", "Your knowledge base follows your account"] },
+    { id: "insights", icon: "HeartPulse", label: "Insights & Wellbeing", title: "See the pace, not just the plan", body: "Progress trends, stall warnings, and honest check-ins. The PhD is long — Navigator watches the pattern so you can course-correct early.",
+      points: ["Momentum and progress at a glance", "Gentle stall detection with a concrete next step", "Private wellbeing check-ins, never shared"] }
   ];
+  const active = TOUR.find(t => t.id === tab) || TOUR[0];
 
   return (
     <div className="lp">
-      {/* Nav */}
-      <header className="lp-nav">
-        <div className="lp-brand">
-          <div className="lp-mark"><IcoL name="Compass" size={20} color="#fff" /></div>
-          <span className="lp-brand-name">PhD Navigator</span>
-        </div>
-        <nav className="lp-nav-links">
-          <a href="#how">How it works</a>
-          <a href="#engine">The engine</a>
-          <a href="#advisors">Advisors</a>
-          <a href="#why">Why Navigator</a>
-        </nav>
-        <div className="lp-nav-cta">
-          <button className="btn ghost" onClick={onSignIn}>Sign in</button>
-          <button className="btn primary" onClick={onGetStarted}>Get started</button>
-        </div>
-      </header>
+      {/* Nav (sticky) */}
+      <div className="lp2-nav-wrap">
+        <header className="lp-nav">
+          <div className="lp-brand">
+            <div className="lp-mark"><IcoL name="Compass" size={20} color="#fff" /></div>
+            <span className="lp-brand-name">PhD Navigator</span>
+          </div>
+          <nav className="lp-nav-links">
+            <a href="#tour">Product</a>
+            <a href="#engine">The engine</a>
+            <a href="#how">How it works</a>
+            <a href="#lenses">Lenses</a>
+          </nav>
+          <div className="lp-nav-cta">
+            <button className="btn ghost" onClick={onSignIn}>Sign in</button>
+            <button className="btn primary" onClick={onGetStarted}>Get started</button>
+          </div>
+        </header>
+      </div>
 
-      {/* Hero */}
-      <section className="lp-hero">
-        <div className="lp-hero-inner">
-          <div className="lp-badge"><IcoL name="Sparkles" size={13} /> Your guided path through the PhD</div>
-          <h1 className="display lp-h1">The PhD is a marathon.<br />You deserve a <span className="lp-underline">map</span>.</h1>
-          <p className="lp-sub">Turn the doctoral journey into a clear, living plan — built around your program's real milestones, updated as you move.</p>
-          <div className="lp-hero-cta">
-            <button className="btn primary lg" onClick={onGetStarted}><IcoL name="ArrowRight" size={16} color="#fff" /> Start your plan</button>
-            <button className="btn lg" onClick={onSignIn}><IcoL name="LogIn" size={16} /> I have an account</button>
-          </div>
-          <div className="lp-trust"><IcoL name="ShieldCheck" size={14} /> Free for academic use · your documents stay yours</div>
+      {/* Hero — centered, with the product itself as the artwork */}
+      <section className="lp2-hero">
+        <div className="lp-badge"><IcoL name="Sparkles" size={13} /> Built for doctoral students</div>
+        <h1 className="display lp2-h1">Your entire PhD,<br />one <span className="lp-underline">living</span> plan.</h1>
+        <p className="lp-sub">PhD Navigator reads your program's real requirements and turns them into a roadmap that plans, re-plans, and works alongside you — with a panel of lenses, a defense room, and a document library built in.</p>
+        <div className="lp-hero-cta">
+          <button className="btn primary lg" onClick={onGetStarted}><IcoL name="ArrowRight" size={16} color="#fff" /> Start your plan</button>
+          <button className="btn lg" onClick={onSignIn}><IcoL name="LogIn" size={16} /> I have an account</button>
         </div>
-        <div className="lp-hero-art" aria-hidden="true">
-          <div className="lp-art-card lp-art-1">
-            <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
-            <div className="lp-art-tag"><IcoL name="MapPin" size={12} /> You are here</div>
-            <div className="lp-art-title">Own the Literature</div>
-            <div className="lp-art-ring"><div className="lp-art-ring-fill" /></div>
-            <div className="lp-art-row"><span className="lp-art-dot done" /> Build your matrix</div>
-            <div className="lp-art-row"><span className="lp-art-dot done" /> Find the gap</div>
-            <div className="lp-art-row"><span className="lp-art-dot" /> Write the gap statement</div>
+        <div className="lp-trust"><IcoL name="ShieldCheck" size={14} /> Free during beta · your documents stay yours</div>
+      </section>
+
+      <div className="lp2-window-wrap" aria-hidden="true">
+        <div className="lp2-window">
+          <span className="lp-preview-pill" style={{ top: 10, right: 16, zIndex: 2 }}><IcoL name="Eye" size={11} /> Product preview</span>
+          <div className="lp2-win-bar">
+            <span className="lp2-win-dot" /><span className="lp2-win-dot" /><span className="lp2-win-dot" />
+            <span className="lp2-win-url">phd-navigator.app</span>
           </div>
-          <div className="lp-art-card lp-art-2">
-            <span className="lp-preview-pill"><IcoL name="Eye" size={11} /> Preview</span>
-            <div className="lp-art-mini-h"><IcoL name="Lightbulb" size={13} color="#fff" /></div>
-            <div className="lp-art-mini-t">Example tip</div>
-            <div className="lp-art-mini-b">Block 25 minutes today to skim your program handbook.</div>
+          <div className="lp2-win-body">
+            <div className="lp2-win-side">
+              {[["Home", "Home", true], ["My Plan", "Map"], ["Chat", "MessageCircle"], ["Skills", "Sparkles"], ["Insights", "Lightbulb"], ["Defense Room", "Presentation"], ["Documents", "FileText"], ["Wellbeing", "HeartPulse"]].map(([label, icon, on]) => (
+                <div key={label} className={`lp2-win-nav ${on ? "on" : ""}`}><IcoL name={icon} size={14} /> {label}</div>
+              ))}
+            </div>
+            <div className="lp2-win-main">
+              <div className="lp2-win-hi">Welcome back 👋</div>
+              <div className="lp2-win-hi-sub">Comprehensive exam · 3 steps this week</div>
+              <div className="lp2-win-card">
+                <div className="lp2-win-card-t"><IcoL name="CalendarCheck" size={11} /> This week</div>
+                <div className="lp2-mock-item"><span className="lp2-mock-dot done"><IcoL name="Check" size={10} color="var(--on-accent)" /></span> Confirm exam format with your chair</div>
+                <div className="lp2-mock-item"><span className="lp2-mock-dot cur" /> Draft your reading synthesis outline</div>
+                <div className="lp2-mock-item"><span className="lp2-mock-dot" /> Book the exam room and send invites</div>
+              </div>
+              <div className="lp2-win-card">
+                <div className="lp2-win-card-t"><IcoL name="Map" size={11} /> Your roadmap</div>
+                <div className="lp2-mock-item"><span className="lp2-mock-dot done"><IcoL name="Check" size={10} color="var(--on-accent)" /></span> Coursework <span className="lp2-here" style={{ visibility: "hidden" }}>.</span></div>
+                <div className="lp2-mock-item"><span className="lp2-mock-dot cur" /> <strong>Comprehensive exam</strong> <span className="lp2-here">you are here</span></div>
+                <div className="lp2-mock-item"><span className="lp2-mock-dot" /> Dissertation proposal</div>
+              </div>
+            </div>
+            <div className="lp2-win-right">
+              <div className="lp2-win-card">
+                <div className="lp2-win-card-t"><IcoL name="Lightbulb" size={11} /> Today's tip</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text-2)" }}>Block 25 minutes to outline one comps theme — small starts beat big plans.</div>
+              </div>
+              <div className="lp2-win-card">
+                <div className="lp2-win-card-t"><IcoL name="Users" size={11} /> Ask a lens</div>
+                <div className="lp2-chip-row">
+                  {lenses.map(a => (
+                    <span key={a.id} className="lp2-chip"><span className="dot" style={{ background: a.color }} /> {a.name}</span>
+                  ))}
+                  {moreLenses.length > 0 && <span className="lp2-chip">+{moreLenses.length} more</span>}
+                </div>
+              </div>
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* Product tour */}
+      <section className="lp2-tour" id="tour">
+        <div className="lp-section-head">
+          <div className="lp-eyebrow">The product</div>
+          <h2 className="display lp-h2">Everything between "admitted" and "defended"</h2>
+          <p className="lp-section-sub">Five rooms, one plan running through all of them.</p>
+        </div>
+        <div className="lp2-tabs" role="tablist">
+          {TOUR.map(t => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} className={`lp2-tab ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>
+              <IcoL name={t.icon} size={14} /> {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="lp2-tour-panel">
+          <div>
+            <h3>{active.title}</h3>
+            <p>{active.body}</p>
+            {active.points.map((p, i) => (
+              <div className="lp2-point" key={i}><span className="pt"><IcoL name="Check" size={11} color="var(--on-accent)" /></span> {p}</div>
+            ))}
+          </div>
+          <TourVisual id={active.id} lenses={lenses} />
         </div>
       </section>
 
-      {/* The engine — lead with what a chatbot can't do */}
+      {/* The engine — what a chatbot can't do */}
       <EngineShowcase onGetStarted={onGetStarted} />
 
       {/* How it works */}
@@ -191,47 +345,32 @@ function CoachLanding({ onGetStarted, onSignIn }) {
         </div>
       </section>
 
-      {/* Why / features */}
-      <section className="lp-section lp-section-alt" id="why">
+      {/* Lenses */}
+      <section className="lp-section" id="lenses">
         <div className="lp-section-head">
-          <div className="lp-eyebrow">Why PhD Navigator</div>
-          <h2 className="display lp-h2">Concrete help, not pep talks</h2>
-        </div>
-        <div className="lp-features">
-          {features.map((f, i) => (
-            <div className="lp-feature" key={i}>
-              <div className="lp-feature-ico"><IcoL name={f.icon} size={22} /></div>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Advisors */}
-      <section className="lp-section" id="advisors">
-        <div className="lp-section-head">
-          <div className="lp-eyebrow">Your panel</div>
-          <h2 className="display lp-h2">Six advisors, one team</h2>
-          <p className="lp-section-sub">Each brings a different lens — and all of them adapt to your current step.</p>
+          <div className="lp-eyebrow">Your lenses</div>
+          <h2 className="display lp-h2">{allLenses.length ? `${allLenses.length} lenses on the same work` : "Every angle on the same work"}</h2>
+          <p className="lp-section-sub">One question, read through whichever lens it needs — and every one of them knows what step you're on.</p>
         </div>
         <div className="lp-advisors">
-          {advisors.map(a => (
+          {lenses.map(a => (
             <div className="lp-advisor" key={a.id}>
               <div className="lp-advisor-i" style={{ background: a.color }}><IcoL name={a.icon} size={20} color="#fff" /></div>
               <div className="lp-advisor-n">{a.name}</div>
               <div className="lp-advisor-r">{a.role}</div>
             </div>
           ))}
-          <div className="lp-advisor lp-advisor-more">
-            <div className="lp-advisor-stack">
-              {moreAdvisors.map(a => (
-                <span key={a.id} className="lp-advisor-mini" style={{ background: a.color }}><IcoL name={a.icon} size={13} color="#fff" /></span>
-              ))}
+          {moreLenses.length > 0 && (
+            <div className="lp-advisor lp-advisor-more">
+              <div className="lp-advisor-stack">
+                {moreLenses.map(a => (
+                  <span key={a.id} className="lp-advisor-mini" style={{ background: a.color }}><IcoL name={a.icon} size={13} color="#fff" /></span>
+                ))}
+              </div>
+              <div className="lp-advisor-n">…and {moreLenses.length} more</div>
+              <div className="lp-advisor-r">{moreLenses.map(a => a.name).join(" · ")}</div>
             </div>
-            <div className="lp-advisor-n">…and three more</div>
-            <div className="lp-advisor-r">{moreAdvisors.map(a => a.name).join(" · ")}</div>
-          </div>
+          )}
         </div>
         <div className="lp-disclaimer">
           <IcoL name="Info" size={15} />
@@ -243,7 +382,7 @@ function CoachLanding({ onGetStarted, onSignIn }) {
       <section className="lp-cta">
         <div className="lp-cta-inner">
           <h2 className="display">Ready to see your path?</h2>
-          <p>Build your plan in two minutes. No credit card, no setup headache.</p>
+          <p>Upload your handbook and get a plan built on your program's real requirements — in minutes, no credit card.</p>
           <button className="btn lg lp-cta-btn" onClick={onGetStarted}>Start your plan <IcoL name="ArrowRight" size={16} /></button>
         </div>
       </section>
@@ -264,7 +403,7 @@ function CoachLanding({ onGetStarted, onSignIn }) {
 // ============================================================================
 function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
   const [isSignup, setIsSignup] = useSL(mode === "signup");
-  const [email, setEmail] = useSL("alex.morgan@colorado.edu");
+  const [email, setEmail] = useSL("");
   const [pw, setPw] = useSL("");
   const [showPw, setShowPw] = useSL(false);
   const [name, setName] = useSL("");
@@ -301,11 +440,6 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
     } finally { setBusy(false); }
   };
 
-  const googleDemo = () => {
-    const authedUser = window.CoachAPI.demoAuth({ email: email || "you@example.com", name: isSignup ? name : "", institution: isSignup ? institution : "", program: isSignup ? program : "" });
-    onAuthed(isSignup, authedUser);
-  };
-
   return (
     <div className="auth">
       <aside className="auth-aside">
@@ -322,7 +456,7 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
           <div className="auth-checks">
             <div><span className="ac-dot"><IcoL name="Check" size={12} color="#fff" /></span> A living, step-by-step plan</div>
             <div><span className="ac-dot"><IcoL name="Check" size={12} color="#fff" /></span> Tools that fit each step</div>
-            <div><span className="ac-dot"><IcoL name="Check" size={12} color="#fff" /></span> Advisors who know where you are</div>
+            <div><span className="ac-dot"><IcoL name="Check" size={12} color="#fff" /></span> Lenses that know where you are</div>
           </div>
         </div>
         <div className="auth-aside-foot">© 2026 University of Colorado Boulder</div>
@@ -367,7 +501,7 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
           <div className="field">
             <label>Email</label>
             <div className="wrap"><span className="fi"><IcoL name="Mail" size={15} /></span>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@university.edu" autoComplete="email" /></div>
           </div>
           <div className="field">
             <label>Password</label>
@@ -389,11 +523,6 @@ function CoachLogin({ onAuthed, onBack, onGetStarted, mode = "login" }) {
             {busy
               ? <><IcoL name="Loader" size={15} color="#fff" className="spin" /> {isSignup ? "Creating account…" : "Signing in…"}</>
               : <>{isSignup ? "Create account" : "Sign in"} <IcoL name="ArrowRight" size={15} color="#fff" /></>}
-          </button>
-
-          <div className="auth-divider"><span>or</span></div>
-          <button className="btn lg" style={{ width: "100%", justifyContent: "center" }} disabled={busy} onClick={googleDemo}>
-            <IcoL name="Globe" size={15} /> Continue with Google
           </button>
 
           <div className="auth-switch">

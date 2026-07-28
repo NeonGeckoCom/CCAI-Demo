@@ -55,7 +55,7 @@ function WellSlider({ label, value, onChange, lowLabel, highLabel }) {
   );
 }
 
-function CoachWellness({ onNav, roadmap }) {
+function CoachWellness({ onNav, roadmap, setRoadmap, onToast }) {
   const authed = window.CoachAPI && window.CoachAPI.isAuthed && window.CoachAPI.isAuthed();
   const [local, setLocal] = useSW(() => HW.loadJSON(WELLNESS_KEY, { checkins: [] }));
   useEW(() => HW.saveJSON(WELLNESS_KEY, local), [local]);
@@ -143,7 +143,6 @@ function CoachWellness({ onNav, roadmap }) {
     if (authed) { try { sum = await window.CoachAPI.wellnessSummary(); } catch (e) {} }
     if (!sum) sum = localSummary();
     setSummary(sum);
-    fetchInsight(sum, false);
   };
   useEW(() => { refresh(); }, []);
 
@@ -166,7 +165,6 @@ function CoachWellness({ onNav, roadmap }) {
     setSummary(sum);
     setSaving(false); setSavedFlash(true); setNote("");
     setTimeout(() => setSavedFlash(false), 3000);
-    fetchInsight(sum, true);
   };
 
   const s = summary;
@@ -199,8 +197,150 @@ function CoachWellness({ onNav, roadmap }) {
   };
   const practice = insight && insight.practice && PRACTICE_DETAILS[insight.practice];
 
+  // ---- proactive nudges -----------------------------------------------------
+  // The check-ins aren't just collected — patterns in them trigger concrete
+  // offers to change the plan (that's the point of collecting the data).
+  // Each nudge re-arms only after a week so it never nags.
+  const NUDGE_KEY = "phd-wellness-nudges-v1";
+  const [nudge, setNudge] = useSW(null);
+  const dismissNudge = (id) => {
+    const seen = HW.loadJSON(NUDGE_KEY, {});
+    HW.saveJSON(NUDGE_KEY, { ...seen, [id]: Date.now() });
+    setNudge(null);
+  };
+  useEW(() => {
+    const list = (local.checkins || []).slice().sort((a, b) => a.ts - b.ts).slice(-7);
+    if (list.length < 3) return;
+    const nums = (k) => list.map(c => c[k]).filter(v => v != null && v !== "").map(Number).filter(n => !isNaN(n));
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const seen = HW.loadJSON(NUDGE_KEY, {});
+    const fresh = (id) => !seen[id] || Date.now() - seen[id] > 7 * 864e5;
+    const sleepVals = nums("sleep_hours");
+    if (sleepVals.length >= 3 && avg(sleepVals) < 6 && fresh("sleep")) { setNudge({ id: "sleep", avg: Math.round(avg(sleepVals) * 10) / 10 }); return; }
+    const stressVals = nums("stress"), moodVals = nums("mood");
+    if (((stressVals.length >= 3 && avg(stressVals) >= 3.7) || (moodVals.length >= 3 && avg(moodVals) <= 2.3)) && fresh("stuck")) setNudge({ id: "stuck" });
+  }, [(local.checkins || []).length]);
+
+  // The offer the sleep nudge makes: push this week's tasks out a few days.
+  // Deliberately small and reversible — it moves dates, it doesn't re-scope the
+  // PhD. Every task on the current step slides by the same amount so the order
+  // of the week survives.
+  const pushTasksLater = (extraDays = 3) => {
+    const cur = roadmap && (roadmap.steps || []).find(s => s.status === "current" || s.status === "redo");
+    const subs = (cur && cur.subtasks) || [];
+    if (!setRoadmap || !subs.length) {
+      onToast && onToast("Nothing scheduled this week to move — take the night off anyway.");
+      dismissNudge("sleep"); return;
+    }
+    const subMeta = { ...(roadmap.subMeta || {}) };
+    subs.forEach(t => {
+      const key = `${cur.id}::${t}`;
+      const meta = { ...(subMeta[key] || {}) };
+      const m = String(meta.days || "").match(/(\d+(?:\.\d+)?)\s*([dw])/i);
+      const days = m ? +m[1] * (m[2].toLowerCase() === "w" ? 7 : 1) : 7;
+      meta.days = `${Math.round(days + extraDays)}d`;
+      subMeta[key] = meta;
+    });
+    setRoadmap({ ...roadmap, subMeta });
+    onToast && onToast(`${subs.length} task${subs.length === 1 ? "" : "s"} moved ${extraDays} days later. Sleep first — the plan will keep.`);
+    onNav && onNav("plan");
+    dismissNudge("sleep");
+  };
+  const reorderQuickWins = () => {
+    if (roadmap && setRoadmap) {
+      const daysOf = (v) => { const m = String(v || "").match(/(\d+(?:\.\d+)?)\s*([dw])/i); return m ? +m[1] * (m[2].toLowerCase() === "w" ? 7 : 1) : 7; };
+      const cur = (roadmap.steps || []).find(s => s.status === "current" || s.status === "redo");
+      if (cur && (cur.subtasks || []).length > 1) {
+        const metaDays = (t) => daysOf((((roadmap.subMeta || {})[`${cur.id}::${t}`]) || {}).days);
+        const sorted = [...cur.subtasks].sort((a, b) => metaDays(a) - metaDays(b));
+        setRoadmap({ ...roadmap, steps: roadmap.steps.map(s => s.id === cur.id ? { ...s, subtasks: sorted } : s) });
+        onToast && onToast("This week reordered — quickest wins first. Knock one out today.");
+        onNav && onNav("plan");
+      }
+    }
+    dismissNudge("stuck");
+  };
+
+  // One observation, one number, one offer. Nothing here explains itself at
+  // length or cites a reading list — if it can't be said in three sentences and
+  // acted on with one button, it isn't worth interrupting anyone for.
+  const NUDGES = {
+    sleep: {
+      icon: "Moon", title: "We noticed you haven't been sleeping much",
+      body: `Your recent check-ins average ${nudge && nudge.avg}h a night. Two weeks at six hours leaves you working about as well as you would after two all-nighters — so sleep is the fastest thing you can do for the plan, not a break from it.`,
+      offer: "Want us to push this week's tasks out three days so you can catch up?",
+      cta: "Push my tasks back", onGo: () => pushTasksLater(3)
+    },
+    stuck: {
+      icon: "Zap", title: "This week is reading heavy",
+      body: "Stress up, mood down, three check-ins running. Momentum is the reliable fix — one finished thing usually does more than one more hour.",
+      offer: "Want us to reorder this week so the quickest task is first?",
+      cta: "Put the quick win first", onGo: reorderQuickWins
+    }
+  };
+  const nd = nudge && NUDGES[nudge.id];
+
+  // This page is a quick checker. It does NOT open an essay at you every visit:
+  // the long AI read is generated only when you ask for it, and the only thing
+  // allowed to interrupt is a nudge — a real pattern with a concrete offer.
+  const [insightOpen, setInsightOpen] = useSW(false);
+  const closeInsight = () => setInsightOpen(false);
+  const askForRead = async () => {
+    setInsightOpen(true);
+    if (!insight) await fetchInsight(s, false);
+  };
+
   return (
     <div className="page page-narrow">
+      {insight && insightOpen && !nd && (
+        <div className="backdrop" onClick={closeInsight}>
+          <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Your insight">
+            <div className="modal-h">
+              <IcoW name="Sparkles" size={18} />
+              <h2 className="display" style={{ fontSize: 19, margin: 0 }}>Your insight</h2>
+              <button className="modal-x" onClick={closeInsight} aria-label="Close"><IcoW name="X" size={16} /></button>
+            </div>
+            <div className="modal-b">
+              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.65, color: "var(--text-2)" }}>{insight.insight}</p>
+              {insight.suggestion_label && (
+                <div className="well-suggest" style={{ marginTop: 12 }}>
+                  <div className="well-suggest-l"><IcoW name="ArrowRight" size={13} /> {insight.suggestion_label}</div>
+                  {insight.suggestion_detail && <div className="well-suggest-d">{insight.suggestion_detail}</div>}
+                  {practice && (
+                    <div className="well-suggest-p">
+                      <strong>{insight.practice}</strong> · {practice.time} — {practice.do_this}
+                      <span className="well-tk-why" style={{ marginTop: 4 }}><IcoW name="BookOpen" size={11} /> {practice.why}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="modal-f">
+              <button className="btn ghost" onClick={closeInsight}>Close</button>
+              <span onClick={closeInsight}>{actionButton(insight)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {nd && (
+        <div className="backdrop" onClick={() => dismissNudge(nudge.id)}>
+          <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={nd.title}>
+            <div className="modal-h">
+              <IcoW name={nd.icon} size={18} />
+              <h2 className="display" style={{ fontSize: 19, margin: 0 }}>{nd.title}</h2>
+              <button className="modal-x" onClick={() => dismissNudge(nudge.id)} aria-label="Close"><IcoW name="X" size={16} /></button>
+            </div>
+            <div className="modal-b">
+              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "var(--text-2)" }}>{nd.body}</p>
+              {nd.offer && <p className="well-nudge-offer">{nd.offer}</p>}
+            </div>
+            <div className="modal-f">
+              <button className="btn ghost" onClick={() => dismissNudge(nudge.id)}>Not now</button>
+              <button className="btn primary" onClick={nd.onGo}><IcoW name="ArrowRight" size={14} color="#fff" /> {nd.cta}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="greeting">
         <h1 className="display" style={{ fontSize: 26 }}>Wellbeing</h1>
         <div className="sub">Ten seconds a day. Your coach connects the dots to what's actually on your plate.</div>
@@ -239,33 +379,10 @@ function CoachWellness({ onNav, roadmap }) {
           <div className="well-privacy"><IcoW name="Lock" size={12} /> Only your AI coach sees this — never your advisor or program.</div>
         </div>
 
-        {/* ---- Insight ---- */}
+        {/* ---- Your week. The quick check, and nothing more unless asked. ---- */}
         <div className="well-card well-ins-card">
-          <div className="well-card-h"><IcoW name="Sparkles" size={16} /> Your insight
-            {insight && !insightBusy && <button className="btn icon sm" style={{ marginLeft: "auto" }} title="Regenerate" onClick={() => fetchInsight(s, true)}><IcoW name="RefreshCw" size={13} /></button>}
-          </div>
-          {insightBusy && !insight ? (
-            <div className="well-empty"><IcoW name="Loader" size={14} className="spin" /> Reading your week…</div>
-          ) : insight ? (
-            <>
-              <p className="well-ins-text">{insight.insight}</p>
-              {insight.suggestion_label && (
-                <div className="well-suggest">
-                  <div className="well-suggest-l"><IcoW name="ArrowRight" size={13} /> {insight.suggestion_label}</div>
-                  {insight.suggestion_detail && <div className="well-suggest-d">{insight.suggestion_detail}</div>}
-                  {practice && (
-                    <div className="well-suggest-p">
-                      <strong>{insight.practice}</strong> · {practice.time} — {practice.do_this}
-                      <span className="well-tk-why" style={{ marginTop: 4 }}><IcoW name="BookOpen" size={11} /> {practice.why}</span>
-                    </div>
-                  )}
-                  <div style={{ marginTop: 8 }}>{actionButton(insight)}</div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="well-empty">Log a check-in to get your first insight.</div>
-          )}
+          <div className="well-card-h"><IcoW name="Activity" size={16} /> Your week</div>
+          {(!s || !s.count_14d) && <div className="well-empty">Log a check-in and your week starts showing up here.</div>}
 
           {s && s.count_14d > 0 && (
             <>
@@ -282,6 +399,11 @@ function CoachWellness({ onNav, roadmap }) {
                 ))}
               </div>
               <div className="well-chart-cap">Mood, last 14 days</div>
+              <button className="well-ins-ask" onClick={askForRead} disabled={insightBusy}>
+                {insightBusy
+                  ? <><IcoW name="Loader" size={13} className="spin" /> Reading your week…</>
+                  : <><IcoW name="Sparkles" size={13} /> Ask for a read on my week</>}
+              </button>
             </>
           )}
         </div>

@@ -264,9 +264,15 @@ student's plan. The step is ~2 days to 3 weeks of work. Break it into 4-7 concre
 mini-actions (each 30 minutes to a day, starting with a verb, specific enough to start
 immediately — name the artifact to produce, who to email, what to search). Assume the
 student has never done this before.
+If background knowledge from the student's uploaded documents (handbook, advisor
+emails, notes) is provided, GROUND the walkthrough in it: use their program's actual
+requirements, form names, deadlines, and people. When a mini-action draws on a specific
+uploaded source or requirement, name it briefly in that step's "source" field (e.g.
+"Handbook §4.2 — comps format"); leave "source" empty for general-knowledge steps.
+Never invent sources.
 Return ONLY valid JSON:
 {"overview": "2 sentences: what this step really is and why it matters",
- "steps": [{"title": "short action", "detail": "1-2 sentences of concrete how"}],
+ "steps": [{"title": "short action", "detail": "1-2 sentences of concrete how", "source": "where in their materials this comes from, or empty"}],
  "done_when": ["observable completion criteria, 2-4 items"],
  "pitfalls": ["the 2-4 mistakes students actually make here"]}"""
 
@@ -277,13 +283,18 @@ async def plan_walkthrough(body: WalkthroughRequest,
     if not (body.title or "").strip():
         raise HTTPException(status_code=400, detail="A step title is required.")
     client = _llm_client()
+    # Ground the walkthrough in what the student actually uploaded (handbook,
+    # advisor emails, notes) so the steps reflect THEIR program, not a generic one.
+    from app.core.library import get_knowledge_context_block
+    knowledge = await get_knowledge_context_block(str(current_user.id))
     user_prompt = (
         f"Program: {body.program or 'PhD program'} ({body.field or 'field unspecified'})\n"
         f"Plan section: {body.section or 'unspecified'} — {body.objective or ''}\n"
         f"Step to walk through: {body.title}\n"
         f"Expected time: {body.days or '~1 week'}\n"
-        f"Student's own notes on it: {body.notes or '(none)'}\n\n"
-        "Write the walkthrough. Return ONLY the JSON object."
+        f"Student's own notes on it: {body.notes or '(none)'}\n"
+        + (f"\n{knowledge}\n" if knowledge else "")
+        + "\nWrite the walkthrough. Return ONLY the JSON object."
     )
     raw = await client.generate(
         system_prompt=WALKTHROUGH_SYSTEM_PROMPT,
@@ -305,7 +316,8 @@ async def plan_walkthrough(body: WalkthroughRequest,
     for st in (parsed.get("steps") or [])[:8]:
         if isinstance(st, dict) and (st.get("title") or "").strip():
             steps.append({"title": str(st.get("title", "")).strip()[:200],
-                          "detail": str(st.get("detail", "")).strip()[:500]})
+                          "detail": str(st.get("detail", "")).strip()[:500],
+                          "source": str(st.get("source", "") or "").strip()[:200]})
     return {
         "overview": str(parsed.get("overview", ""))[:800],
         "steps": steps,

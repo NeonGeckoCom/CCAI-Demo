@@ -595,6 +595,12 @@
     });
     return jsonOrThrow(res);
   }
+  async function driveCreateDoc({ name, html } = {}) {
+    const res = await fetch(`${base()}/api/integrations/google/drive/doc`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify({ name: name || "Document", html: html || "" })
+    });
+    return jsonOrThrow(res); // { id, url }
+  }
   async function mailScanReadings(days = 14) {
     const res = await fetch(`${base()}/api/integrations/mail/scan-readings`, {
       method: "POST", headers: authHeaders(), body: JSON.stringify({ days })
@@ -615,6 +621,6 @@
     getKnowledge, saveKnowledge,
     wellnessCheckin, wellnessSummary, wellnessHistory, wellnessInsight, insightsBrain,
     integrationsStatus, integrationConnect, integrationDisconnect,
-    calendarNext, calendarBrief, calendarPush, mailScanReadings
+    calendarNext, calendarBrief, calendarPush, mailScanReadings, driveCreateDoc
   };
 })();

@@ -35,12 +35,12 @@
         body: "Run a Skill (like “Chapter outline” or “Meeting prep”) and the finished draft lands right here, ready to edit. That's the loop." }
     ],
     insights: [
-      { center: true, icon: "Lightbulb", title: "Insights read your conversations for you.",
-        body: "As you chat with your advisors, this page pulls out what keeps coming up — open questions, blockers, and the next steps they point you toward." },
-      { anchor: "ins-chat", icon: "MessageCircle", title: "It fills in as you chat",
-        body: "Nothing is invented — insights only appear once there's real conversation history to summarize. Start a chat and come back." },
-      { anchor: "ins-preview", icon: "Eye", title: "Curious now? Preview with sample data",
-        body: "See exactly what Insights will look like once you've been chatting for a while — action items first, reference notes below." }
+      { center: true, icon: "Lightbulb", title: "This page composes itself.",
+        body: "Every visit, Navigator scores every metric and every block it could show you — from your plan, documents, conversations and check-ins — and keeps only the eight that matter this week. Everything else is set aside, not deleted." },
+      { anchor: "ins-kpis", icon: "Gauge", title: "Four metrics, chosen over the rest",
+        body: "A dated deadline beats a trend; a signal that moved beats one that sat still. Click any tile to see why it earned the slot and exactly which of your records it was built from." },
+      { anchor: "ins-blocks", icon: "LayoutGrid", title: "…and four blocks that earned their space",
+        body: "Charts, tables, and written reads, ranked the same way. If one isn't useful, open it and say so — the next candidate takes its place. There's no refresh button: the page rebuilds itself whenever the system learns something new." }
     ],
     skills: [
       { center: true, icon: "Sparkles", title: "Skills are assistants that do the work.",

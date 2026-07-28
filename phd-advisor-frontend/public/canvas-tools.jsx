@@ -769,6 +769,119 @@ function meetingDocContent(m) {
   ].join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// Meeting → calendar.
+//
+// The agenda is the point of the event, so it travels as the event description:
+// whoever opens the invite (you, your advisor) sees what you're there to cover
+// without opening this app. Three routes, in order of how little they ask of
+// you: a connected Google/Outlook account (one click, event created), or a
+// prefilled compose screen in Google Calendar / Outlook Web (one click, you
+// press save). Everything below is derived from the meeting itself.
+// ---------------------------------------------------------------------------
+const MEET_DEFAULT_MINS = 45;
+
+function meetingCalendarNotes(m) {
+  const lines = [];
+  if (m.withName) lines.push(`With: ${m.withName}`);
+  const items = (m.items || []).filter(i => (i.text || "").trim());
+  if (items.length) {
+    if (lines.length) lines.push("");
+    lines.push("Agenda:");
+    items.forEach((i, n) => lines.push(`${n + 1}. ${i.text}`));
+  }
+  if ((m.notes || "").trim()) lines.push("", "Notes going in:", m.notes.trim());
+  lines.push("", "— Agenda from PhD Navigator");
+  return lines.join("\n");
+}
+
+// A meeting with no date yet still deserves a sane invite: default to a week out.
+function meetingWindow(m) {
+  const date = m.date || new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const time = m.time || "10:00";
+  const start = new Date(`${date}T${time}`);
+  if (isNaN(start)) return null;
+  return { date, time, start, end: new Date(start.getTime() + MEET_DEFAULT_MINS * 60000) };
+}
+
+const MEET_RRULE = { weekly: "RRULE:FREQ=WEEKLY", biweekly: "RRULE:FREQ=WEEKLY;INTERVAL=2", monthly: "RRULE:FREQ=MONTHLY" };
+const gcalStamp = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const meetingTitle = (m) => m.title || (m.withName ? `Meeting with ${m.withName}` : "Advisor meeting");
+
+function meetingCalendarUrl(m, provider) {
+  const w = meetingWindow(m);
+  if (!w) return "";
+  const details = meetingCalendarNotes(m);
+  if (provider === "google") {
+    const p = new URLSearchParams({
+      action: "TEMPLATE", text: meetingTitle(m),
+      dates: `${gcalStamp(w.start)}/${gcalStamp(w.end)}`, details
+    });
+    if (MEET_RRULE[m.recurrence]) p.append("recur", MEET_RRULE[m.recurrence]);
+    return `https://calendar.google.com/calendar/render?${p.toString()}`;
+  }
+  return "https://outlook.office.com/calendar/0/deeplink/compose?" + new URLSearchParams({
+    path: "/calendar/action/compose", rru: "addevent", subject: meetingTitle(m),
+    startdt: w.start.toISOString(), enddt: w.end.toISOString(), body: details
+  }).toString();
+}
+
+// Connected account → create the event outright. Returns the event link.
+async function pushMeetingToCalendar(m, provider) {
+  const w = meetingWindow(m);
+  if (!w) throw new Error("Give the meeting a date first.");
+  return window.CoachAPI.calendarPush({
+    title: meetingTitle(m), date: w.date, time: w.time,
+    durationMinutes: MEET_DEFAULT_MINS, notes: meetingCalendarNotes(m),
+    provider: provider || ""
+  });
+}
+
+// The one control this appears behind. Tries the connected account first and
+// falls back to a prefilled compose tab when nothing is connected.
+function MeetingCalendarRow({ m, onFlash }) {
+  const [busy, setBusy] = useStateT(false);
+  const open = (provider) => {
+    const url = meetingCalendarUrl(m, provider);
+    if (!url) { onFlash({ kind: "err", text: "Give the meeting a date first." }); return; }
+    window.open(url, "_blank", "noopener");
+  };
+  const push = async () => {
+    setBusy(true);
+    try {
+      const res = await pushMeetingToCalendar(m);
+      onFlash({ kind: "ok", text: `Event created in ${res.provider === "microsoft" ? "Outlook" : "Google Calendar"} with the agenda in the description.` });
+      if (res.link) window.open(res.link, "_blank", "noopener");
+    } catch (e) {
+      // 409 = nothing connected. That's the normal path, not an error.
+      open("google");
+      onFlash({ kind: "ok", text: "Opened Google Calendar with the agenda prefilled — press save there. (Connect a calendar in Settings to skip this step.)" });
+    } finally { setBusy(false); }
+  };
+  const when = meetingWindow(m);
+  return (
+    <div className="meet-cal">
+      <div className="meet-cal-l">
+        <span className="meet-cal-i"><IconT name="CalendarPlus" size={15} /></span>
+        <span>
+          <b>Put it on your calendar</b>
+          <em>{when
+            ? `${when.start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${when.start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · ${MEET_DEFAULT_MINS} min — the agenda goes in the event description.`
+            : "Pick a date above and the agenda travels with the invite."}</em>
+        </span>
+      </div>
+      <div className="meet-cal-b">
+        <button className="btn sm primary" onClick={push} disabled={busy}>
+          <IconT name={busy ? "Loader" : "CalendarPlus"} size={13} color="#fff" className={busy ? "spin" : ""} />
+          {busy ? "Adding…" : "Add to my calendar"}
+        </button>
+        <button className="btn sm" onClick={() => open("google")} title="Open a prefilled event in Google Calendar">Google</button>
+        <button className="btn sm" onClick={() => open("outlook")} title="Open a prefilled event in Outlook">Outlook</button>
+      </div>
+    </div>
+  );
+}
+
 const fmtSecs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 function MeetingEditor({ meeting, onSave, onDelete, onClose }) {
@@ -955,23 +1068,40 @@ function MeetingEditor({ meeting, onSave, onDelete, onClose }) {
         <div className="modal-h">
           <div style={{ display: "flex", gap: 12 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--primary-soft)", color: "var(--primary-deep)", display: "grid", placeItems: "center", flexShrink: 0 }}><IconT name="MessageSquare" size={18} /></div>
-            <div><h2 className="display">{meeting ? "Edit meeting" : "New meeting agenda"}</h2><p>Who, when, what to cover — then capture notes and turn them into action items.</p></div>
+            <div><h2 className="display">{meeting ? "Edit meeting" : "New meeting agenda"}</h2><p>Who, when, what to cover — put it in your calendar, then capture notes and turn them into action items.</p></div>
           </div>
           <button className="modal-x" onClick={onClose} aria-label="Close"><IconT name="X" size={14} /></button>
         </div>
         <div className="modal-b">
-          <div className="fund-add-row">
-            <input style={{ flex: 2 }} value={m.title} onChange={e => patch({ title: e.target.value })} placeholder="Meeting title (e.g. Weekly check-in)" />
-            <input style={{ flex: 1.4 }} list="fac-names" value={m.withName} onChange={e => patch({ withName: e.target.value })} placeholder="With who?" />
-            <datalist id="fac-names">{faculty.map(f => <option key={f.id} value={f.name}>{f.role}</option>)}</datalist>
+          {/* Who and when: one labelled grid rather than two rows of bare inputs,
+              so it's obvious what each field is before you click into it. */}
+          <div className="meet-grid">
+            <label className="meet-f span2">
+              <span>Meeting</span>
+              <input value={m.title} onChange={e => patch({ title: e.target.value })} placeholder="e.g. Weekly check-in" />
+            </label>
+            <label className="meet-f span2">
+              <span>With</span>
+              <input list="fac-names" value={m.withName} onChange={e => patch({ withName: e.target.value })} placeholder="Advisor or committee member" />
+              <datalist id="fac-names">{faculty.map(f => <option key={f.id} value={f.name}>{f.role}</option>)}</datalist>
+            </label>
+            <label className="meet-f">
+              <span>Date</span>
+              <input type="date" value={m.date} onChange={e => patch({ date: e.target.value })} />
+            </label>
+            <label className="meet-f">
+              <span>Time</span>
+              <input type="time" value={m.time} onChange={e => patch({ time: e.target.value })} />
+            </label>
+            <label className="meet-f span2">
+              <span>Repeats</span>
+              <select className="meet-select" value={m.recurrence} onChange={e => patch({ recurrence: e.target.value })}>
+                {MEET_RECURRENCE.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </label>
           </div>
-          <div className="fund-add-row">
-            <input style={{ flex: 1.2 }} type="date" value={m.date} onChange={e => patch({ date: e.target.value })} aria-label="Meeting date" />
-            <input style={{ flex: 0.9 }} type="time" value={m.time} onChange={e => patch({ time: e.target.value })} aria-label="Meeting time" />
-            <select style={{ flex: 1 }} className="meet-select" value={m.recurrence} onChange={e => patch({ recurrence: e.target.value })} aria-label="Recurrence">
-              {MEET_RECURRENCE.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </div>
+
+          <MeetingCalendarRow m={m} onFlash={setFlash} />
 
           {/* Record the meeting → Gemini writes the transcript, notes, and action items */}
           <div className="meet-rec">
@@ -1520,7 +1650,9 @@ function CustomTool({ inst }) {
 
 Object.assign(window, {
   ToolCard, NotesTool, TasksTool, ReadingTool, BibTool, PomodoroTool, DeadlinesTool, FundingTool, TrackerTool, CustomTool, MeetingAgendaTool,
-  DEADLINES_KEY, FUNDING_KEY,
+  DEADLINES_KEY, FUNDING_KEY, MEETINGS_KEY,
+  MeetingEditor, MeetingsAllPopup, nextOccurrence, meetChip, fmtMeetWhen,
+  meetingCalendarUrl, meetingCalendarNotes, pushMeetingToCalendar, meetingWindow, MeetingCalendarRow,
   hasTool, renderTool, TOOL_REGISTRY,
   useSyncedStore
 });

@@ -293,7 +293,28 @@ function RowPanel({ roadmap, step, sub, code, status, onPatchMeta, onCycle, onAs
       setChecked(new Set());
       onPatchMeta({ walkthrough: res, walkChecked: [] });
     } catch (e) {
-      setErr(e.message || "Couldn't reach the assistant — is the backend running?");
+      if (e && e.status === 404) {
+        // The deployed API predates this feature — give a usable starter
+        // checklist instead of a dead end. Regenerate picks up the real AI
+        // walkthrough once the backend is redeployed.
+        const local = {
+          overview: `"${sub}" is part of ${step.title}${step.objective ? ` — ${step.objective}` : ""}. The AI walkthrough service isn't available on this backend yet, so here's a starter checklist — hit Regenerate once the API is updated.`,
+          steps: [
+            { title: "Define what “done” looks like", detail: "Write one sentence naming the artifact this step produces (a form filed, a draft sent, a list built)." },
+            { title: "Check your program materials", detail: "Skim your handbook or advisor emails for any rules, forms, or deadlines tied to this step." },
+            { title: "Do the smallest first piece today", detail: "Block 25 minutes and start with the piece you can actually finish in one sitting." },
+            { title: "Get early eyes on it", detail: "Share a rough version with your advisor or a peer before you polish anything." }
+          ],
+          done_when: ["You can point at the artifact this step was meant to produce"],
+          pitfalls: ["Waiting for the “right time” to start", "Polishing before anyone has seen a draft"]
+        };
+        setWt(local); setChecked(new Set());
+        onPatchMeta({ walkthrough: local, walkChecked: [] });
+      } else {
+        setErr(/fetch|network/i.test(e.message || "")
+          ? "Couldn't reach the AI service — check your connection and hit Retry."
+          : (e.message || "Couldn't reach the assistant — is the backend running?"));
+      }
     } finally { setBusy(false); }
   };
   useEP(() => { if (!wt) gen(); }, []);
@@ -349,6 +370,7 @@ function RowPanel({ roadmap, step, sub, code, status, onPatchMeta, onCycle, onAs
                     <div>
                       <div className="wt-step-t">{i + 1}. {st.title}</div>
                       {st.detail && <div className="wt-step-d">{st.detail}</div>}
+                      {st.source && <div className="wt-step-src"><IcoP name="FileText" size={10} /> From your materials: {st.source}</div>}
                     </div>
                   </div>
                 ))}
@@ -645,9 +667,6 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
               {showYear && <div className="sheet-year"><span>Year {yr}</span></div>}
               <div className={`sheet-sec ${active ? "active" : ""} ${s.status === "done" ? "done" : ""}`}
                 style={{ "--secp": `${(s.subtasks || []).length ? Math.round((secDone / s.subtasks.length) * 100) : 0}%`, "--sec-accent": phaseColor(s.phase) }}>
-                <button className="sheet-fold" onClick={() => toggleCollapse(s.id)} aria-label={closed ? "Expand" : "Collapse"}>
-                  <IcoP name={closed ? "ChevronRight" : "ChevronDown"} size={14} />
-                </button>
                 <span className="sh-code"><b>{i + 1}</b>{s.gate && <IcoP name="Flag" size={10} className="sheet-gate" />}</span>
                 <input className="sheet-cell title sec" defaultValue={s.title} key={`t-${s.id}-${s.title}`}
                   onBlur={e => { const v = e.target.value.trim(); if (v && v !== s.title) patchStep(s.id, { title: v }); }} />
@@ -663,6 +682,9 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
                   <button className="sheet-act" onClick={() => moveSection(i, 1)} disabled={i === steps.length - 1} title="Move down"><IcoP name="ChevronDown" size={13} /></button>
                   <button className="sheet-act" onClick={() => addSub(s)} title="Add a row to this section"><IcoP name="Plus" size={13} /></button>
                   <button className="sheet-act danger" onClick={() => removeSection(s.id)} title="Remove section"><IcoP name="Trash2" size={13} /></button>
+                  <button className="sheet-act expand" onClick={() => toggleCollapse(s.id)} aria-label={closed ? "Expand" : "Collapse"} title={closed ? "Expand section" : "Collapse section"}>
+                    <IcoP name={closed ? "ChevronRight" : "ChevronDown"} size={14} />
+                  </button>
                 </span>
               </div>
               {!closed && (s.subtasks || []).map((t, j) => {
@@ -673,7 +695,6 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
                   <React.Fragment key={`${s.id}-${j}`}>
                     <div className={`sheet-row ${st} ${openRow ? "open" : ""}`}>
                       <button className="sh-code linky" onClick={() => toggleExpand(s.id, t)} title={openRow ? "Collapse" : "Expand the walkthrough for this step"}>
-                        <IcoP name={openRow ? "ChevronDown" : "ChevronRight"} size={12} />
                         {i + 1}{letterOf(j)}{meta.gate && <IcoP name="Flag" size={9} className="sheet-gate" />}
                       </button>
                       <input className="sheet-cell title" defaultValue={t} key={`s-${s.id}-${j}-${t}`}
@@ -688,6 +709,9 @@ function CoachPlanSheet({ roadmap, setRoadmap, doneTasks, setDoneTasks, touchSte
                         <button className="sheet-act" onClick={() => moveSub(s, j, -1)} disabled={j === 0} title="Move up"><IcoP name="ChevronUp" size={13} /></button>
                         <button className="sheet-act" onClick={() => moveSub(s, j, 1)} disabled={j === s.subtasks.length - 1} title="Move down"><IcoP name="ChevronDown" size={13} /></button>
                         <button className="sheet-act danger" onClick={() => removeSub(s, t)} title="Remove row"><IcoP name="X" size={13} /></button>
+                        <button className="sheet-act expand" onClick={() => toggleExpand(s.id, t)} aria-label={openRow ? "Collapse" : "Expand"} title={openRow ? "Collapse" : "Expand the walkthrough for this step"}>
+                          <IcoP name={openRow ? "ChevronUp" : "ChevronDown"} size={14} />
+                        </button>
                       </span>
                     </div>
                     {openRow && renderRowExpanded(s, t, st, i, j)}

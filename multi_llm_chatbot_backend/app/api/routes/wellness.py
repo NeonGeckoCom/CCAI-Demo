@@ -294,7 +294,11 @@ async def wellness_insight(
         "Rules: be warm, specific, and honest; reference actual data (names, "
         "numbers, days), never generic filler; never diagnose or use clinical "
         "labels; if the burnout signal is high, the suggestion must gently "
-        "include talking to campus counseling or another professional. Respond "
+        "include talking to campus counseling or another professional. Stay "
+        "anchored on the student's WELLBEING and their PhD plan: background "
+        "knowledge about side projects, jobs, or uploaded business documents is "
+        "context for workload only — mention it in at most a clause, never "
+        "recite its details (figures, deal terms, client names). Respond "
         'ONLY with JSON: {"insight": string, "suggestion_label": string (max 8 '
         'words), "suggestion_detail": string (1-2 sentences), "action": '
         '"plan"|"chat"|"support"|"none", "practice": string (a practice name '

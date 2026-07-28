@@ -1,5 +1,5 @@
-/* coach-views.jsx — Insights, Workspace, Documents redesigned in the warm
-   coach system. Exports window.CoachInsights, window.CoachWorkspace, window.CoachDocuments. */
+/* coach-views.jsx — Insights, Workspace, Documents in the warm coach system.
+   Exports window.CoachInsights, window.CoachWorkspace, window.CoachDocuments. */
 
 const { useState: useSV, useEffect: useEV, useMemo: useMV } = React;
 const IcoV = window.Icon;
@@ -7,315 +7,887 @@ const HV = window.coachHelpers;
 
 const bMd = (s) => (s || "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 
-// ============================================================================
-// INSIGHTS — AI-summarized highlights from chats.
-// New users see an explanatory empty state; sample data is opt-in.
-// Cards are split into "Needs action" (next steps, blockers) and reference.
-// ============================================================================
-// ============================================================================
-// INSIGHTS — the system brain. Everything the app learns (chat, documents,
-// meetings, defense practice, wellbeing) feeds the knowledge markdown; this
-// page analyzes it into three focus areas — quality of work, mental
-// wellbeing, timeline progress — with live charts from the student's own data.
-// ============================================================================
+/* ---------------------------------------------------------------------------
+   INSIGHTS — the page that composes itself.
 
-// 14-day mood & stress lines. Two series → legend + direct end labels, hover
-// crosshair with tooltip, and a table view; colors are validated CVD-safe
-// pairs set per theme via --chart-a/--chart-b.
-function InsMoodChart({ recent }) {
-  const [hover, setHover] = React.useState(null);
-  const days = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    const c = (recent || []).find(x => x.date === key);
-    days.push({ key, label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), mood: c ? c.mood : null, stress: c ? c.stress : null });
+   The page composes itself. On every visit the backend builds a candidate
+   library — every metric and every block it could possibly show — scores all of
+   them against each other, and hands back the handful that earned a slot plus
+   the bench that didn't. Four metrics, four blocks, everything else set aside.
+
+   Two things follow from that, and they are the whole page:
+
+     · The composition is a real markdown document server-side — a ::select
+       block with the scores, then a directive per card. It stays behind the
+       page: no x-ray toggle, no file viewer. What surfaces instead is the
+       drill-in — click any card for why it beat the others and which of your
+       records built it.
+     · Nothing here is a number the model made up. Every figure is computed
+       server-side from real records (check-ins, documents, chat sessions, the
+       plan, the deadlines and meetings you logged). The model ranks, titles and
+       narrates — it never counts.
+
+   There is deliberately no refresh button. The page recomposes when the system
+   has learned something since the last composition, which is the only moment a
+   rebuild would change anything.
+
+   Falls back cleanly: an older deployed backend returns the previous `sections`
+   schema and gets adapted into cards; with no backend at all the page still
+   renders metrics computed from local plan/tool state.
+
+   --------------------------------------------------------------------------- */
+
+(function () {
+  const { useState: useS, useEffect: useE, useMemo: useM, useRef: useR } = React;
+  const Ico = window.Icon;
+
+  // ---------------------------------------------------------------------------
+  // tokens — semantic names from the backend map to theme variables, so the page
+  // is correct in dark mode without a second palette.
+  // ---------------------------------------------------------------------------
+  const TINT = {
+    primary: "var(--primary)", sage: "var(--sage)", amber: "var(--amber)",
+    rose: "var(--rose)", muted: "var(--border-2)", off: "var(--surface-3)"
+  };
+  const SOFT = {
+    primary: "var(--primary-soft)", sage: "var(--sage-soft)", amber: "var(--amber-soft)",
+    rose: "var(--rose-soft)", muted: "var(--surface-2)", off: "var(--surface-2)"
+  };
+  const tint = (t) => TINT[t] || TINT.primary;
+  const soft = (t) => SOFT[t] || SOFT.primary;
+
+  const TYPE_ICON = {
+    prose: "Sparkles", callout: "AlertTriangle", area: "TrendingUp", bars: "BarChart3",
+    donut: "PieChart", heatmap: "LayoutGrid", tasks: "ListChecks", table: "Table2", quote: "Quote"
+  };
+  const ID_ICON = {
+    wellbeing: "HeartPulse", win: "Star", narrative: "Sparkles", decision: "GitBranch",
+    mood_chart: "HeartPulse", work_chart: "Clock", activity: "CalendarDays",
+    topic_bars: "BookOpen", milestone_table: "Flag", phase_bars: "Map"
+  };
+  const iconFor = (b) => ID_ICON[b.id] || TYPE_ICON[b.type] || "Sparkles";
+
+  // Callout skins. `tone` comes from the composer: win / watch / risk.
+  const SKIN = {
+    win: { bg: "var(--sage-soft)", border: "var(--sage)", accent: "var(--sage)" },
+    watch: { bg: "var(--amber-soft)", border: "var(--amber)", accent: "var(--amber)" },
+    risk: { bg: "var(--rose-soft)", border: "var(--rose)", accent: "var(--rose)" }
+  };
+
+  const fmtAgo = (secs) => secs < 45 ? "just now"
+    : secs < 3600 ? `${Math.round(secs / 60)} min ago`
+    : secs < 86400 ? `${Math.round(secs / 3600)} hr ago`
+    : `${Math.round(secs / 86400)}d ago`;
+
+  // ===========================================================================
+  // VIZ — every one reads its numbers straight off the card
+  // ===========================================================================
+
+  function Spark({ values, tone }) {
+    const vals = (values || []).filter(v => typeof v === "number");
+    if (!vals.length) return null;
+    const max = Math.max(...vals) || 1;
+    const cut = Math.max(0, vals.length - 6);
+    return (
+      <div className="ix-spark">
+        {vals.map((v, i) => (
+          <span key={i} style={{
+            height: `${Math.max(8, (v / max) * 100)}%`,
+            background: i >= cut ? tint(tone === "warn" ? "rose" : "primary") : "var(--surface-3)"
+          }} />
+        ))}
+      </div>
+    );
   }
-  const has = days.some(d => d.mood != null);
-  if (!has) return <div className="ins-chart-empty">No check-ins yet — log a few on the Wellbeing page and this chart comes alive.</div>;
-  const W = 340, H = 120, PL = 18, PR = 44, PT = 8, PB = 18;
-  const x = (i) => PL + (i / 13) * (W - PL - PR);
-  const y = (v) => PT + (1 - (v - 1) / 4) * (H - PT - PB);
-  const path = (get) => {
-    let out = "", pen = false;
-    days.forEach((d, i) => {
-      const v = get(d);
-      if (v == null) { pen = false; return; }
-      out += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `;
-      pen = true;
-    });
-    return out.trim();
-  };
-  const lastIdx = days.map((d, i) => (d.mood != null ? i : -1)).filter(i => i >= 0).pop();
-  const onMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const rel = (e.clientX - rect.left) / rect.width * W;
-    let best = null, bd = 1e9;
-    days.forEach((d, i) => { if (d.mood == null) return; const dist = Math.abs(x(i) - rel); if (dist < bd) { bd = dist; best = i; } });
-    setHover(best);
-  };
-  return (
-    <div className="ins-chart" onMouseLeave={() => setHover(null)}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Mood and stress, last 14 days" onMouseMove={onMove}>
-        {[1, 3, 5].map(v => (
-          <g key={v}>
-            <line x1={PL} x2={W - PR} y1={y(v)} y2={y(v)} className="ins-grid" />
-            <text x={PL - 4} y={y(v) + 3} className="ins-axis" textAnchor="end">{v}</text>
-          </g>
-        ))}
-        {hover != null && <line x1={x(hover)} x2={x(hover)} y1={PT} y2={H - PB} className="ins-cross" />}
-        <path d={path(d => d.mood)} fill="none" stroke="var(--chart-a)" strokeWidth="2" strokeLinecap="round" />
-        <path d={path(d => d.stress)} fill="none" stroke="var(--chart-b)" strokeWidth="2" strokeLinecap="round" />
-        {days.map((d, i) => d.mood != null && (
-          <g key={i}>
-            <circle cx={x(i)} cy={y(d.mood)} r={hover === i ? 4 : 2.5} fill="var(--chart-a)" stroke="var(--surface)" strokeWidth="1.5" />
-            <circle cx={x(i)} cy={y(d.stress)} r={hover === i ? 4 : 2.5} fill="var(--chart-b)" stroke="var(--surface)" strokeWidth="1.5" />
-          </g>
-        ))}
-        {lastIdx != null && (
-          <>
-            <text x={x(lastIdx) + 6} y={y(days[lastIdx].mood) + 3} className="ins-endlabel" style={{ fill: "var(--chart-a)" }}>Mood</text>
-            <text x={x(lastIdx) + 6} y={y(days[lastIdx].stress) + 3} className="ins-endlabel" style={{ fill: "var(--chart-b)" }}>Stress</text>
-          </>
-        )}
-      </svg>
-      {hover != null && days[hover].mood != null && (
-        <div className="ins-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
-          <strong>{days[hover].label}</strong> · mood {days[hover].mood}/5 · stress {days[hover].stress}/5
+
+  // Area chart with the student's own average as the reference line.
+  function Area({ b }) {
+    const series = (b.series || []).filter(v => typeof v === "number");
+    if (series.length < 2) return null;
+    const W = 620, H = 138, TOP = 12;
+    const max = b.max || Math.max(...series) || 1;
+    const x = (i) => 14 + (i * (W - 28)) / (series.length - 1);
+    const y = (v) => TOP + (H - TOP) * (1 - Math.min(1, v / max));
+    const pts = series.map((v, i) => [x(i), y(v)]);
+    const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+    const area = `${line} L${x(series.length - 1).toFixed(1)} ${H} L${x(0).toFixed(1)} ${H} Z`;
+    const ticks = max > 10 ? [max, max * 0.5, 0] : [max, max / 2, 0];
+    const gid = `ixg-${b.id}`;
+    const labels = b.xLabels || [];
+    const marks = [0, Math.floor(series.length / 3), Math.floor((2 * series.length) / 3), series.length - 1];
+    return (
+      <div className="ix-area">
+        <div className="ix-area-top">
+          {b.body && <span className="ix-area-cap">{b.body}</span>}
+          <span className="ix-legend">
+            <span><i className="ix-key line" /> Logged</span>
+            {typeof b.pace === "number" && <span><i className="ix-key dash" /> {b.paceLabel || "Average"}</span>}
+          </span>
         </div>
-      )}
-      <div className="ins-legend">
-        <span><i className="ins-swatch" style={{ background: "var(--chart-a)" }} /> Mood</span>
-        <span><i className="ins-swatch" style={{ background: "var(--chart-b)" }} /> Stress</span>
-        <span className="ins-legend-n">1 = rough/calm · 5 = great/overwhelmed</span>
+        <div className="ix-area-plot">
+          <svg viewBox={`0 0 ${W} 170`} preserveAspectRatio="none" role="img"
+            aria-label={`${b.body || b.kicker}. ${series.length} points, high ${Math.max(...series)}, low ${Math.min(...series)}.`}>
+            <defs>
+              <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.22" />
+                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {ticks.map((v, i) => <line key={i} x1="0" y1={y(v)} x2={W} y2={y(v)} className="ix-gridline" />)}
+            <path d={area} fill={`url(#${gid})`} />
+            {typeof b.pace === "number" && (
+              <path d={`M14 ${y(b.pace).toFixed(1)} L${W - 14} ${y(b.pace).toFixed(1)}`}
+                fill="none" stroke="var(--border-2)" strokeWidth="1.6" strokeDasharray="5 5" />
+            )}
+            <path className="ix-draw" d={line} fill="none" stroke="var(--primary)" strokeWidth="2.6"
+              strokeLinecap="round" strokeLinejoin="round" />
+            {pts.map((p, i) => (
+              <circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 5 : 3}
+                fill="var(--surface)" stroke="var(--primary)" strokeWidth={i === pts.length - 1 ? 3 : 2} />
+            ))}
+          </svg>
+          {ticks.map((v, i) => (
+            <span key={i} className="ix-ytick" style={{ top: `${(y(v) / 170) * 100}%` }}>
+              {v >= 1000 ? `${Math.round(v / 100) / 10}k` : Math.round(v * 10) / 10}
+            </span>
+          ))}
+          {labels.length > 0 && marks.map((i, j) => labels[i] && (
+            <span key={j} className="ix-xtick" style={{ left: `${(x(i) / W) * 100}%` }}>{labels[i]}</span>
+          ))}
+        </div>
+        {b.note && <div className="ix-foot"><i className="ix-dot" />{b.note}</div>}
       </div>
-      <details className="ins-table">
-        <summary>View data</summary>
-        <table><thead><tr><th>Day</th><th>Mood</th><th>Stress</th></tr></thead><tbody>
-          {days.filter(d => d.mood != null).map(d => <tr key={d.key}><td>{d.label}</td><td>{d.mood}</td><td>{d.stress}</td></tr>)}
-        </tbody></table>
-      </details>
-    </div>
-  );
-}
-
-// Per-phase task completion — single measure, single hue, value labels in ink.
-function InsPhaseBars({ phases }) {
-  const rows = (phases || []).filter(p => p.tasksTotal > 0);
-  if (!rows.length) return <div className="ins-chart-empty">No plan tasks yet — build out My Plan to track pace here.</div>;
-  return (
-    <div className="ins-bars">
-      {rows.map(p => {
-        const pct = Math.round((p.tasksDone / p.tasksTotal) * 100);
-        return (
-          <div key={p.phase} className="ins-bar-row" title={`${p.phase}: ${p.tasksDone} of ${p.tasksTotal} tasks done`}>
-            <span className="ins-bar-l">{p.phase}</span>
-            <span className="ins-bar-track"><span className="ins-bar-fill" style={{ width: `${Math.max(2, pct)}%` }} /></span>
-            <span className="ins-bar-v">{p.tasksDone}/{p.tasksTotal}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Work hours per day — single measure, single hue, tooltips + caption.
-function InsWorkBars({ recent }) {
-  const days = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    const c = (recent || []).find(x => x.date === key);
-    days.push({ key, label: d.toLocaleDateString(undefined, { weekday: "narrow" }), h: c && c.work_hours != null ? c.work_hours : null });
+    );
   }
-  if (!days.some(d => d.h != null)) return <div className="ins-chart-empty">No work-hour logs yet — add them in the Wellbeing check-in.</div>;
-  const max = Math.max(8, ...days.map(d => d.h || 0));
-  return (
-    <div>
-      <div className="ins-wbars">
-        {days.map(d => (
-          <div key={d.key} className="well-chart-col" title={`${d.key}: ${d.h != null ? d.h + "h worked" : "not logged"}`}>
-            <div className="ins-wbar" style={{ height: d.h != null ? `${Math.max(4, (d.h / max) * 100)}%` : "3%", opacity: d.h != null ? 1 : .25 }} />
-            <span className="well-chart-l">{d.label}</span>
-          </div>
-        ))}
-      </div>
-      <div className="well-chart-cap">Work hours, last 14 days</div>
-    </div>
-  );
-}
 
-function CoachInsights({ onNav, roadmap, doneTasks }) {
-  const authed = window.CoachAPI && window.CoachAPI.isAuthed && window.CoachAPI.isAuthed();
-  const [brain, setBrain] = useSV(null);
-  const [busy, setBusy] = useSV(true);
-  const [wellness, setWellness] = useSV(null);
-  const [docs, setDocs] = useSV([]);
-  const [knowledge, setKnowledge] = useSV(null);
-  const [mdDraft, setMdDraft] = useSV(null); // non-null → editing
-  const [mdSaved, setMdSaved] = useSV(false);
-
-  const planContext = () => {
-    const steps = (roadmap && roadmap.steps) || [];
-    const phases = {};
-    steps.forEach(s => {
-      const p = s.phase || "Plan";
-      phases[p] = phases[p] || { phase: p, done: 0, total: 0, tasksDone: 0, tasksTotal: 0 };
-      phases[p].total++;
-      if (s.status === "done") phases[p].done++;
-      const subs = s.subtasks || [];
-      phases[p].tasksTotal += subs.length;
-      phases[p].tasksDone += subs.filter(t => doneTasks && doneTasks.has(`${s.id}::${t}`)).length;
-    });
-    const cur = steps.find(s => s.status === "current" || s.status === "redo");
-    return {
-      plan: {
-        program: (roadmap && roadmap.program && roadmap.program.name) || "",
-        total_steps: steps.length,
-        done_steps: steps.filter(s => s.status === "done").length,
-        current: cur ? cur.title : "",
-        phases: Object.values(phases),
-      },
-    };
-  };
-  const ctx = planContext();
-  const phases = ctx.plan.phases;
-  const tasksDone = phases.reduce((a, p) => a + p.tasksDone, 0);
-  const tasksTotal = phases.reduce((a, p) => a + p.tasksTotal, 0);
-  const libraryWords = docs.reduce((a, d) => a + (d.word_count || 0), 0);
-
-  const load = async (force) => {
-    setBusy(true);
-    if (authed) {
-      try {
-        const [w, d, k] = await Promise.all([
-          window.CoachAPI.wellnessSummary().catch(() => null),
-          window.CoachAPI.listLibraryDocs().catch(() => null),
-          window.CoachAPI.getKnowledge().catch(() => null),
-        ]);
-        if (w) setWellness(w);
-        if (d) setDocs(d.documents || []);
-        if (k) setKnowledge(k);
-        setBrain(await window.CoachAPI.insightsBrain(planContext(), !!force));
-      } catch (e) {}
-    }
-    setBusy(false);
-  };
-  useEV(() => { load(false); }, []);
-
-  const saveMd = async () => {
-    try {
-      const k = await window.CoachAPI.saveKnowledge(mdDraft);
-      setKnowledge(k); setMdDraft(null); setMdSaved(true);
-      setTimeout(() => setMdSaved(false), 2500);
-    } catch (e) {}
-  };
-
-  // The AI composes the dashboard layout; charts always render from the
-  // student's real local data so numbers can't be hallucinated.
-  const libraryTiles = (
-    <div className="ins-tiles">
-      <div className="ins-tile"><span className="ins-tile-n">{ctx.plan.done_steps}<em>/{ctx.plan.total_steps}</em></span><span className="ins-tile-l">Milestones done</span></div>
-      <div className="ins-tile"><span className="ins-tile-n">{tasksDone}<em>/{tasksTotal}</em></span><span className="ins-tile-l">Tasks done</span></div>
-      <div className="ins-tile"><span className="ins-tile-n">{docs.length}</span><span className="ins-tile-l">Documents analyzed</span></div>
-      <div className="ins-tile"><span className="ins-tile-n">{libraryWords >= 1000 ? `${Math.round(libraryWords / 1000)}k` : libraryWords}</span><span className="ins-tile-l">Words in your library</span></div>
-    </div>
-  );
-  const chartFor = (series) =>
-    series === "mood_stress" ? <InsMoodChart recent={(wellness && wellness.recent) || []} />
-    : series === "work_hours" ? <InsWorkBars recent={(wellness && wellness.recent) || []} />
-    : series === "phase_progress" ? <InsPhaseBars phases={phases} />
-    : libraryTiles;
-  const hasCheckins = !!(wellness && wellness.recent && wellness.recent.length);
-  const localSections = [
-    ...(hasCheckins ? [{ type: "chart", series: "mood_stress", title: "Mood & stress, last 14 days", comment: "" }] : []),
-    { type: "chart", series: "phase_progress", title: "Progress by phase", comment: "" },
-    { type: "chart", series: "library", title: "Your work at a glance", comment: "" },
-    { type: "narrative", title: authed ? "Writing your feedback…" : "Sign in for living feedback", icon: "Sparkles", tone: "info",
-      body: authed ? "The brain reads everything it knows about you and composes this page fresh. Hit Regenerate any time it feels stale." : "Charts run from this device's data. Sign in with the backend running and the brain writes personal feedback, celebrations, and warnings here." },
-  ];
-  const sections = brain && brain.sections && brain.sections.length ? brain.sections : localSections;
-
-  return (
-    <div className="page">
-      <div className="greeting" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <h1 className="display" style={{ fontSize: 26 }}>Insights</h1>
-          <div className="sub">The system brain — analyzing everything from every tab into what it means for you.</div>
+  function Bars({ b }) {
+    const rows = b.rows || [];
+    const max = Math.max(1, ...rows.map(r => r.of || r.value || 0));
+    return (
+      <div>
+        {b.body && <div className="ix-sub">{b.body}</div>}
+        <div className="ix-bars">
+          {rows.map((r, i) => (
+            <div key={i} className="ix-bar">
+              <div className="ix-bar-h"><span>{r.name}</span><b>{r.n}</b></div>
+              <div className="ix-bar-t">
+                <span style={{ width: `${Math.max(2, ((r.value || 0) / max) * 100)}%`, background: tint(r.tint) }} />
+              </div>
+            </div>
+          ))}
         </div>
-        <button className="btn primary sm" disabled={busy || !authed} onClick={() => load(true)}>
-          <IcoV name={busy ? "Loader" : "RefreshCw"} size={14} color="#fff" className={busy ? "spin" : ""} /> {busy ? "Analyzing…" : "Regenerate"}
-        </button>
+        {b.note && <div className="ix-foot bordered">{b.note}</div>}
       </div>
+    );
+  }
 
-      {!authed && <div className="doc-upload-err"><IcoV name="WifiOff" size={15} /> Sign in with the backend running to generate insights — charts below still use this device's data.</div>}
-
-      <div className="ins-sec-grid">
-        {sections.map((sec, i) => {
-          if (sec.type === "highlight") return (
-            <div key={i} className="ins-sec ins-highlight">
-              <span className="ins-hl-stat">{sec.stat}</span>
-              <span className="ins-hl-label">{sec.label}</span>
-              {sec.comment && <span className="ins-hl-c">{sec.comment}</span>}
-            </div>
-          );
-          if (sec.type === "actions") return (
-            <div key={i} className="ins-sec">
-              <div className="ins-sec-h"><span className="ins-focus-ico"><IcoV name="ListChecks" size={15} /></span><div className="ins-focus-l">{sec.title}</div></div>
-              <ul className="ins-focus-sug">{(sec.items || []).map((a, j) => <li key={j}>{a}</li>)}</ul>
-            </div>
-          );
-          if (sec.type === "chart") return (
-            <div key={i} className="ins-sec">
-              {sec.title && <div className="ins-sec-h"><span className="ins-focus-ico"><IcoV name="BarChart3" size={15} /></span><div className="ins-focus-l">{sec.title}</div></div>}
-              {chartFor(sec.series)}
-              {sec.comment && <p className="ins-chart-note"><IcoV name="Sparkles" size={11} /> {sec.comment}</p>}
-            </div>
-          );
-          return (
-            <div key={i} className={`ins-sec tone-${sec.tone || "info"}`}>
-              <div className="ins-sec-h"><span className="ins-focus-ico"><IcoV name={sec.icon || "Sparkles"} size={15} /></span><div className="ins-focus-l">{sec.title}</div></div>
-              <p className="ins-focus-n">{sec.body}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ---- The brain itself: the knowledge markdown, viewable and editable */}
-      <div className="section-label" style={{ marginTop: 20 }}><span className="ic"><IcoV name="BrainCircuit" size={13} /></span> What the system knows</div>
-      <div className="ins-brain">
-        <div className="ins-brain-meta">
-          <span className="ins-brain-d">Notes accumulate here automatically from every tab — this exact text is what your chat advisors read.</span>
-          <div className="ins-brain-feeds">
-            {[["MessageCircle", "Chat"], ["FileText", "Documents"], ["Users", "Meetings"], ["Presentation", "Defense practice"], ["Heart", "Wellbeing"]].map(([ic, l]) => (
-              <span key={l} className="chip"><IcoV name={ic} size={11} /> {l}</span>
+  function Donut({ b }) {
+    const slices = b.slices || [];
+    const C = 2 * Math.PI * 52;
+    let acc = 0;
+    return (
+      <div>
+        <div className="ix-donut">
+          <svg viewBox="0 0 120 120" role="img" aria-label={slices.map(s => `${s.label} ${s.pct}%`).join(", ")}>
+            <circle cx="60" cy="60" r="52" fill="none" stroke="var(--surface-2)" strokeWidth="15" />
+            {slices.map((s, i) => {
+              const len = (s.pct / 100) * C;
+              const el = (
+                <circle key={i} cx="60" cy="60" r="52" fill="none" strokeWidth="15" stroke={tint(s.tint)}
+                  strokeDasharray={`${len.toFixed(1)} ${(C - len).toFixed(1)}`} strokeDashoffset={-acc} />
+              );
+              acc += len;
+              return el;
+            })}
+          </svg>
+          <div className="ix-donut-k">
+            {slices.map((s, i) => (
+              <div key={i}><i style={{ background: tint(s.tint) }} /><span>{s.label}</span><b>{s.pct}%</b></div>
             ))}
           </div>
         </div>
-        {mdDraft != null ? (
-          <>
-            <textarea className="ins-brain-edit" value={mdDraft} onChange={e => setMdDraft(e.target.value)} />
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button className="btn sm primary" onClick={saveMd}><IcoV name="Save" size={13} color="#fff" /> Save</button>
-              <button className="btn sm" onClick={() => setMdDraft(null)}>Cancel</button>
-            </div>
-          </>
-        ) : (
-          <>
-            {knowledge && (knowledge.markdown || "").trim()
-              ? <pre className="doc-knowledge-md" style={{ maxHeight: 420 }}>{knowledge.markdown}</pre>
-              : <div className="ins-chart-empty">Nothing recorded yet — chat, upload a document, log a meeting or a check-in, and notes start appearing here.</div>}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-              {knowledge && (knowledge.markdown || "").trim() && <button className="btn sm" onClick={() => setMdDraft(knowledge.markdown)}><IcoV name="Pencil" size={13} /> Edit notes</button>}
-              {mdSaved && <span className="chip deliv-sat"><IcoV name="Check" size={12} /> Saved — advisors see this immediately</span>}
-              {knowledge && knowledge.updated_at && <span className="ins-brain-t">Updated {new Date(knowledge.updated_at).toLocaleString()}</span>}
-            </div>
-          </>
+        {b.note && <div className="ix-foot bordered">{b.note}</div>}
+      </div>
+    );
+  }
+
+  function Heatmap({ b }) {
+    const cells = b.cells || [];
+    return (
+      <div>
+        <div className="ix-area-top">
+          {b.body && <span className="ix-area-cap">{b.body}</span>}
+          <span className="ix-legend">Quiet{[0, 1, 2, 3, 4].map(l => <i key={l} className={`ix-cell l${l}`} />)}Busy</span>
+        </div>
+        <div className="ix-heat">
+          <div className="ix-heat-d"><span>M</span><span /><span>W</span><span /><span>F</span><span /><span>S</span></div>
+          <div className="ix-heat-g">
+            {cells.map((l, i) => <span key={i} className={`ix-cell l${l}`} />)}
+          </div>
+        </div>
+        {(b.stats || []).length > 0 && (
+          <div className="ix-stats">
+            {b.stats.map((s, i) => <div key={i}><span>{s.k}</span><b>{s.v}</b></div>)}
+          </div>
         )}
       </div>
-    </div>
-  );
-}
+    );
+  }
+
+  function Table({ b }) {
+    const cols = b.cols || ["", "", ""];
+    return (
+      <div className="ix-table">
+        <div className="ix-tr head"><span>{cols[0]}</span><span>{cols[1]}</span><span>{cols[2]}</span></div>
+        {(b.trows || []).map((r, i) => (
+          <div key={i} className="ix-tr">
+            <span className="ix-tname"><i style={{ background: tint(r.tint) }} />{r.name}</span>
+            <span>{r.c2}</span>
+            <span className="ix-tchip" style={{ background: soft(r.tint), color: tint(r.tint) }}>{r.c3}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function Tasks({ b, done, onToggle }) {
+    return (
+      <div>
+        {b.body && <div className="ix-sub">{b.body}</div>}
+        <div className="ix-tasks">
+          {(b.items || []).map((a) => {
+            const on = !!done[a.id];
+            return (
+              <button key={a.id} className={`ix-task ${on ? "on" : ""}`} onClick={(e) => { e.stopPropagation(); onToggle(a.id); }}
+                aria-pressed={on}>
+                <span className="ix-check">{on && <Ico name="Check" size={11} color="var(--on-accent)" />}</span>
+                <span className="ix-task-b">
+                  <span className="ix-task-t">{a.title}</span>
+                  <span className="ix-task-m">
+                    {a.due && <em className={a.urgent && !on ? "urgent" : ""}>{a.due}</em>}
+                    {a.source && <span>from {a.source}</span>}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ===========================================================================
+  // CARDS
+  // ===========================================================================
+
+  function Kpi({ k, onOpen }) {
+    return (
+      <button className="ix-kpi" onClick={onOpen} aria-label={`${k.label}: ${k.value}${k.suffix || ""}. Open the reasoning.`}>
+        <span className="ix-kpi-l">{k.label}</span>
+        <span className="ix-kpi-v">
+          <b>{k.value}</b>{k.suffix && <em>{k.suffix}</em>}
+        </span>
+        {k.viz === "progress" && (
+          <span className="ix-track"><i style={{ width: k.pct || "0%", background: tint(k.tint) }} /></span>
+        )}
+        {k.viz === "pips" && (
+          <span className="ix-pips">{(k.pips || []).map((p, i) => <i key={i} style={{ background: tint(p) }} />)}</span>
+        )}
+        {k.viz === "spark" && <Spark values={k.spark} tone={k.tone} />}
+        {k.viz === "delta" && (
+          <span className="ix-delta" style={{ background: soft(k.good ? "sage" : "rose"), color: tint(k.good ? "sage" : "rose") }}>
+            {k.delta}
+          </span>
+        )}
+        <span className={`ix-kpi-s ${k.tone === "warn" ? "warn" : ""}`}>{k.sub}</span>
+      </button>
+    );
+  }
+
+  function Block({ b, rank, onOpen, done, onToggle }) {
+    const skin = SKIN[b.tone];
+    const style = { gridColumn: `span ${b.span || 7}` };
+    if (skin) { style.background = skin.bg; style.borderColor = skin.border; }
+    return (
+      <div className={`ix-block ${b.tone ? "toned" : ""}`} style={style} onClick={onOpen}>
+        <div className="ix-block-h">
+          <span className="ix-block-i" style={skin ? { background: skin.accent, color: "var(--on-accent)" } : null}>
+            <Ico name={iconFor(b)} size={14} color={skin ? "var(--on-accent)" : "var(--primary-deep)"} />
+          </span>
+          <span className="ix-block-k" style={skin ? { color: skin.accent } : null}>{b.kicker}</span>
+          <button className="ix-block-r" onClick={(e) => { e.stopPropagation(); onOpen(); }}
+            aria-label={`Ranked ${rank}. Why this card is on your page.`} title="Why this card is here">#{rank}</button>
+        </div>
+
+        {b.type === "prose" && (
+          <div>
+            <p className="ix-lead">{b.lead}</p>
+            {(b.paras || []).map((p, i) => <p key={i} className="ix-para">{p}</p>)}
+          </div>
+        )}
+        {b.type === "callout" && (
+          <div className="ix-callout">
+            <p className="ix-lead sm">{b.lead}</p>
+            {b.body && <p className="ix-para">{b.body}</p>}
+            {b.cta && <span className="ix-cta" style={skin ? { borderColor: skin.border, color: skin.accent } : null}>{b.cta}</span>}
+          </div>
+        )}
+        {b.type === "quote" && (
+          <div className="ix-quote">
+            <Ico name="Quote" size={20} color="var(--border-2)" />
+            <p className="ix-lead">{b.lead}</p>
+            <div className="ix-cite"><b>{b.cite}</b>{b.body && <span>{b.body}</span>}</div>
+            {b.cta && <span className="ix-cta">{b.cta}</span>}
+          </div>
+        )}
+        {b.type === "area" && <Area b={b} />}
+        {b.type === "bars" && <Bars b={b} />}
+        {b.type === "donut" && <Donut b={b} />}
+        {b.type === "heatmap" && <Heatmap b={b} />}
+        {b.type === "table" && <Table b={b} />}
+        {b.type === "tasks" && <Tasks b={b} done={done} onToggle={onToggle} />}
+      </div>
+    );
+  }
+
+  // ===========================================================================
+  // DRILL-IN PANEL — why this card is on your page, and what it was built from
+  // ===========================================================================
+
+  function Panel({ card, kind, rank, total, onClose, onSwap }) {
+    useE(() => {
+      const esc = (e) => { if (e.key === "Escape") onClose(); };
+      window.addEventListener("keydown", esc);
+      return () => window.removeEventListener("keydown", esc);
+    }, [onClose]);
+
+    if (!card) return null;
+    const score = Math.round((card.score || 0) * 100);
+
+    return (
+      <div className="ix-panel-root">
+        <div className="ix-scrim" onClick={onClose} />
+        <aside className="ix-panel" role="dialog" aria-modal="true" aria-label={card.title || card.label || "Details"}>
+          <header className="ix-panel-h">
+            <span className="ix-eyebrow">{`${kind === "kpi" ? "Metric" : "Block"} · ranked ${rank} of ${total}`}</span>
+            <button className="ix-x" onClick={onClose} aria-label="Close"><Ico name="X" size={15} /></button>
+          </header>
+
+          <div className="ix-panel-b">
+            <h3 className="display ix-panel-t">{card.title || card.label}</h3>
+            {card.why && <p className="ix-panel-w">{card.why}</p>}
+
+            <div className="ix-score">
+              <div className="ix-score-h"><span>Why this made the cut</span><span>{score} / 100</span></div>
+              <div className="ix-score-t"><i style={{ width: `${score}%` }} /></div>
+              {card.note && <p>{card.note}</p>}
+            </div>
+
+            {(card.evidence || []).length > 0 && (
+              <>
+                <div className="ix-eyebrow block">What this was built from</div>
+                <div className="ix-ev">
+                  {card.evidence.map((e, i) => (
+                    <div key={i} className="ix-ev-r">
+                      <span className="ix-ev-t" style={{ background: soft(e.tint), color: tint(e.tint) }}>{e.tag}</span>
+                      <span><b>{e.label}</b><em>{e.when}</em></span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {onSwap && (
+              <button className="btn sm ix-swap" onClick={onSwap}>
+                <Ico name="Shuffle" size={13} /> Not useful — show something else
+              </button>
+            )}
+          </div>
+        </aside>
+      </div>
+    );
+  }
+
+  // ===========================================================================
+  // LOCAL FALLBACKS — the page still says something true with no backend, and
+  // adapts an older backend's `sections` payload into cards.
+  // ===========================================================================
+
+  function localKpis(local) {
+    const out = [];
+    const { steps, stepsDone, tasksDone, tasksTotal, docs, words, deadlines } = local;
+    if (steps) out.push({
+      id: "milestones", label: "Milestones done", value: String(stepsDone), suffix: `/ ${steps}`,
+      sub: local.current ? `Now: ${local.current}` : "Straight from My Plan.", viz: "progress",
+      pct: `${Math.round((stepsDone / steps) * 100)}%`, tint: "primary", score: 0.7,
+      why: "Milestones marked done in My Plan, counted in your browser.",
+      note: "Computed locally — the composer isn't reachable right now.",
+      evidence: [{ tag: "PLAN", label: `${steps}-step roadmap`, when: "My Plan", tint: "sage" }]
+    });
+    if (tasksTotal) out.push({
+      id: "tasks", label: "Tasks done", value: String(tasksDone), suffix: `/ ${tasksTotal}`,
+      sub: `${Math.round((tasksDone / tasksTotal) * 100)}% of everything on your plan.`, viz: "pips",
+      pips: Array.from({ length: 5 }, (_, i) => i < Math.round((tasksDone / tasksTotal) * 5) ? "sage" : "off"),
+      score: 0.6, why: "Sub-tasks checked off across every milestone in My Plan.",
+      note: "Computed locally.", evidence: [{ tag: "PLAN", label: `${tasksTotal} tasks on the plan`, when: "My Plan", tint: "sage" }]
+    });
+    const late = deadlines.filter(d => d.days < 0);
+    if (late.length) out.push({
+      id: "overdue", label: "Overdue items", value: String(late.length), sub: `Oldest is ${Math.abs(late[0].days)} days past.`,
+      tone: "warn", viz: "delta", delta: `${Math.abs(late[0].days)} days late`, good: false, score: 0.85,
+      why: "Deadlines you added whose date has passed.", note: "A date that has gone by outranks everything soft.",
+      evidence: late.slice(0, 3).map(d => ({ tag: "PLAN", label: d.label, when: `${Math.abs(d.days)} days overdue`, tint: "rose" }))
+    });
+    else if (deadlines.length) out.push({
+      id: "next_deadline", label: `Days to ${deadlines[0].label.slice(0, 24)}`, value: String(deadlines[0].days),
+      sub: deadlines[0].days <= 7 ? "This week." : "Next dated thing on your list.", viz: "progress",
+      pct: `${Math.max(4, 100 - Math.min(100, deadlines[0].days * 2))}%`, tint: deadlines[0].days <= 14 ? "amber" : "primary",
+      score: 0.8, why: `Counted from today to ${deadlines[0].date}, the nearest deadline you've entered.`,
+      note: "A real date always beats a trend.",
+      evidence: deadlines.slice(0, 3).map(d => ({ tag: "PLAN", label: d.label, when: d.date, tint: "amber" }))
+    });
+    if (docs) out.push({
+      id: "library_words", label: "Words in your library", value: words >= 1000 ? `${Math.round(words / 1000)}k` : String(words),
+      sub: `Across ${docs} document${docs === 1 ? "" : "s"}.`, viz: "delta", delta: `${docs} on the shelf`, good: true, score: 0.5,
+      why: "Every word in every document on your shelf.", note: "Inventory, not insight.",
+      evidence: [{ tag: "DOC", label: `${docs} documents`, when: "Documents shelf", tint: "sage" }]
+    });
+    return out;
+  }
+
+  // First sentence / the rest. Plain split — lookbehind regexes are still a
+  // compatibility gamble in browsers this app has to run in.
+  function firstSentence(text) {
+    const s = String(text || "").trim();
+    const i = s.indexOf(". ");
+    return i > 0 ? [s.slice(0, i + 1), s.slice(i + 2).trim()] : [s, ""];
+  }
+
+  // Older backend: { sections: [...] }. Map each section onto the card model so
+  // the page looks identical whichever API answers.
+  function adaptLegacy(sections, local) {
+    const kpis = [];
+    const blocks = [];
+    (sections || []).forEach((s, i) => {
+      const base = 0.9 - i * 0.05;
+      if (s.type === "highlight") {
+        kpis.push({
+          id: `hl${i}`, label: s.label || "Highlight", value: s.stat, sub: s.comment || "", viz: "none",
+          score: base, why: s.comment || "", note: "Composed by the previous version of the brain.",
+          evidence: [{ tag: "DATA", label: "Composed from your accumulated notes", when: "This visit", tint: "sage" }]
+        });
+      } else if (s.type === "actions") {
+        blocks.push({
+          id: `act${i}`, type: "tasks", kicker: s.title || "What to do next", span: 5, score: base,
+          body: "Pulled from your notes — you never typed these.",
+          items: (s.items || []).map((t, j) => ({ id: `act${i}-${j}`, title: t, due: "", source: "", urgent: false })),
+          title: s.title || "What to do next", why: "Extracted from everything the coach has written down about you.",
+          md: [`::tasks{id=act${i}}`], evidence: [{ tag: "DATA", label: "Composed from your notes", when: "This visit", tint: "sage" }]
+        });
+      } else if (s.type === "chart") {
+        const b = local.chartBlocks[s.series];
+        if (b) blocks.push(Object.assign({}, b, {
+          id: `ch${i}-${s.series}`, kicker: s.title || b.kicker, note: s.comment || b.note, score: base
+        }));
+      } else if (s.type === "narrative" && s.body) {
+        const tone = s.tone === "win" ? "win" : s.tone === "watch" ? "watch" : "";
+        const [lead, rest] = firstSentence(s.body);
+        const why = "Written from everything the coach has recorded about you.";
+        const ev = [{ tag: "DATA", label: "Composed from your notes", when: "This visit", tint: "sage" }];
+        blocks.push(tone
+          ? { id: `nar${i}`, type: "callout", tone, kicker: s.title || "Worth noticing", span: 5, score: base,
+              lead, body: rest, title: s.title || "", why, md: [`::callout{kind=${tone}}`], evidence: ev }
+          : { id: `nar${i}`, type: "prose", kicker: s.title || "What I'm seeing", span: 7, score: base,
+              lead, paras: rest ? [rest] : [], title: s.title || "", why, md: [`::prose{id=nar${i}}`], evidence: ev });
+      }
+    });
+    return { kpis, blocks };
+  }
+
+  // Charts the browser can build on its own, from data it already has.
+  function localChartBlocks(wellness, phases, docs) {
+    const recent = (wellness && wellness.recent) || [];
+    const out = {};
+    const mood = recent.map(c => c.mood).filter(v => v != null).reverse();
+    if (mood.length >= 4) out.mood_stress = {
+      type: "area", kicker: "How the weeks have felt", span: 7, series: mood.slice(-14), max: 5,
+      pace: Math.round((mood.reduce((a, b) => a + b, 0) / mood.length) * 10) / 10, paceLabel: "Your average",
+      body: "Mood per check-in", xLabels: recent.filter(c => c.mood != null).map(c => (c.date || "").slice(5)).reverse().slice(-14),
+      title: "Your mood line, plotted", why: "Every mood rating you logged, in order, against your own average.",
+      md: ["::chart{type=area src=wellbeing-checkins field=mood}"],
+      evidence: [{ tag: "DATA", label: `${mood.length} mood ratings`, when: "Wellbeing check-ins", tint: "sage" }]
+    };
+    const work = recent.map(c => c.work_hours).filter(v => v != null).reverse();
+    if (work.length >= 4) out.work_hours = {
+      type: "area", kicker: "Hours, day by day", span: 7, series: work.slice(-14), max: Math.max(10, ...work),
+      pace: Math.round((work.reduce((a, b) => a + b, 0) / work.length) * 10) / 10, paceLabel: "Your average",
+      body: "Hours worked per day", xLabels: recent.filter(c => c.work_hours != null).map(c => (c.date || "").slice(5)).reverse().slice(-14),
+      title: "Where the hours actually went", why: "Self-reported hours from each check-in, against your own average.",
+      md: ["::chart{type=area src=wellbeing-checkins field=work_hours}"],
+      evidence: [{ tag: "DATA", label: `${work.length} days logged`, when: "Wellbeing check-ins", tint: "sage" }]
+    };
+    const withTasks = (phases || []).filter(p => p.tasksTotal);
+    if (withTasks.length) out.phase_progress = {
+      type: "bars", kicker: "Progress by phase", span: 5, body: "Tasks completed in each phase of your plan",
+      rows: withTasks.map(p => ({
+        name: p.phase, n: `${p.tasksDone}/${p.tasksTotal}`, value: p.tasksDone, of: p.tasksTotal,
+        tint: p.tasksDone >= p.tasksTotal ? "sage" : p.tasksDone ? "primary" : "muted"
+      })),
+      title: "Which phase is carrying the work", why: "Task completion per phase, read directly off My Plan.",
+      md: ["::chart{type=bar src=plan group=phase}"],
+      evidence: [{ tag: "PLAN", label: `${withTasks.length} phases with tasks`, when: "My Plan", tint: "sage" }]
+    };
+    const bySource = {};
+    (docs || []).forEach(d => { const k = d.source || "documents"; bySource[k] = (bySource[k] || 0) + 1; });
+    const keys = Object.keys(bySource);
+    if (keys.length > 1) {
+      const total = docs.length;
+      const palette = ["primary", "sage", "amber", "muted"];
+      out.library = {
+        type: "donut", kicker: "What's on your shelf", span: 5,
+        slices: keys.sort((a, b) => bySource[b] - bySource[a]).slice(0, 4).map((k, i) => ({
+          label: k.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+          pct: Math.round((bySource[k] / total) * 100), tint: palette[i % 4]
+        })),
+        note: `${total} documents in total, grouped by where each one came from.`,
+        title: "Your library, by origin", why: "Every document on your shelf, grouped by origin.",
+        md: ["::chart{type=donut src=documents group=source}"],
+        evidence: [{ tag: "DOC", label: `${total} documents`, when: "Documents shelf", tint: "sage" }]
+      };
+    }
+    return out;
+  }
+
+  const loadLocal = (key) => { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } };
+
+  // ===========================================================================
+  // PAGE
+  // ===========================================================================
+
+  const GEN_STEPS = [
+    "Reading the documents on your shelf",
+    "Scanning your conversations and check-ins",
+    "Scoring every metric and block it could show",
+    "Keeping the ones that matter this week…"
+  ];
+
+  function CoachInsights({ onNav, roadmap, doneTasks }) {
+    const authed = !!(window.CoachAPI && window.CoachAPI.isAuthed && window.CoachAPI.isAuthed());
+    const [phase, setPhase] = useS("gen");      // gen | ready | empty | offline
+    const [step, setStep] = useS(0);
+    const [brain, setBrain] = useS(null);
+    const [wellness, setWellness] = useS(null);
+    const [docs, setDocs] = useS([]);
+    const [chats, setChats] = useS(0);
+    const [panel, setPanel] = useS(null);        // {kind:"kpi"|"block"|"md", id}
+    const [banned, setBanned] = useS({});
+    const [done, setDone] = useS({});
+    const [ago, setAgo] = useS(0);
+    const composedAt = useR(null);
+
+    // ---- plan + local tool state ------------------------------------------
+    const local = useM(() => {
+      const steps = (roadmap && roadmap.steps) || [];
+      const byPhase = {};
+      steps.forEach(s => {
+        const p = s.phase || "Plan";
+        byPhase[p] = byPhase[p] || { phase: p, done: 0, total: 0, tasksDone: 0, tasksTotal: 0 };
+        byPhase[p].total++;
+        if (s.status === "done") byPhase[p].done++;
+        const subs = s.subtasks || [];
+        byPhase[p].tasksTotal += subs.length;
+        byPhase[p].tasksDone += subs.filter(t => doneTasks && doneTasks.has(`${s.id}::${t}`)).length;
+      });
+      const phases = Object.values(byPhase);
+      const cur = steps.find(s => s.status === "current" || s.status === "redo");
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const days = (iso) => Math.round((new Date(iso).setHours(0, 0, 0, 0) - today) / 86400000);
+      const deadlines = loadLocal("phd-coach-deadlines-v1")
+        .filter(d => d && d.date && (d.label || d.title) && !d.done)
+        .map(d => ({ label: String(d.label || d.title), date: d.date, days: days(d.date) }))
+        .sort((a, b) => a.days - b.days);
+      const meetings = loadLocal("phd-coach-meetings-v1")
+        .filter(m => m && m.date)
+        .map(m => ({ title: m.title || m.with || "Meeting", date: m.date, with: m.with || "" }));
+      return {
+        phases, steps: steps.length, stepsDone: steps.filter(s => s.status === "done").length,
+        current: cur ? cur.title : "", program: (roadmap && roadmap.program && roadmap.program.name) || "",
+        tasksDone: phases.reduce((a, p) => a + p.tasksDone, 0),
+        tasksTotal: phases.reduce((a, p) => a + p.tasksTotal, 0),
+        deadlines, meetings,
+        planSteps: steps.slice(0, 10).map(s => ({ title: s.title, phase: s.phase, status: s.status }))
+      };
+    }, [roadmap, doneTasks]);
+
+    const context = () => ({
+      plan: {
+        program: local.program, total_steps: local.steps, done_steps: local.stepsDone,
+        current: local.current, phases: local.phases, steps: local.planSteps
+      },
+      deadlines: local.deadlines.map(d => ({ label: d.label, date: d.date })),
+      meetings: local.meetings
+    });
+
+    // ---- compose -----------------------------------------------------------
+    useE(() => {
+      let alive = true;
+      if (!authed) { setPhase("offline"); return; }
+      setPhase("gen"); setStep(1);
+      (async () => {
+        const api = window.CoachAPI;
+        const [w, d, k, s] = await Promise.all([
+          api.wellnessSummary().catch(() => null),
+          api.listLibraryDocs().catch(() => null),
+          api.getKnowledge().catch(() => null),
+          api.listSessions().catch(() => null)
+        ]);
+        if (!alive) return;
+        if (w) setWellness(w);
+        if (d) setDocs(d.documents || []);
+        if (Array.isArray(s)) setChats(s.length);
+        setStep(2);
+
+        let b = null;
+        try { b = await api.insightsBrain(context(), false); }
+        catch (e) { if (e && e.status === 404) b = { unavailable: true }; }
+        if (!alive) return;
+        setStep(3);
+
+        // Living page: if the system has learned something since this layout was
+        // composed, recompose now. This is what the refresh button used to be.
+        try {
+          const learned = k && k.updated_at ? Date.parse(k.updated_at) : 0;
+          const made = b && b.created_at ? Date.parse(b.created_at) : 0;
+          if (b && b.cached && learned && made && learned > made) {
+            const fresh = await window.CoachAPI.insightsBrain(context(), true);
+            if (fresh) b = fresh;
+          }
+        } catch (e) {}
+        if (!alive) return;
+        setStep(4);
+        setBrain(b);
+        composedAt.current = b && b.created_at ? Date.parse(b.created_at) : Date.now();
+        setAgo(Math.max(0, Math.round((Date.now() - composedAt.current) / 1000)));
+        setTimeout(() => { if (alive) setPhase("ready"); }, 420);
+      })();
+      return () => { alive = false; };
+    }, [authed]);
+
+    useE(() => {
+      if (phase !== "ready" || !composedAt.current) return;
+      const t = setInterval(() => setAgo(Math.round((Date.now() - composedAt.current) / 1000)), 15000);
+      return () => clearInterval(t);
+    }, [phase]);
+
+    // ---- resolve the page --------------------------------------------------
+    const chartBlocks = useM(() => localChartBlocks(wellness, local.phases, docs), [wellness, local.phases, docs]);
+    const page = useM(() => {
+      const fallbackK = localKpis(Object.assign({}, local, { docs: docs.length, words: docs.reduce((a, d) => a + (d.word_count || 0), 0) }));
+      if (brain && (brain.kpis || brain.blocks)) {
+        return {
+          kpis: brain.kpis && brain.kpis.length ? brain.kpis : fallbackK,
+          blocks: brain.blocks || [],
+          headline: brain.headline || "",
+          markdown: brain.markdown || "",
+          considered: brain.considered || { kpis: (brain.kpis || []).length, blocks: (brain.blocks || []).length },
+          stats: brain.stats || {}
+        };
+      }
+      if (brain && brain.sections && brain.sections.length) {
+        const a = adaptLegacy(brain.sections, { chartBlocks });
+        // The old schema rarely produced four highlights — top the row up with
+        // metrics the browser can compute itself rather than leave holes.
+        const kpis = a.kpis.concat(fallbackK.filter(k => !a.kpis.some(x => x.id === k.id)));
+        return {
+          kpis, blocks: a.blocks, headline: "", markdown: "", legacy: true,
+          considered: { kpis: kpis.length, blocks: a.blocks.length }, stats: {}
+        };
+      }
+      const blocks = Object.keys(chartBlocks).map((k, i) => Object.assign({ id: k, score: 0.6 - i * 0.05 }, chartBlocks[k]));
+      return { kpis: fallbackK, blocks, headline: "", markdown: "", local: true,
+        considered: { kpis: fallbackK.length, blocks: blocks.length }, stats: {} };
+    }, [brain, chartBlocks, local, docs]);
+
+    const keptK = useM(() => page.kpis.filter(k => !banned[k.id]).slice(0, 4), [page, banned]);
+    const keptB = useM(() => page.blocks.filter(b => !banned[b.id]).slice(0, 4), [page, banned]);
+
+    // The composer sizes the first four; anything promoted off the bench needs a
+    // span of its own so the grid never leaves a hole.
+    const spans = useM(() => {
+      let flip = true;
+      return keptB.map(b => {
+        if (b.span === 12) return 12;
+        const s = flip ? 7 : 5; flip = !flip; return s;
+      });
+    }, [keptB]);
+
+    const totalConsidered = (page.considered.kpis || 0) + (page.considered.blocks || 0);
+    const setAside = Math.max(0, totalConsidered - keptK.length - keptB.length);
+
+    const openCard = (kind, id) => setPanel({ kind, id });
+    const panelList = panel ? (panel.kind === "kpi" ? page.kpis : page.blocks) : [];
+    const panelCard = panel ? panelList.find(c => c.id === panel.id) : null;
+    const panelRank = panelCard ? panelList.findIndex(c => c.id === panel.id) + 1 : 0;
+    const panelTotal = panel && panel.kind === "kpi" ? (page.considered.kpis || page.kpis.length)
+      : (page.considered.blocks || page.blocks.length);
+
+    const swap = () => {
+      if (!panel) return;
+      setBanned(prev => Object.assign({}, prev, { [panel.id]: true }));
+      setPanel(null);
+    };
+    const toggleTask = (id) => setDone(prev => {
+      const next = Object.assign({}, prev);
+      if (next[id]) delete next[id]; else next[id] = true;
+      return next;
+    });
+
+    // ---- header ------------------------------------------------------------
+    const header = (
+      <div className="ix-top">
+        <div className="ix-top-l">
+          <div className="ix-eyebrow">{local.program || "Your PhD"}</div>
+          <div className="ix-top-s">
+            {local.current ? `Now: ${local.current}` : "Insights composes itself from everything the system knows."}
+          </div>
+        </div>
+      </div>
+    );
+
+    // ---- generating --------------------------------------------------------
+    if (phase === "gen") {
+      return (
+        <div className="page ix">
+          {header}
+          <div className="ix-gen solo">
+            <div className="ix-gen-h">
+              <span className="ix-ring" />
+              <h1 className="display">Reading your canvas…</h1>
+            </div>
+            <p className="ix-gen-p">
+              Insights rebuilds itself whenever the system has learned something new. It scores every
+              metric and block it could show you, then keeps only the eight that matter this week.
+            </p>
+            <div className="ix-gen-steps">
+              {GEN_STEPS.map((label, i) => {
+                const state = step > i + 1 ? "done" : step === i + 1 ? "on" : "";
+                return (
+                  <div key={i} className={`ix-gen-s ${state}`}>
+                    <span className="ix-gen-d"><i /></span>{label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- signed out --------------------------------------------------------
+    if (phase === "offline") {
+      return (
+        <div className="page ix">
+          {header}
+          <div className="ix-note">
+            <Ico name="WifiOff" size={16} />
+            <div>
+              <b>Sign in to compose your Insights.</b>
+              <span>This page is written from everything in your account — your plan, documents,
+                conversations and check-ins. None of it leaves your account.</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const empty = !keptK.length && !keptB.length;
+
+    return (
+      <div className="page ix">
+        {header}
+
+        {brain && brain.unavailable && (
+          <div className="ix-note warn">
+            <Ico name="AlertTriangle" size={16} />
+            <div>
+              <b>The deployed backend is older than this app.</b>
+              <span>The composer isn't on this API yet, so the page below is built from what your
+                browser already knows. Redeploy the backend and it composes itself properly.</span>
+            </div>
+          </div>
+        )}
+        {page.legacy && (
+          <div className="ix-note">
+            <Ico name="Info" size={16} />
+            <div>
+              <b>Composed by the previous version of the brain.</b>
+              <span>Scores and evidence trails arrive once the backend is on the current build.</span>
+            </div>
+          </div>
+        )}
+
+        {empty ? (
+          <div className="ix-note">
+            <Ico name="Sparkles" size={16} />
+            <div>
+              <b>There's nothing to read yet.</b>
+              <span>Add a milestone, upload a document, log a check-in or have a conversation — this
+                page composes itself the moment it has something true to say.</span>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="ix-head">
+              <div>
+                <div className="ix-eyebrow live">
+                  <i className="ix-pulse" />
+                  {`Composed ${fmtAgo(ago)}`}
+                  {totalConsidered ? ` · kept ${keptK.length + keptB.length} of ${totalConsidered}` : ""}
+                  {page.stats.documents ? ` · ${page.stats.documents} docs` : docs.length ? ` · ${docs.length} docs` : ""}
+                  {page.stats.conversations || chats ? ` · ${page.stats.conversations || chats} chats` : ""}
+                </div>
+                {page.headline && <h1 className="display ix-headline">{page.headline}</h1>}
+              </div>
+            </div>
+
+            {keptK.length > 0 && (
+              <div className="ix-kpis" data-ptour="ins-kpis">
+                {keptK.map((k, i) => (
+                  <Kpi key={k.id} k={k} onOpen={() => openCard("kpi", k.id)} />
+                ))}
+              </div>
+            )}
+
+            {keptB.length > 0 && (
+              <div className="ix-blocks" data-ptour="ins-blocks">
+                {keptB.map((b, i) => (
+                  <Block key={b.id} b={Object.assign({}, b, { span: spans[i] })} rank={i + 1}
+                    onOpen={() => openCard("block", b.id)} done={done} onToggle={toggleTask} />
+                ))}
+              </div>
+            )}
+
+            {setAside > 0 && (
+              <div className="ix-bench">
+                <span className="ix-rule" />
+                {setAside} other {setAside === 1 ? "candidate was" : "candidates were"} scored and set aside on this visit.
+              </div>
+            )}
+          </>
+        )}
+
+        {panel && (
+          <Panel card={panelCard} kind={panel.kind} rank={panelRank} total={panelTotal}
+            onClose={() => setPanel(null)}
+            onSwap={(page.kpis.length + page.blocks.length) > 8 ? swap : null} />
+        )}
+      </div>
+    );
+  }
+
+  window.CoachInsights = CoachInsights;
+})();
+
 
 // ============================================================================
 // WORKSPACE — widget dashboard with presets + palette
@@ -574,91 +1146,33 @@ function sectionsFor(id) {
   return Array.from({ length: n }, (_, i) => ({ id: `s-${i}`, name: `Section ${i + 1}`, target: 300 }));
 }
 
-// ----------------------------------------------------------------------------
-// DocRichText — TipTap-backed rich text editor with a plain-textarea fallback.
-// Persisted value stays PLAIN TEXT (what the AI and server store); formatting
-// is an in-session editing aid. Defined at module level so it isn't remounted
-// on every parent render.
-// ----------------------------------------------------------------------------
-function DocRichText({ value, onChange, placeholder }) {
-  const hostRef = React.useRef(null);
-  const edRef = React.useRef(null);
-  const lastEmitted = React.useRef(null);
-  const [ready, setReady] = useSV(() => !!window.TipTap);
-  const [, force] = useSV(0);
+// In-app document editing was removed for beta: PhD Navigator is where files
+// are stored, analyzed, and read by the AI — writing happens in a real editor
+// (Google Docs, Word, Overleaf) via the one-click handoffs in the preview bar.
 
+// Formatted Word preview — renders the original .docx bytes as HTML via
+// mammoth so the preview looks like the document, not extracted plain text.
+function DocxPreview({ rawDataUrl, fallbackText }) {
+  const [html, setHtml] = useSV(null);
+  const [failed, setFailed] = useSV(false);
   useEV(() => {
-    if (ready) return;
-    const onReady = () => setReady(true);
-    window.addEventListener("tiptap-ready", onReady);
-    const poll = setInterval(() => { if (window.TipTap) { setReady(true); clearInterval(poll); } }, 400);
-    const stop = setTimeout(() => clearInterval(poll), 8000);
-    return () => { window.removeEventListener("tiptap-ready", onReady); clearInterval(poll); clearTimeout(stop); };
-  }, [ready]);
-
-  const toHtml = (t) => {
-    const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const paras = String(t || "").split(/\n{2,}/).map(p => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
-    return paras || "<p></p>";
-  };
-
-  useEV(() => {
-    if (!ready || !window.TipTap || !hostRef.current) return;
-    const ed = new window.TipTap.Editor({
-      element: hostRef.current,
-      extensions: [window.TipTap.StarterKit],
-      content: toHtml(value),
-      onUpdate: ({ editor }) => {
-        const text = editor.getText({ blockSeparator: "\n\n" });
-        lastEmitted.current = text;
-        onChange(text);
-      },
-      onTransaction: () => force(x => x + 1),
-    });
-    edRef.current = ed;
-    return () => { try { ed.destroy(); } catch (e) {} edRef.current = null; };
-  }, [ready]);
-
-  // External value changes (e.g. server content finishing its load) → reset
-  // the editor, but never for our own emissions.
-  useEV(() => {
-    const ed = edRef.current;
-    if (!ed || value === lastEmitted.current) return;
-    lastEmitted.current = value;
-    try { ed.commands.setContent(toHtml(value), false); } catch (e) {}
-  }, [value, ready]);
-
-  if (!ready) {
-    return <textarea className="doc-upload-edit" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />;
-  }
-  const ed = edRef.current;
-  const can = (fn) => { try { return fn(); } catch (e) { return false; } };
-  const B = ({ icon, title, onRun, active, disabled }) => (
-    <button type="button" className={`docr-btn ${active ? "active" : ""}`} title={title} disabled={disabled}
-      onMouseDown={e => e.preventDefault()} onClick={onRun}><IcoV name={icon} size={14} /></button>
-  );
-  return (
-    <div className="docr">
-      {ed && (
-        <div className="docr-bar">
-          <B icon="Bold" title="Bold" active={can(() => ed.isActive("bold"))} onRun={() => ed.chain().focus().toggleBold().run()} />
-          <B icon="Italic" title="Italic" active={can(() => ed.isActive("italic"))} onRun={() => ed.chain().focus().toggleItalic().run()} />
-          <span className="docr-sep" />
-          <B icon="Heading1" title="Heading" active={can(() => ed.isActive("heading", { level: 2 }))} onRun={() => ed.chain().focus().toggleHeading({ level: 2 }).run()} />
-          <B icon="Heading2" title="Subheading" active={can(() => ed.isActive("heading", { level: 3 }))} onRun={() => ed.chain().focus().toggleHeading({ level: 3 }).run()} />
-          <span className="docr-sep" />
-          <B icon="List" title="Bullet list" active={can(() => ed.isActive("bulletList"))} onRun={() => ed.chain().focus().toggleBulletList().run()} />
-          <B icon="ListOrdered" title="Numbered list" active={can(() => ed.isActive("orderedList"))} onRun={() => ed.chain().focus().toggleOrderedList().run()} />
-          <B icon="Quote" title="Quote" active={can(() => ed.isActive("blockquote"))} onRun={() => ed.chain().focus().toggleBlockquote().run()} />
-          <span className="docr-sep" />
-          <B icon="Undo2" title="Undo" disabled={!can(() => ed.can().undo())} onRun={() => ed.chain().focus().undo().run()} />
-          <B icon="Redo2" title="Redo" disabled={!can(() => ed.can().redo())} onRun={() => ed.chain().focus().redo().run()} />
-          <span className="docr-note">Formatting is a writing aid — saved content is plain text.</span>
-        </div>
-      )}
-      <div ref={hostRef} className="docr-body" data-placeholder={placeholder || ""} />
-    </div>
-  );
+    let alive = true;
+    setHtml(null); setFailed(false);
+    (async () => {
+      try {
+        if (!rawDataUrl || !window.mammoth) { if (alive) setFailed(true); return; }
+        const buf = await (await fetch(rawDataUrl)).arrayBuffer();
+        const r = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+        if (alive) setHtml(r.value || "");
+      } catch (e) { if (alive) setFailed(true); }
+    })();
+    return () => { alive = false; };
+  }, [rawDataUrl]);
+  if (html) return <div className="docv-docx" dangerouslySetInnerHTML={{ __html: html }} />;
+  if (!failed) return <div className="docv-empty"><IcoV name="Loader" size={14} className="spin" /> Rendering document…</div>;
+  return fallbackText
+    ? <>{fallbackText.split(/\n{2,}/).map((p, i) => <p key={i} className="docv-p">{p}</p>)}</>
+    : <div className="docv-empty">Couldn't render this Word file — download the original below.</div>;
 }
 
 function CoachDocuments({ roadmap }) {
@@ -681,10 +1195,7 @@ function CoachDocuments({ roadmap }) {
 
   const [serverDocs, setServerDocs] = useSV([]);
   const [serverFull, setServerFull] = useSV(null);
-  const [saveState, setSaveState] = useSV("");
   const [comparing, setComparing] = useSV("");
-  const [knowledge, setKnowledge] = useSV(null);
-  const [knowledgeOpen, setKnowledgeOpen] = useSV(false);
   const [busy, setBusy] = useSV("");
   const [uploadErr, setUploadErr] = useSV("");
   const fileRef = React.useRef(null);
@@ -695,14 +1206,12 @@ function CoachDocuments({ roadmap }) {
     if (!authed) return;
     try { const r = await window.CoachAPI.listLibraryDocs(); setServerDocs((r && r.documents) || []); } catch (e) {}
   };
-  const refreshKnowledge = async () => {
-    if (!authed) return;
-    try { setKnowledge(await window.CoachAPI.getKnowledge()); } catch (e) {}
-  };
-  useEV(() => { refreshServer(); refreshKnowledge(); }, []);
+  // (The knowledge markdown lives on the Insights page — "What the system knows".)
+  const refreshKnowledge = async () => {};
+  useEV(() => { refreshServer(); }, []);
   useEV(() => {
     if (!serverDocs.some(d => d.analysis_status === "pending" || d.analysis_status === "analyzing")) return;
-    const t = setTimeout(() => { refreshServer(); refreshKnowledge(); }, 5000);
+    const t = setTimeout(() => { refreshServer(); }, 5000);
     return () => clearTimeout(t);
   }, [serverDocs]);
 
@@ -715,7 +1224,7 @@ function CoachDocuments({ roadmap }) {
     : (localDoc && localDoc.uploaded ? serverByFile[localDoc.fileName] : null);
 
   useEV(() => {
-    setServerFull(null); setSaveState(""); setComparing("");
+    setServerFull(null); setComparing("");
     if (serverMeta && authed) window.CoachAPI.getLibraryDoc(serverMeta.id).then(setServerFull).catch(() => {});
   }, [sel && sel.type, sel && sel.id, serverDocs.length]);
 
@@ -770,7 +1279,7 @@ function CoachDocuments({ roadmap }) {
     const text = p.kind === "pdf" ? (serverFull ? (serverFull.content || "") : (p.content || "")) : (p.content || "");
     return {
       type: "local", id: p.id, title: p.name || "", fileName: p.fileName || "",
-      kind: p.kind, dataUrl: p.dataUrl, converted: p.converted, text,
+      kind: p.kind, dataUrl: p.dataUrl, rawDataUrl: p.rawDataUrl, converted: p.converted, text,
       source: "documents", srv: serverFull || serverMeta
     };
   })();
@@ -779,31 +1288,6 @@ function CoachDocuments({ roadmap }) {
 
   // ---- mutations -----------------------------------------------------------
   const updLocal = (id, patch) => setStore(s => s.projects[id] ? ({ ...s, projects: { ...s.projects, [id]: { ...s.projects[id], ...patch } } }) : s);
-  const setTitle = (v) => {
-    if (!cur) return;
-    if (cur.type === "server") setServerFull(f => f ? { ...f, name: v } : f);
-    else updLocal(cur.id, { name: v });
-  };
-  const setText = (v) => {
-    if (!cur) return;
-    if (cur.type === "server") setServerFull(f => f ? { ...f, content: v } : f);
-    else if (cur.kind === "pdf" && serverFull) setServerFull(f => ({ ...f, content: v }));
-    else updLocal(cur.id, { content: v });
-  };
-  const saveToServer = async ({ reanalyze = false } = {}) => {
-    if (!authed || !cur || !cur.srv || !cur.srv.id) return;
-    setSaveState("saving");
-    try {
-      const content = (cur.type === "server" || (cur.kind === "pdf" && serverFull))
-        ? ((serverFull && serverFull.content) || "")
-        : cur.text;
-      const d = await window.CoachAPI.saveLibraryDoc(cur.srv.id, { name: cur.title, content, reanalyze });
-      setSaveState("saved");
-      if (d) setServerFull(f => (f ? { ...f, ...d } : d));
-      refreshServer();
-      setTimeout(() => setSaveState(""), 2500);
-    } catch (e) { setSaveState("error"); }
-  };
   const delCurrent = () => {
     if (!cur || !confirm("Delete this document?")) return;
     if (cur.type !== "server") {
@@ -826,16 +1310,7 @@ function CoachDocuments({ roadmap }) {
   };
 
   const openPreview = (ref) => { setSel(ref); setMode("preview"); };
-  const openEdit = (ref) => { setSel(ref); setMode("edit"); };
   const backToAll = () => { setSel(null); setMode("all"); };
-
-  const createDraft = (tid) => {
-    const id = `p-${Date.now()}`;
-    const tpl = (window.DOC_TEMPLATES || []).find(t => t.id === tid);
-    if (!tpl) return;
-    setStore(s => ({ ...s, projects: { ...s.projects, [id]: { id, name: `${tpl.name} draft`, templateId: tid, sections: {}, createdAt: Date.now() } } }));
-    setSel({ type: "local", id }); setMode("edit");
-  };
 
   // ---- upload --------------------------------------------------------------
   const extOf = (n) => (n.split(".").pop() || "").toLowerCase();
@@ -914,17 +1389,56 @@ function CoachDocuments({ roadmap }) {
   };
 
   // ---- exports -------------------------------------------------------------
-  // Word-compatible HTML .doc — opens directly in Google Docs and Word.
+  const escHtml = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const docBodyHtml = (name, text) =>
+    `<h1>${escHtml(name)}</h1>` +
+    String(text || "").split(/\n{2,}/).map(p => `<p>${escHtml(p).replace(/\n/g, "<br/>")}</p>`).join("");
+  // Word-compatible HTML .doc — opens with full content in Word / Google Docs import.
   const downloadForDocs = (name, text) => {
-    const esc = (x) => String(x || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const paras = String(text || "").split(/\n{2,}/).map(p => `<p>${esc(p).replace(/\n/g, "<br/>")}</p>`).join("");
-    const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(name)}</title></head><body><h1>${esc(name)}</h1>${paras}</body></html>`;
+    const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${escHtml(name)}</title></head><body>${docBodyHtml(name, text)}</body></html>`;
     const url = URL.createObjectURL(new Blob(["﻿", html], { type: "application/msword" }));
     const a = document.createElement("a");
     a.href = url; a.download = `${(name || "document").replace(/[\\/:*?"<>|]/g, "-")}.doc`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
   const draftText = (p) => sectionsFor(p.templateId).map(s => `${s.name}\n\n${p.sections?.[s.id] || ""}`).join("\n\n");
+
+  // ---- one-click handoff to a real editor ----------------------------------
+  // Writing happens in Google Docs / Word / Overleaf; this library stays the
+  // AI-readable home of the file. Docs/Word can't be pre-filled by URL, so we
+  // copy the text and open a fresh doc; Overleaf accepts the content directly.
+  const [copied, setCopied] = useSV("");   // status/hint line under the preview bar
+  const [opening, setOpening] = useSV(false);
+  const copyThenOpen = async (text, url, label) => {
+    try { await navigator.clipboard.writeText(text || ""); setCopied(`Text copied — paste it into the new ${label} document, and re-upload here when you're done so your AI stays current.`); } catch (e) {}
+    window.open(url, "_blank", "noopener");
+  };
+  // Real Google Docs export: push the content into Drive as an editable Doc
+  // (needs the Google connection); falls back to copy + blank doc otherwise.
+  const openInGoogleDocs = async (name, text) => {
+    setOpening(true);
+    try {
+      const r = await window.CoachAPI.driveCreateDoc({ name, html: docBodyHtml(name, text) });
+      window.open(r.url, "_blank", "noopener");
+      setCopied("Opened in Google Docs — the doc is saved in your Drive. Re-upload here when you're done so your AI stays current.");
+    } catch (e) {
+      await copyThenOpen(text, "https://docs.new", "Google Docs");
+      if (e && (e.status === 409 || e.status === 403)) {
+        setCopied(`${e.message} Meanwhile the text is copied — just paste it into the blank doc.`);
+      }
+    } finally { setOpening(false); }
+  };
+  const openInOverleaf = (name, text) => {
+    const esc = (s) => String(s || "")
+      .replace(/\\/g, "\\textbackslash{}").replace(/([%$#&_{}])/g, "\\$1")
+      .replace(/~/g, "\\textasciitilde{}").replace(/\^/g, "\\textasciicircum{}");
+    const snip = `\\documentclass{article}\n\\title{${esc(name)}}\n\\begin{document}\n\\maketitle\n\n${esc(text)}\n\n\\end{document}\n`;
+    const form = document.createElement("form");
+    form.method = "POST"; form.action = "https://www.overleaf.com/docs"; form.target = "_blank";
+    const input = document.createElement("input");
+    input.type = "hidden"; input.name = "snip"; input.value = snip;
+    form.appendChild(input); document.body.appendChild(form); form.submit(); form.remove();
+  };
 
   // ---- AI panel + comparison ----------------------------------------------
   const runCompare = async (srv) => {
@@ -944,9 +1458,6 @@ function CoachDocuments({ roadmap }) {
     if (st === "failed") return <span className="chip"><IcoV name="AlertTriangle" size={12} /> Analysis failed</span>;
     return null;
   };
-  const saveChip = saveState === "saving" ? <span className="chip"><IcoV name="Loader" size={12} className="spin" /> Saving…</span>
-    : saveState === "saved" ? <span className="chip deliv-sat"><IcoV name="Check" size={12} /> Saved</span>
-    : saveState === "error" ? <span className="chip"><IcoV name="AlertTriangle" size={12} /> Save failed</span> : null;
   const AiPanel = ({ srv }) => {
     if (!srv) return null;
     const a = srv.analysis;
@@ -1012,13 +1523,6 @@ function CoachDocuments({ roadmap }) {
   // ---- shared header pieces ------------------------------------------------
   const kindLabel = (kind) => kind === "pdf" ? "PDF" : kind === "docx" ? "Word" : kind === "draft" ? "Draft" : "Text";
   const kindIcon = (kind) => kind === "docx" ? "FileType2" : kind === "draft" ? "PenLine" : "FileText";
-  const ModeTabs = () => (
-    <div className="doc-mode-tabs">
-      <button className="doc-mode-tab" onClick={backToAll}><IcoV name="LayoutGrid" size={13} /> All files</button>
-      <button className={`doc-mode-tab ${mode === "preview" ? "active" : ""}`} onClick={() => setMode("preview")}><IcoV name="Eye" size={13} /> Preview</button>
-      <button className={`doc-mode-tab ${mode === "edit" ? "active" : ""}`} onClick={() => setMode("edit")}><IcoV name="Pencil" size={13} /> Edit</button>
-    </div>
-  );
 
   // ==========================================================================
   // PREVIEW — read-only
@@ -1033,7 +1537,6 @@ function CoachDocuments({ roadmap }) {
           <div className="doc-mode-tabs" style={{ margin: 0 }}>
             <button className="doc-mode-tab" onClick={backToAll}><IcoV name="LayoutGrid" size={13} /> All files</button>
             <button className="doc-mode-tab active"><IcoV name="Eye" size={13} /> Preview</button>
-            <button className="doc-mode-tab" onClick={() => setMode("edit")}><IcoV name="Pencil" size={13} /> Edit</button>
           </div>
           <span className="docv-bar-ico"><IcoV name={kindIcon(cur.type === "draft" ? "draft" : cur.kind)} size={15} color="#fff" /></span>
           <div className="docv-bar-t">
@@ -1048,17 +1551,26 @@ function CoachDocuments({ roadmap }) {
             </span>
           </div>
           <div className="docv-bar-acts">
-            {exportText.trim() && <button className="btn sm" onClick={() => downloadForDocs(cur.title, exportText)} title="Downloads a .doc that opens in Google Docs or Word"><IcoV name="FileType2" size={14} /> Google Docs / Word</button>}
-            {cur.dataUrl && <a className="btn sm" href={cur.dataUrl} download={cur.fileName}><IcoV name="Download" size={14} /> Download</a>}
-            {cur.type === "draft" && <button className="btn sm" onClick={() => window.print()} title="Print or save as PDF"><IcoV name="Printer" size={14} /> Print</button>}
+            {exportText.trim() && (
+              <>
+                <span className="docv-open-l">Open in</span>
+                <button className="btn sm" disabled={opening} onClick={() => openInGoogleDocs(cur.title, exportText)} title="Creates this document in your Google Drive and opens it for editing"><IcoV name={opening ? "Loader" : "FileType2"} size={14} className={opening ? "spin" : ""} /> Google Docs</button>
+                <button className="btn sm" onClick={() => { downloadForDocs(cur.title, exportText); setCopied("Downloaded a .doc with the full document — open it in Word (or drop it in OneDrive) to edit."); }} title="Downloads a .doc with the full content — opens straight into Word"><IcoV name="FileType2" size={14} /> Word</button>
+                <button className="btn sm" onClick={() => openInOverleaf(cur.title, exportText)} title="Opens this document as a new Overleaf project, content included"><IcoV name="FileCode2" size={14} /> Overleaf</button>
+              </>
+            )}
+            {cur.dataUrl && <a className="btn sm" href={cur.dataUrl} download={cur.fileName}><IcoV name="Download" size={14} /> Original</a>}
             <button className="btn icon sm" onClick={delCurrent} style={{ color: "var(--rose)" }}><IcoV name="Trash2" size={14} /></button>
           </div>
         </div>
+        {copied && <div className="doc-cmp-note" style={{ margin: "8px 0 0" }}><IcoV name="Check" size={12} /> {copied}</div>}
 
         <div className={`docv-split ${cur.srv ? "" : "solo"}`}>
           <div className="docv-main">
             {cur.kind === "pdf" && cur.dataUrl ? (
-              <div className="doc-pdf-viewer docv-tall"><iframe title={cur.title} src={`${pdfUrl || cur.dataUrl}#navpanes=0&view=Fit`} /></div>
+              <div className="doc-pdf-viewer docv-tall"><iframe title={cur.title} src={`${pdfUrl || cur.dataUrl}#navpanes=0&view=FitH`} /></div>
+            ) : cur.kind === "docx" && cur.rawDataUrl ? (
+              <div className="docv-page"><DocxPreview rawDataUrl={cur.rawDataUrl} fallbackText={cur.text} /></div>
             ) : cur.type === "draft" ? (
               <div className="docv-page">
                 {sectionsFor(cur.p.templateId).map(s => (
@@ -1075,7 +1587,7 @@ function CoachDocuments({ roadmap }) {
                 ) : text.trim() ? (
                   text.split(/\n{2,}/).map((p, i) => <p key={i} className="docv-p">{p}</p>)
                 ) : (
-                  <div className="docv-empty">No text in this document yet — switch to Edit to add some.</div>
+                  <div className="docv-empty">No text could be read from this document — open it in Google Docs, Word, or Overleaf to work on it.</div>
                 )}
               </div>
             )}
@@ -1093,97 +1605,6 @@ function CoachDocuments({ roadmap }) {
               <AiPanel srv={cur.srv && cur.srv.analysis !== undefined ? cur.srv : (serverFull || cur.srv)} />
             </aside>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  // ==========================================================================
-  // EDIT
-  // ==========================================================================
-  if (cur && mode === "edit") {
-    if (cur.type === "draft") {
-      const p = cur.p;
-      const secs = sectionsFor(p.templateId);
-      const total = secs.reduce((a, s) => a + wcOf(p.sections?.[s.id]), 0);
-      const target = secs.reduce((a, s) => a + s.target, 0);
-      const upd = (sid, v) => updLocal(p.id, { sections: { ...p.sections, [sid]: v } });
-      return (
-        <div className="page">
-          <HiddenUpload />
-          <ModeTabs />
-          <div className="step-head docv-head" style={{ marginBottom: 12 }}>
-            <div className="step-num" style={{ fontSize: 18 }}><IcoV name={cur.tpl?.icon || "PenLine"} size={22} color="#fff" /></div>
-            <div style={{ flex: 1 }}>
-              <input className="doc-title-input" value={p.name} onChange={e => updLocal(p.id, { name: e.target.value })} />
-              <div className="meta"><span className="chip">{cur.tpl?.name || "Draft"}</span><span className="chip">{total} / {target} words</span><span className="chip deliv-sat"><IcoV name="Check" size={12} /> Saves automatically</span></div>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button className="btn sm primary" onClick={() => setMode("preview")}><IcoV name="Eye" size={14} color="#fff" /> Preview</button>
-              <button className="btn icon sm" onClick={delCurrent} style={{ color: "var(--rose)" }}><IcoV name="Trash2" size={14} /></button>
-            </div>
-          </div>
-          <div className="doc-editor">
-            <aside className="doc-toc">
-              <div className="doc-toc-l">On this page</div>
-              {secs.map(s => { const w = wcOf(p.sections?.[s.id]); return <a key={s.id} className="doc-toc-link" href={`#dsec-${s.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(`dsec-${s.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); }}><span>{s.name}</span>{w > 0 && <span className="cnt">{w}</span>}</a>; })}
-            </aside>
-            <div className="doc-page">
-              <h1 className="display">{p.name}</h1>
-              <div className="doc-page-meta">{total} words · {secs.length} sections</div>
-              {secs.map(s => {
-                const text = p.sections?.[s.id] || ""; const w = wcOf(text); const ok = s.target > 0 && w >= s.target * 0.7;
-                return (
-                  <section key={s.id} id={`dsec-${s.id}`} className="doc-sec">
-                    <h2>{s.name}</h2>
-                    <textarea value={text} onChange={e => upd(s.id, e.target.value)} placeholder={`Start writing ${s.name.toLowerCase()}…`} />
-                    <div className="doc-print">{text}</div>
-                    <div className="doc-checks">
-                      {s.target > 0 && <span className={`doc-check ${ok ? "ok" : ""}`}>{ok && <IcoV name="Check" size={10} />} {w} / {s.target} words</span>}
-                      {/\d/.test(text) && <span className="doc-check ok"><IcoV name="Check" size={10} /> Has a number</span>}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const editable = cur.text;
-    return (
-      <div className="page">
-        <HiddenUpload />
-        <ModeTabs />
-        <div className="step-head docv-head" style={{ marginBottom: 12 }}>
-          <div className="step-num" style={{ fontSize: 18 }}><IcoV name={kindIcon(cur.kind)} size={22} color="#fff" /></div>
-          <div style={{ flex: 1 }}>
-            <input className="doc-title-input" value={cur.title} onChange={e => setTitle(e.target.value)} />
-            <div className="meta">
-              <span className="chip">{kindLabel(cur.kind)}</span>
-              {cur.fileName && <span className="chip">{cur.fileName}</span>}
-              <span className="chip deliv-sat"><IcoV name="Pencil" size={12} /> {wcOf(editable)} words</span>
-              {saveChip}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {cur.srv && cur.srv.id && authed
-              ? <button className="btn sm primary" onClick={() => saveToServer({ reanalyze: true })}><IcoV name="Save" size={14} color="#fff" /> Save &amp; re-analyze</button>
-              : <button className="btn sm primary" onClick={() => setMode("preview")}><IcoV name="Eye" size={14} color="#fff" /> Done</button>}
-            <button className="btn sm" onClick={() => setMode("preview")}><IcoV name="Eye" size={14} /> Preview</button>
-            <button className="btn icon sm" onClick={delCurrent} style={{ color: "var(--rose)" }}><IcoV name="Trash2" size={14} /></button>
-          </div>
-        </div>
-        <div className="doc-editor">
-          <div className="doc-page" style={{ gridColumn: "1 / -1" }}>
-            {cur.kind === "pdf" && <div className="doc-converted-note"><IcoV name="Pencil" size={13} /> You're editing this PDF's extracted text — your coach reads this text; the original PDF (see Preview) stays untouched.</div>}
-            {cur.converted && <div className="doc-converted-note"><IcoV name="Info" size={13} /> Converted from Word — text is fully editable; original formatting was simplified.</div>}
-            <DocRichText value={editable} onChange={setText}
-              placeholder={cur.loading ? "Loading document…" : cur.kind === "pdf" ? "If nothing appears, this is a scanned PDF with no text layer — type or paste its text here." : "This document is empty — start typing…"} />
-            <div className="doc-print">{editable}</div>
-            {!(cur.srv && cur.srv.id && authed) && <div className="doc-cmp-note" style={{ marginTop: 8 }}><IcoV name="Check" size={12} /> Edits save automatically on this device.</div>}
-          </div>
         </div>
       </div>
     );
@@ -1234,7 +1655,9 @@ function CoachDocuments({ roadmap }) {
         {cards.length > 0 && <span className="docs-head-sub">{cards.length} file{cards.length === 1 ? "" : "s"}</span>}
         {cards.length > 0 && (
           <div className="docs-filters">
-            {[["all", "All"], ["uploads", "Uploads"], ["tools", "From chat & tools"], ["drafts", "Drafts"]].map(([id, label]) => (
+            {[["all", "All"], ["uploads", "Uploads"], ["tools", "From chat & tools"], ["drafts", "Drafts"]]
+              .filter(([id]) => id !== "drafts" || counts.drafts > 0) // drafts are legacy-only now
+              .map(([id, label]) => (
               <button key={id} className={`docs-filter ${filter === id ? "active" : ""}`} onClick={() => setFilter(id)}>{label} <span className="cnt">{counts[id]}</span></button>
             ))}
           </div>
@@ -1251,7 +1674,7 @@ function CoachDocuments({ roadmap }) {
         <button className="doc-dropzone" onClick={openUploader}>
           <span className="doc-dz-ico"><IcoV name="UploadCloud" size={22} /></span>
           <span className="doc-dz-t">Upload a document</span>
-          <span className="doc-dz-d">PDF, Word (.docx), or text — every file becomes previewable, editable, and readable by your AI coach.</span>
+          <span className="doc-dz-d">PDF, Word (.docx), or text — every file becomes previewable, AI-analyzed, and one click away from Google Docs, Word, or Overleaf.</span>
         </button>
       )}
 
@@ -1272,7 +1695,6 @@ function CoachDocuments({ roadmap }) {
                 </div>
                 <div className="doc-card-acts">
                   <button className="doc-card-act" title="Preview" onClick={e => { e.stopPropagation(); openPreview(c.ref); }}><IcoV name="Eye" size={13} /></button>
-                  <button className="doc-card-act" title="Edit" onClick={e => { e.stopPropagation(); openEdit(c.ref); }}><IcoV name="Pencil" size={13} /></button>
                   <button className="doc-card-del" title="Delete" onClick={e => { e.stopPropagation(); delFromCard(c); }}><IcoV name="Trash2" size={13} /></button>
                 </div>
               </div>
@@ -1282,37 +1704,9 @@ function CoachDocuments({ roadmap }) {
       )}
       {cards.length > 0 && visible.length === 0 && <div className="docv-empty" style={{ margin: "18px 0" }}>Nothing matches "{q}".</div>}
 
-      {(window.DOC_TEMPLATES || []).length > 0 && (
-        <>
-          <div className="section-label"><span className="ic"><IcoV name="PenLine" size={13} /></span> Start a draft</div>
-          <div className="docs-tpl-row">
-            {(window.DOC_TEMPLATES || []).slice(0, 6).map(t => (
-              <button key={t.id} className="docs-tpl" onClick={() => createDraft(t.id)}><IcoV name={t.icon || "FileText"} size={14} /> {t.name}</button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {knowledge && (knowledge.markdown || "").trim() && (
-        <>
-          <div className="section-label"><span className="ic"><IcoV name="Sparkles" size={13} /></span> What your coach has learned</div>
-          <div className="doc-knowledge">
-            <div className="doc-knowledge-d">Built automatically from your documents, the links inside them, your chats, and your wellbeing check-ins. Your chat advisors read this so answers fit your program and situation.</div>
-            {knowledgeOpen ? (
-              <>
-                <pre className="doc-knowledge-md">{knowledge.markdown}</pre>
-                <button className="btn sm" onClick={() => setKnowledgeOpen(false)}><IcoV name="ChevronUp" size={13} /> Hide</button>
-              </>
-            ) : (
-              <button className="btn sm" onClick={() => setKnowledgeOpen(true)}><IcoV name="ChevronDown" size={13} /> Show what the AI knows</button>
-            )}
-          </div>
-        </>
-      )}
     </div>
   );
 }
 
-window.CoachInsights = CoachInsights;
 window.CoachWorkspace = CoachWorkspace;
 window.CoachDocuments = CoachDocuments;

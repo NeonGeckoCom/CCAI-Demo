@@ -20,13 +20,25 @@
     (function () {
       var h = location.hostname;
       var isLocal = h === "localhost" || h === "127.0.0.1" || h === "";
-      window.PHD_API_BASE = isLocal ? "" : "https://phd-navigator-api.onrender.com";
+      var RENDER_API = "https://phd-navigator-api.onrender.com";
+      window.PHD_API_BASE = isLocal ? "" : RENDER_API;
+      if (isLocal) {
+        // No backend on :8000? Fall back to the deployed API so every AI
+        // feature still works when someone runs the static frontend alone.
+        // (Any HTTP response — even 401 — means the local backend is up;
+        // only a network error rejects.)
+        try {
+          var probe = (location.protocol === "https:" ? "https:" : "http:") + "//" + (h || "localhost") + ":8000/";
+          fetch(probe, { method: "GET" }).catch(function () { window.PHD_API_BASE = RENDER_API; });
+        } catch (e) { window.PHD_API_BASE = RENDER_API; }
+      }
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="coach-styles.css?v=livingbrain-20260724" />
+  <!-- IBM Plex Mono renders insights.md — the markdown the Insights page is composed from. -->
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="coach-styles.css?v=ix-strip-20260728b" />
 </head>
 <body>
   <div id="root"></div>
@@ -93,7 +105,7 @@
   <script type="text/babel" src="coach-shared.jsx?v=academic-combo-20260624" data-presets="react"></script>
 
   <!-- Functional persistent tools (notes, tasks, reading, pomodoro, bib) -->
-  <script type="text/babel" src="canvas-tools.jsx?v=workspace5b-20260720" data-presets="react"></script>
+  <script type="text/babel" src="canvas-tools.jsx?v=meet-calendar-20260728" data-presets="react"></script>
 
   <!-- Committee Builder (chair helper + match scoring) -->
   <script type="text/babel" src="coach-committee.jsx" data-presets="react"></script>
@@ -102,10 +114,11 @@
   <script type="text/babel" src="coach-app.jsx?v=meetfix-20260724" data-presets="react"></script>
 
   <!-- Marketing landing + login (website-style home) -->
-  <script type="text/babel" src="coach-landing.jsx?v=academic-combo-20260624" data-presets="react"></script>
+  <script type="text/babel" src="coach-landing.jsx?v=lenses-20260728" data-presets="react"></script>
 
-  <!-- Insights / Workspace / Documents (warm redesign — uses coachHelpers) -->
-  <script type="text/babel" src="coach-views.jsx?v=livingbrain-20260724" data-presets="react"></script>
+  <!-- Insights / Workspace / Documents. Insights composes itself from the
+       backend's scored candidate library; insights.md is what it renders. -->
+  <script type="text/babel" src="coach-views.jsx?v=ix-strip-20260728b" data-presets="react"></script>
 
   <!-- Chat v3 — personas + skills in composer, single/multiple toggle, skill actions -->
   <script type="text/babel" src="coach-chat.jsx?v=committee-chat-20260720" data-presets="react"></script>
@@ -120,12 +133,13 @@
   <script type="text/babel" src="coach-tour.jsx" data-presets="react"></script>
 
   <!-- Per-page first-view walkthroughs (Documents / Insights / Skills / Defense) -->
-  <script type="text/babel" src="coach-page-tours.jsx" data-presets="react"></script>
+  <script type="text/babel" src="coach-page-tours.jsx?v=ins-tour-20260728" data-presets="react"></script>
 
   <!-- Wellbeing page — daily check-ins, burnout signal, resources -->
-  <script type="text/babel" src="coach-wellness.jsx?v=insight-20260721" data-presets="react"></script>
+  <script type="text/babel" src="coach-wellness.jsx?v=quiet-checker-20260728" data-presets="react"></script>
+  <script type="text/babel" src="coach-meetings.jsx?v=cadence-card-20260728" data-presets="react"></script>
 
   <!-- App: plan/step, recovery, chat, settings, router + mount -->
-  <script type="text/babel" src="coach-app2.jsx?v=spineclean-20260724" data-presets="react"></script>
+  <script type="text/babel" src="coach-app2.jsx?v=plan-caret-20260728b" data-presets="react"></script>
 </body>
 </html>
