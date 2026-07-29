@@ -38,7 +38,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <!-- IBM Plex Mono renders insights.md — the markdown the Insights page is composed from. -->
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="coach-styles.css?v=ix-strip-20260728b" />
+  <link rel="stylesheet" href="coach-styles.css?v=chat-export-20260728" />
 </head>
 <body>
   <div id="root"></div>
@@ -99,7 +99,7 @@
   <script src="roadmap-engine.js?v=direct-handbook-network-20260713"></script>
 
   <!-- Real backend wiring (auth, streaming chat, sessions). Defines window.CoachAPI. -->
-  <script src="coach-api.js?v=brain-20260722"></script>
+  <script src="coach-api.js?v=practice-room-20260727"></script>
 
   <!-- Shared Icon helper (must run before the tools module) -->
   <script type="text/babel" src="coach-shared.jsx?v=academic-combo-20260624" data-presets="react"></script>
@@ -120,14 +120,14 @@
        backend's scored candidate library; insights.md is what it renders. -->
   <script type="text/babel" src="coach-views.jsx?v=ix-strip-20260728b" data-presets="react"></script>
 
-  <!-- Chat v3 — personas + skills in composer, single/multiple toggle, skill actions -->
-  <script type="text/babel" src="coach-chat.jsx?v=committee-chat-20260720" data-presets="react"></script>
+  <!-- Chat and shared site search -->
+  <script type="text/babel" src="coach-chat.jsx?v=chat-export-fix-20260728" data-presets="react"></script>
 
   <!-- Skills library (Chen's specialized-LLM skills) -->
   <script type="text/babel" src="coach-skills.jsx" data-presets="react"></script>
 
   <!-- Defense Room — mock defense / poster / talk practice (replaces Workspace page) -->
-  <script type="text/babel" src="coach-defense.jsx?v=delivery-feedback-20260721" data-presets="react"></script>
+  <script type="text/babel" src="coach-defense.jsx?v=material-role-scope-20260727" data-presets="react"></script>
 
   <!-- Welcome tutorial — guided walkthrough -->
   <script type="text/babel" src="coach-tour.jsx" data-presets="react"></script>
@@ -140,6 +140,6 @@
   <script type="text/babel" src="coach-meetings.jsx?v=cadence-card-20260728" data-presets="react"></script>
 
   <!-- App: plan/step, recovery, chat, settings, router + mount -->
-  <script type="text/babel" src="coach-app2.jsx?v=plan-caret-20260728b" data-presets="react"></script>
+  <script type="text/babel" src="coach-app2.jsx?v=chat-fullheight-20260728" data-presets="react"></script>
 </body>
 </html>

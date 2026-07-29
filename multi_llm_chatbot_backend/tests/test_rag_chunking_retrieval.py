@@ -140,6 +140,19 @@ class RagChunkingRetrievalTests(unittest.TestCase):
             )
         )
 
+    def test_chunker_preserves_slide_and_exact_section_location(self):
+        chunker = DocumentChunker()
+
+        chunks = chunker.create_chunks(
+            "# Slide 8\n1.4 Research Questions\nQuestion text.\n"
+            "# Slide 9\n4.6 Analysis Plan\nAnalysis text."
+        )
+
+        self.assertEqual(chunks[0]["slide_number"], 8)
+        self.assertEqual(chunks[0]["heading"], "1.4 Research Questions")
+        self.assertEqual(chunks[1]["slide_number"], 9)
+        self.assertEqual(chunks[1]["heading"], "4.6 Analysis Plan")
+
     def test_retrieval_adds_next_chunk_when_result_ends_mid_sentence(self):
         retriever = DocumentRetriever(FakeCollection())
 

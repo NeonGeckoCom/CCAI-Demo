@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: backend
+    volumes:
+      - backend_chroma_data:/ccai/multi_llm_chatbot_backend/chromadb_storage
     ports:
       - "8000:8000"
     networks:
@@ -24,6 +26,13 @@ services:
       context: .
       dockerfile: Dockerfile
       target: frontend
+    volumes:
+      # Use the local React application during development so source edits are
+      # visible to the development server without rebuilding the image.
+      - ./phd-advisor-frontend:/ccai/phd-advisor-frontend
+      # Keep Linux-installed dependencies inside Docker. This prevents a host
+      # node_modules directory (especially one from macOS) from being mounted.
+      - frontend_node_modules:/ccai/phd-advisor-frontend/node_modules
     ports:
       - "3000:3000"
     networks:
@@ -33,6 +42,9 @@ services:
     environment:
       REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
       REACT_APP_TESTING_ONBOARDING: ${REACT_APP_TESTING_ONBOARDING:-false}
+      # Filesystem events from macOS bind mounts can be missed in containers.
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
   database:
     image: mongo:8.0
     volumes:
@@ -41,6 +53,8 @@ services:
       - application
 volumes:
   mongo_data:
+  backend_chroma_data:
+  frontend_node_modules:
 networks:
   application:
     driver: bridge

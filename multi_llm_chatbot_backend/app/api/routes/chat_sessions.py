@@ -33,6 +33,29 @@ async def persist_message(session_id: str, message: PersistMessage):
     )
 
 
+async def replace_persisted_message(session_id: str, message_id: str, message: PersistMessage):
+    """Replace one existing chat message in place, preserving its timestamp."""
+    db = get_database()
+    msg = message.model_dump(exclude_none=True)
+    existing = await db.chat_sessions.find_one(
+        {"_id": ObjectId(session_id), "messages.id": message_id},
+        {"messages.$": 1},
+    )
+    old = ((existing or {}).get("messages") or [{}])[0]
+    msg["timestamp"] = old.get("timestamp") or datetime.utcnow().isoformat()
+    result = await db.chat_sessions.update_one(
+        {"_id": ObjectId(session_id), "messages.id": message_id},
+        {
+            "$set": {
+                "messages.$": msg,
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
+    if result.matched_count == 0:
+        await persist_message(session_id, message)
+
+
 @router.post("/chat-sessions", response_model=dict)
 async def create_chat_session(
     request: CreateChatSessionRequest,

@@ -420,9 +420,16 @@ class DocumentRetriever:
             enhanced_result = {
                 **result,
                 "document_source": {
+                    "file_id": metadata.get("source_document_id", ""),
                     "filename": metadata.get("filename", "unknown"),
+                    "file_type": metadata.get("file_type", "unknown"),
                     "document_title": metadata.get("document_title", metadata.get("filename", "unknown")),
                     "section": metadata.get("document_section", "unknown"),
+                    "heading": metadata.get("document_heading", ""),
+                    "page_number": int(metadata.get("page_number") or 0),
+                    "slide_number": int(metadata.get("slide_number") or 0),
+                    "version_or_upload_date": metadata.get("source_updated_at", ""),
+                    "open_route": metadata.get("source_route", ""),
                     "chunk_position": f"{metadata.get('chunk_index', 0) + 1} of {metadata.get('total_chunks', 1)}",
                 },
                 "content_type": metadata.get("chunk_type", "content"),

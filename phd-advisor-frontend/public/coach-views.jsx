@@ -1175,6 +1175,18 @@ function DocxPreview({ rawDataUrl, fallbackText }) {
     : <div className="docv-empty">Couldn't render this Word file — download the original below.</div>;
 }
 
+function consumeServerDocumentTarget() {
+  try {
+    const raw = sessionStorage.getItem("phd-open-server-document");
+    if (!raw) return null;
+    sessionStorage.removeItem("phd-open-server-document");
+    const target = JSON.parse(raw);
+    return target && target.type === "server" && target.id ? target : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function CoachDocuments({ roadmap }) {
   // ==========================================================================
   // Documents — rebuilt around three views:
@@ -1189,9 +1201,10 @@ function CoachDocuments({ roadmap }) {
   const projects = Object.values(store.projects || {});
 
   const [mode, setMode] = useSV("all");     // all | preview | edit
-  const [sel, setSel] = useSV(null);        // { type: "local" | "server", id }
+  const [sel, setSel] = useSV(consumeServerDocumentTarget); // { type: "local" | "server", id }
   const [filter, setFilter] = useSV("all"); // all | uploads | tools | drafts
   const [q, setQ] = useSV("");
+  const [sortBy, setSortBy] = useSV("date"); // date | name
 
   const [serverDocs, setServerDocs] = useSV([]);
   const [serverFull, setServerFull] = useSV(null);
@@ -1200,6 +1213,7 @@ function CoachDocuments({ roadmap }) {
   const [uploadErr, setUploadErr] = useSV("");
   const fileRef = React.useRef(null);
   const authed = window.CoachAPI && window.CoachAPI.isAuthed && window.CoachAPI.isAuthed();
+  useEV(() => { if (sel) setMode("preview"); }, []);
 
   // ---- server sync ---------------------------------------------------------
   const refreshServer = async () => {
@@ -1216,6 +1230,26 @@ function CoachDocuments({ roadmap }) {
   }, [serverDocs]);
 
   const serverByFile = useMV(() => { const m = {}; for (const d of serverDocs) m[d.filename] = d; return m; }, [serverDocs]);
+
+  const fileExtension = (fileName, kind) => {
+    const match = String(fileName || "").match(/\.([^.]+)$/);
+    if (match) return match[1].toLowerCase();
+    const normalized = String(kind || "").toLowerCase().replace(/^\./, "");
+    if (normalized === "text" || normalized === "draft") return "txt";
+    if (normalized === "word") return "docx";
+    return normalized || "txt";
+  };
+  const fileTitle = (name, fileName, kind) => {
+    const exactFileName = String(fileName || "").trim();
+    if (exactFileName) return exactFileName;
+    const base = String(name || "Untitled").trim();
+    return /\.[^.]+$/.test(base) ? base : `${base}.${fileExtension("", kind)}`;
+  };
+  const formatAddedDate = (when) => {
+    const date = new Date(when);
+    if (!when || Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  };
 
   // ---- selection resolution ------------------------------------------------
   const localDoc = sel && sel.type === "local" ? (store.projects[sel.id] || null) : null;
@@ -1265,8 +1299,8 @@ function CoachDocuments({ roadmap }) {
       const d = serverFull || serverMeta;
       if (!d) return null;
       return {
-        type: "server", id: d.id, title: d.name || "", fileName: d.filename || "",
-        kind: "text", source: d.source || "app", text: serverFull ? (serverFull.content || "") : "",
+        type: "server", id: d.id, title: fileTitle(d.name, d.filename, d.file_type), fileName: d.filename || "",
+        kind: fileExtension(d.filename, d.file_type), source: d.source || "app", text: serverFull ? (serverFull.content || "") : "",
         loading: !serverFull, srv: serverFull || serverMeta
       };
     }
@@ -1274,11 +1308,11 @@ function CoachDocuments({ roadmap }) {
     if (!p) return null;
     if (!p.uploaded) {
       const tpl = (window.DOC_TEMPLATES || []).find(t => t.id === p.templateId);
-      return { type: "draft", id: p.id, title: p.name || "", tpl, p, source: "draft" };
+      return { type: "draft", id: p.id, title: fileTitle(p.name, "", "draft"), tpl, p, source: "draft" };
     }
     const text = p.kind === "pdf" ? (serverFull ? (serverFull.content || "") : (p.content || "")) : (p.content || "");
     return {
-      type: "local", id: p.id, title: p.name || "", fileName: p.fileName || "",
+      type: "local", id: p.id, title: fileTitle(p.name, p.fileName, p.kind), fileName: p.fileName || "",
       kind: p.kind, dataUrl: p.dataUrl, rawDataUrl: p.rawDataUrl, converted: p.converted, text,
       source: "documents", srv: serverFull || serverMeta
     };
@@ -1536,14 +1570,13 @@ function CoachDocuments({ roadmap }) {
         <div className="docv-bar">
           <div className="doc-mode-tabs" style={{ margin: 0 }}>
             <button className="doc-mode-tab" onClick={backToAll}><IcoV name="LayoutGrid" size={13} /> All files</button>
-            <button className="doc-mode-tab active"><IcoV name="Eye" size={13} /> Preview</button>
+            <button className="doc-mode-tab active">Preview</button>
           </div>
           <span className="docv-bar-ico"><IcoV name={kindIcon(cur.type === "draft" ? "draft" : cur.kind)} size={15} color="#fff" /></span>
           <div className="docv-bar-t">
             <span className="docv-bar-name">{cur.title}</span>
             <span className="docv-bar-meta">
               {kindLabel(cur.type === "draft" ? "draft" : cur.kind)}
-              {cur.fileName ? ` · ${cur.fileName}` : ""}
               {cur.type === "server" ? ` · from ${cur.source}` : ""}
               {cur.type === "draft" && cur.tpl ? ` · ${cur.tpl.name}` : ""}
               {` · ${wcOf(exportText)} words`}
@@ -1619,32 +1652,34 @@ function CoachDocuments({ roadmap }) {
   for (const p of localUploads) {
     const srv = serverByFile[p.fileName];
     cards.push({
-      ref: { type: "local", id: p.id }, title: p.name, sub: p.fileName, kind: p.kind,
+      ref: { type: "local", id: p.id }, title: fileTitle(p.name, p.fileName, p.kind), kind: p.kind,
       source: "Uploaded here", group: "uploads", words: p.kind === "pdf" ? wcOf(p.content) : wcOf(p.content), srv,
-      when: p.createdAt || 0
+      when: p.createdAt || Date.parse((srv && srv.created_at) || "") || 0
     });
   }
   for (const d of serverDocs.filter(d => !localFileNames.has(d.filename))) {
     cards.push({
-      ref: { type: "server", id: d.id }, title: d.name, sub: d.filename, kind: "text",
+      ref: { type: "server", id: d.id }, title: fileTitle(d.name, d.filename, d.file_type), kind: fileExtension(d.filename, d.file_type),
       source: `From ${d.source}`, group: "tools", words: d.word_count, srv: d,
-      when: Date.parse(d.updated_at || "") || 0
+      when: Date.parse(d.created_at || d.updated_at || "") || 0
     });
   }
   for (const p of projects.filter(p => !p.uploaded)) {
     const t = (window.DOC_TEMPLATES || []).find(t => t.id === p.templateId);
     cards.push({
-      ref: { type: "local", id: p.id }, title: p.name, sub: t ? t.name : "Draft", kind: "draft",
+      ref: { type: "local", id: p.id }, title: fileTitle(p.name, "", "draft"), kind: "draft",
       source: "Draft", group: "drafts", icon: t?.icon,
       words: Object.values(p.sections || {}).reduce((a, x) => a + wcOf(x), 0),
       when: p.createdAt || 0
     });
   }
-  cards.sort((a, b) => b.when - a.when);
   const qn = q.trim().toLowerCase();
   const visible = cards
     .filter(c => filter === "all" || c.group === filter)
-    .filter(c => !qn || `${c.title} ${c.sub} ${c.source}`.toLowerCase().includes(qn));
+    .filter(c => !qn || `${c.title} ${c.source}`.toLowerCase().includes(qn))
+    .sort((a, b) => sortBy === "name"
+      ? a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true })
+      : (b.when - a.when) || a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }));
   const counts = { all: cards.length, uploads: cards.filter(c => c.group === "uploads").length, tools: cards.filter(c => c.group === "tools").length, drafts: cards.filter(c => c.group === "drafts").length };
 
   return (
@@ -1661,6 +1696,15 @@ function CoachDocuments({ roadmap }) {
               <button key={id} className={`docs-filter ${filter === id ? "active" : ""}`} onClick={() => setFilter(id)}>{label} <span className="cnt">{counts[id]}</span></button>
             ))}
           </div>
+        )}
+        {cards.length > 1 && (
+          <label className="docs-sort">
+            <span>Sort by</span>
+            <select aria-label="Sort documents" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+              <option value="date">Date added</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
         )}
         <div className="field docs-search"><div className="wrap"><span className="fi"><IcoV name="Search" size={14} /></span>
           <input placeholder="Search files…" aria-label="Search files" value={q} onChange={e => setQ(e.target.value)} /></div></div>
@@ -1690,11 +1734,12 @@ function CoachDocuments({ roadmap }) {
                 <span className="doc-card-i"><IcoV name={c.icon || kindIcon(c.kind)} size={18} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="doc-card-n">{c.title}</div>
-                  <div className="doc-card-d">{c.sub}</div>
-                  <div className="doc-card-meta">{kindLabel(c.kind)} · {c.source}{c.words ? ` · ${c.words} words` : ""}{aiNote ? ` · ${aiNote}` : ""}{newer ? " · ↻ newer version" : ""}</div>
+                  <div className="doc-card-meta">
+                    {formatAddedDate(c.when) ? `Added ${formatAddedDate(c.when)} · ` : ""}{c.source}
+                    {c.words ? ` · ${c.words} words` : ""}{aiNote ? ` · ${aiNote}` : ""}{newer ? " · ↻ newer version" : ""}
+                  </div>
                 </div>
                 <div className="doc-card-acts">
-                  <button className="doc-card-act" title="Preview" onClick={e => { e.stopPropagation(); openPreview(c.ref); }}><IcoV name="Eye" size={13} /></button>
                   <button className="doc-card-del" title="Delete" onClick={e => { e.stopPropagation(); delFromCard(c); }}><IcoV name="Trash2" size={13} /></button>
                 </div>
               </div>

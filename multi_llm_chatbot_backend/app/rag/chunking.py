@@ -94,6 +94,11 @@ class DocumentChunker:
         for section_data in sections:
             section_text = section_data["text"]
             section_type = section_data["type"]
+            location = {
+                "heading": section_data.get("heading", ""),
+                "page_number": section_data.get("page_number", 0),
+                "slide_number": section_data.get("slide_number", 0),
+            }
 
             # Split large sections with the recursive character text splitter
             if len(section_text.split()) > 300:  # Large section, needs chunking
@@ -103,6 +108,7 @@ class DocumentChunker:
                     chunks.append({
                         "text": chunk_text,
                         "section": section_type,
+                        **location,
                         "type": chunk_type,
                         "keywords": self._extract_keywords(chunk_text)
                     })
@@ -112,6 +118,7 @@ class DocumentChunker:
                 chunks.append({
                     "text": section_text,
                     "section": section_type,
+                    **location,
                     "type": chunk_type,
                     "keywords": self._extract_keywords(section_text)
                 })
@@ -124,25 +131,59 @@ class DocumentChunker:
         sections = []
         current_section = []
         current_type = "introduction"
+        current_heading = ""
+        current_page = 0
+        current_slide = 0
 
         for line in lines:
             line = line.strip()
             if not line:
                 continue
 
+            page_match = re.match(r"^#\s*Page\s+(\d+)\s*$", line, re.IGNORECASE)
+            slide_match = re.match(r"^#\s*Slide\s+(\d+)\s*$", line, re.IGNORECASE)
+            if page_match or slide_match:
+                if current_section:
+                    sections.append({
+                        "text": '\n'.join(current_section),
+                        "type": current_type,
+                        "heading": current_heading,
+                        "page_number": current_page,
+                        "slide_number": current_slide,
+                    })
+                    current_section = []
+                if page_match:
+                    current_page = int(page_match.group(1))
+                    current_slide = 0
+                    current_heading = f"Page {current_page}"
+                else:
+                    current_slide = int(slide_match.group(1))
+                    current_page = 0
+                    current_heading = f"Slide {current_slide}"
+                current_type = "content"
+                continue
+
             # Check if this line starts a new section
-            section_match = re.match(r'(?:(?:Chapter|Section)\s+|\d+\.\s+)(.+)', line, re.IGNORECASE)
+            section_match = re.match(
+                r'^(?:(?:Chapter|Section)\s+.+|\d+\.\s+.+|\d+(?:\.\d+)+\.?\s+.+)$',
+                line,
+                re.IGNORECASE,
+            )
             if section_match:
                 # Save previous section
                 if current_section:
                     sections.append({
                         "text": '\n'.join(current_section),
-                        "type": current_type
+                        "type": current_type,
+                        "heading": current_heading,
+                        "page_number": current_page,
+                        "slide_number": current_slide,
                     })
 
                 # Start new section
                 current_section = [line]
-                section_title = section_match.group(1).lower()
+                current_heading = line
+                section_title = line.lower()
                 current_type = self._classify_section_type(section_title)
             else:
                 current_section.append(line)
@@ -151,10 +192,19 @@ class DocumentChunker:
         if current_section:
             sections.append({
                 "text": '\n'.join(current_section),
-                "type": current_type
+                "type": current_type,
+                "heading": current_heading,
+                "page_number": current_page,
+                "slide_number": current_slide,
             })
 
-        return sections if sections else [{"text": content, "type": "content"}]
+        return sections if sections else [{
+            "text": content,
+            "type": "content",
+            "heading": "",
+            "page_number": 0,
+            "slide_number": 0,
+        }]
 
     def _looks_like_table_row(self, text: str) -> bool:
         """Detect compact row-like chunks without assuming a table schema."""

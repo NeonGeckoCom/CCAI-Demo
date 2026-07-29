@@ -9,6 +9,7 @@ import subprocess
 import time
 import tempfile
 import zipfile
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -29,7 +30,7 @@ router = APIRouter()
 
 
 MAX_SUMMARY_CHARS = 1600
-MAX_MATERIAL_CHARS = 3200
+MAX_MATERIAL_CHARS = 16_000
 MAX_RESOURCE_TEXT_CHARS = 8000
 MAX_PROFILE_CONTEXT_CHARS = 24_000
 PROFILE_SEARCH_BUDGET_SECONDS = 24
@@ -200,13 +201,25 @@ class DefenseDeliveryFeedback(BaseModel):
     fixes: List[str] = Field(default_factory=list)
 
 
+class SimulationProvenance(BaseModel):
+    source_type: Literal["simulation"] = "simulation"
+    simulation_type: Literal["defense_practice"] = "defense_practice"
+    generated_by: Literal["AI"] = "AI"
+    real_person_statement: bool = False
+    session_date: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    referenced_lens_or_profile: List[str] = Field(default_factory=list)
+    user_verified: bool = False
+
+
 class DefensePresentationAnalysisResponse(BaseModel):
     material: DefenseMaterial
     transcript: str = ""
     summary: str = ""
     delivery_notes: List[str] = Field(default_factory=list)
+    presentation_feedback: List[str] = Field(default_factory=list)
     delivery: Optional[DefenseDeliveryFeedback] = None
     generation_method: Literal["multimodal_llm", "slides_only"]
+    provenance: SimulationProvenance = Field(default_factory=SimulationProvenance)
 
 
 class DefenseProfileRequest(BaseModel):
@@ -220,6 +233,12 @@ class DefenseQuestionsRequest(BaseModel):
     materials: List[DefenseMaterial] = Field(default_factory=list)
     committee_members: List[CommitteeMemberRequest] = Field(default_factory=list)
     question_count: int = Field(default=6, ge=1, le=12)
+    difficulty: Literal["supportive", "standard", "rigorous"] = "standard"
+    target_presentation_minutes: int = Field(default=20, ge=1, le=180)
+    areas_of_focus: str = Field(default="", max_length=1200)
+    audience_levels: List[Literal["novice", "general", "field_familiar"]] = Field(default_factory=list)
+    audience_interests: List[str] = Field(default_factory=list)
+    defense_priorities: List[str] = Field(default_factory=list)
     use_llm: bool = True
 
 
@@ -255,6 +274,19 @@ class DefenseQuestionsResponse(BaseModel):
     profiles: List[AcademicProfile]
     generation_method: Literal["llm", "llm_coverage_repaired", "profile_grounded_recovery"]
     diagnostics: DefenseGenerationDiagnostics
+    provenance: SimulationProvenance = Field(default_factory=SimulationProvenance)
+
+
+def _simulation_provenance(
+    referenced_lenses: Optional[List[str]] = None,
+) -> SimulationProvenance:
+    return SimulationProvenance(
+        referenced_lens_or_profile=[
+            str(name).strip()
+            for name in (referenced_lenses or [])
+            if str(name).strip()
+        ][:12]
+    )
 
 
 QUESTION_FORMAT_DIRECTIVES: Dict[str, Dict[str, Any]] = {
@@ -342,6 +374,77 @@ QUESTION_FORMAT_DIRECTIVES: Dict[str, Dict[str, Any]] = {
 
 def question_format_directive(format_key: str) -> Dict[str, Any]:
     return QUESTION_FORMAT_DIRECTIVES.get(format_key, QUESTION_FORMAT_DIRECTIVES["defense"])
+
+
+AUDIENCE_LEVELS: Dict[str, Dict[str, str]] = {
+    "novice": {
+        "name": "Novice audience member",
+        "summary": "New to this field and testing whether the motivation, vocabulary, and main result are understandable.",
+        "style": "Ask plain-language questions without assuming field-specific background.",
+    },
+    "general": {
+        "name": "General academic audience member",
+        "summary": "Research-literate but outside the specialty, focusing on significance, logic, evidence, and implications.",
+        "style": "Ask an informed cross-disciplinary question and request clarification when specialist context is missing.",
+    },
+    "field_familiar": {
+        "name": "Field-familiar audience member",
+        "summary": "Familiar with the field's common concepts and methods, and able to probe positioning, evidence, and assumptions.",
+        "style": "Ask a technically informed question grounded in what the student presented.",
+    },
+}
+
+
+def _audience_profiles(request: DefenseQuestionsRequest) -> List[AcademicProfile]:
+    if request.format == "defense":
+        return []
+    interests = [
+        _compact_text(interest, 120)
+        for interest in request.audience_interests
+        if _compact_text(interest, 120)
+    ][:8]
+    profiles: List[AcademicProfile] = []
+    for level in dict.fromkeys(request.audience_levels):
+        definition = AUDIENCE_LEVELS.get(level)
+        if not definition:
+            continue
+        profiles.append(
+            AcademicProfile(
+                id=f"audience-{level}",
+                name=definition["name"],
+                title="Selected presentation audience",
+                source_status="persona",
+                confidence=1.0,
+                summary=definition["summary"],
+                research_areas=[],
+                questioning_style=[definition["style"]],
+                question_angles=interests or list(question_format_directive(request.format)["coverage_tags"]),
+            )
+        )
+    return profiles
+
+
+def _balanced_defense_profile(request: DefenseQuestionsRequest) -> AcademicProfile:
+    priorities = [
+        _compact_text(priority, 120)
+        for priority in request.defense_priorities
+        if _compact_text(priority, 120)
+    ][:12]
+    return AcademicProfile(
+        id="balanced-defense",
+        name="Committee-style examiner",
+        title="Balanced dissertation defense practice",
+        source_status="persona",
+        confidence=1.0,
+        summary=(
+            "A balanced committee-style perspective for practicing the dissertation's framing, "
+            "theory, methods, evidence, robustness, contribution, limitations, and future work."
+        ),
+        questioning_style=[
+            "Ask realistic committee-style questions without imitating any real academic."
+        ],
+        question_angles=priorities or list(question_format_directive("defense")["coverage_tags"]),
+    )
 
 
 def strip_html(raw_html: str) -> str:
@@ -1432,17 +1535,26 @@ def _presentation_analysis_material(
         for note in delivery_notes_raw
         if _compact_text(note, 500)
     ][:6]
+    presentation_feedback_raw = analysis.get("presentation_feedback") or []
+    if not isinstance(presentation_feedback_raw, list):
+        presentation_feedback_raw = [str(presentation_feedback_raw)]
+    presentation_feedback = [
+        _compact_text(note, 500)
+        for note in presentation_feedback_raw
+        if _compact_text(note, 500)
+    ][:6]
 
     slide_context = _presentation_slide_context(slides)
     parts = [
         f"Presented deck: {deck_name or 'Uploaded slide deck'}",
-        "Slide deck file: analyzed directly from the uploaded file." if analysis and not slides else "",
+        "Slide deck file: analyzed directly from the uploaded file." if analysis else "",
         f"Slide count: {len(slides)}" if slides else "",
-        "Slide content and timing:\n" + slide_context if slide_context else "",
-        "Recording transcript:\n" + transcript if transcript else "",
-        "Recording summary:\n" + summary if summary else "",
         "Question seed from recorded talk:\n" + question_seed if question_seed else "",
+        "Recording summary:\n" + summary if summary else "",
+        "Format-specific presentation feedback:\n" + "\n".join(f"- {note}" for note in presentation_feedback) if presentation_feedback else "",
         "Delivery notes:\n" + "\n".join(f"- {note}" for note in delivery_notes) if delivery_notes else "",
+        "Recording transcript:\n" + transcript if transcript else "",
+        "Slide content and timing:\n" + slide_context if slide_context else "",
     ]
     text = _compact_text("\n\n".join(part for part in parts if part), MAX_DEFENSE_MATERIAL_TEXT_CHARS)
     return DefenseMaterial(
@@ -1458,7 +1570,32 @@ Use the uploaded audio/video as evidence of what the student actually said. Use 
 Return only JSON. Do not invent technical claims not present in the recording or deck."""
 
 
-def _presentation_analysis_user_prompt(deck_name: str, has_deck: bool, has_recording: bool) -> str:
+def _presentation_analysis_user_prompt(
+    deck_name: str,
+    has_deck: bool,
+    has_recording: bool,
+    format_key: str,
+    target_minutes: int,
+    audience_levels: List[str],
+    audience_interests: List[str],
+    slides: List[DefenseDeckSlide],
+) -> str:
+    format_tasks = {
+        "poster": (
+            "Evaluate the opening pitch, time to a clear problem and significance, jargon for each audience level, "
+            "balance of methods and results, figures mentioned but not explained, spoken claims without visible support, "
+            "likely interruption points, and concrete 30-second and 90-second pitch improvements."
+        ),
+        "talk": (
+            "Evaluate the opening motivation, narrative sequence, transitions, prerequisites, time allocation across "
+            "motivation/methods/results/conclusion, result interpretation, claim-evidence fit, conclusion, and likely "
+            "questions from each audience level."
+        ),
+        "defense": (
+            "Evaluate how well the student presents defensible claims, methods, evidence, contribution, limitations, "
+            "and readiness for committee questioning."
+        ),
+    }
     return json.dumps(
         {
             "task": (
@@ -1466,19 +1603,25 @@ def _presentation_analysis_user_prompt(deck_name: str, has_deck: bool, has_recor
                 "can use to ask grounded questions about the talk."
             ),
             "deck_name": deck_name,
+            "format": format_key,
+            "target_presentation_minutes": target_minutes,
+            "audience_levels": audience_levels,
+            "audience_interests": audience_interests,
+            "format_specific_analysis": format_tasks.get(format_key, format_tasks["defense"]),
+            "slide_text_and_timing": _presentation_slide_context(slides),
             "attachments": {
                 "slide_deck_file": "attached" if has_deck else "not attached",
                 "recording": "attached" if has_recording else "not attached",
             },
-            "important": (
-                "Use the attached slide deck file directly. The application is not providing parsed slide text "
-                "in this prompt."
-            ),
+            "important": "Use the attached slide deck directly and use the supplied slide timing when it is available.",
             "required_json_schema": {
                 "transcript": "concise transcript or detailed spoken-content summary from the recording",
                 "summary": "what the student argued in the talk, grounded in the slide deck file and recording",
                 "question_seed": "specific claims, methods, assumptions, evidence, limitations, and unclear points to question",
                 "delivery_notes": ["short observations about pacing, clarity, skipped/underexplained material"],
+                "presentation_feedback": [
+                    "3-6 concise, format-specific observations with the most useful timing, audience, content, or structure fixes"
+                ],
                 "delivery": {
                     "pace_wpm": "estimated speaking pace as an integer (words per minute) from the audio",
                     "pace_verdict": "'too fast' | 'comfortable' | 'too slow'",
@@ -1506,7 +1649,11 @@ async def _analyze_presentation_recording(
     deck_mime_type: str = "",
     media_bytes: bytes = b"",
     media_mime_type: str = "",
-) -> tuple[DefenseMaterial, str, str, List[str], str]:
+    format_key: str = "defense",
+    target_minutes: int = 20,
+    audience_levels: Optional[List[str]] = None,
+    audience_interests: Optional[List[str]] = None,
+) -> tuple[DefenseMaterial, str, str, List[str], List[str], Optional[DefenseDeliveryFeedback], str]:
     slides = slides or []
     llm_client = chat_orchestrator.llm_client
     multimodal = getattr(llm_client, "generate_multimodal", None) if llm_client is not None else None
@@ -1529,11 +1676,20 @@ async def _analyze_presentation_recording(
         )
     if not media_parts or multimodal is None:
         material = _presentation_analysis_material(deck_name, slides)
-        return material, "", "", [], None, "slides_only"
+        return material, "", "", [], [], None, "slides_only"
 
     raw = await multimodal(
         system_prompt=_presentation_analysis_system_prompt(),
-        text_prompt=_presentation_analysis_user_prompt(deck_name, bool(deck_bytes), bool(media_bytes)),
+        text_prompt=_presentation_analysis_user_prompt(
+            deck_name,
+            bool(deck_bytes),
+            bool(media_bytes),
+            format_key,
+            target_minutes,
+            audience_levels or [],
+            audience_interests or [],
+            slides,
+        ),
         media_parts=media_parts,
         temperature=0.15,
         max_tokens=5000,
@@ -1544,10 +1700,10 @@ async def _analyze_presentation_recording(
     except LLMJsonParseError as exc:
         logger.info("Defense presentation recording analysis returned %s; using slides only.", exc.reason)
         material = _presentation_analysis_material(deck_name, slides)
-        return material, "", "", [], None, "slides_only"
+        return material, "", "", [], [], None, "slides_only"
     if not isinstance(parsed, dict):
         material = _presentation_analysis_material(deck_name, slides)
-        return material, "", "", [], None, "slides_only"
+        return material, "", "", [], [], None, "slides_only"
 
     material = _presentation_analysis_material(deck_name, slides, parsed)
     delivery_notes_raw = parsed.get("delivery_notes") or []
@@ -1556,6 +1712,14 @@ async def _analyze_presentation_recording(
     delivery_notes = [
         _compact_text(note, 500)
         for note in delivery_notes_raw
+        if _compact_text(note, 500)
+    ][:6]
+    presentation_feedback_raw = parsed.get("presentation_feedback") or []
+    if not isinstance(presentation_feedback_raw, list):
+        presentation_feedback_raw = [str(presentation_feedback_raw)]
+    presentation_feedback = [
+        _compact_text(note, 500)
+        for note in presentation_feedback_raw
         if _compact_text(note, 500)
     ][:6]
     delivery = None
@@ -1588,6 +1752,7 @@ async def _analyze_presentation_recording(
         _compact_text(parsed.get("transcript"), 12_000),
         _compact_text(parsed.get("summary"), 3000),
         delivery_notes,
+        presentation_feedback,
         delivery,
         "multimodal_llm",
     )
@@ -1852,6 +2017,9 @@ def _question_evidence_text(request: DefenseQuestionsRequest, profiles: List[Aca
     parts: List[str] = list(material_parts)
     if not material_parts:
         parts.extend([request.thesis_title, request.research_summary])
+    if request.areas_of_focus:
+        parts.append(request.areas_of_focus)
+    parts.extend(request.defense_priorities)
 
     for profile in profiles:
         parts.extend(
@@ -2013,7 +2181,7 @@ def _question_generation_token_budget(candidate_count: int) -> int:
 
 def _profile_recovery_focus(request: DefenseQuestionsRequest) -> str:
     material_context = _material_context(request.materials)
-    raw_focus = _compact_text(material_context or request.research_summary or request.thesis_title, 260)
+    raw_focus = _compact_text(request.areas_of_focus or material_context or request.research_summary or request.thesis_title, 260)
     generic_markers = (
         "student needs practice",
         "practice dissertation defense",
@@ -2290,6 +2458,7 @@ def _llm_question_system_prompt(format_key: str) -> str:
     directive = question_format_directive(format_key)
     coverage = ", ".join(directive["coverage_tags"])
     avoid = "; ".join(directive["avoid"])
+    questioner_label = "committee member" if format_key == "defense" else "audience member or invited expert"
     return f"""You generate {directive["label"]} practice questions.
 
 Scenario:
@@ -2306,13 +2475,13 @@ Naturalness rules:
 - Do not start questions with "In your material", "your uploaded material", or "you say".
 - Do not paste raw PDF headers, author blocks, venue lines, "under review" text, reference entries, or long abstract fragments into the question.
 - Paraphrase the relevant material claim in a short clause, then ask the challenge.
-- Make the committee member angle feel substantive: connect their public area to the student's method, evidence, assumptions, or contribution.
+- Make the {questioner_label} angle feel substantive: connect their selected audience level or public area to the student's clarity, method, evidence, assumptions, or contribution.
 
 Grounding rules:
 - Use only the supplied public profile facts, selected advisor persona facts, student summary, and material excerpts.
 - When uploaded materials are present, treat them as the primary source for the student's work.
 - Do not use the student summary or program context to introduce technical details that are absent from the uploaded materials.
-- Do not impersonate the committee member or invent private beliefs.
+- Do not impersonate a real person or invent private beliefs.
 - Infer likely lines of questioning from public research areas, publications, talks, and stated expertise.
 - For profiles whose source_status is "persona", use the supplied role, summary, questioning_style, and question_angles as that selected advisor's perspective.
 - Every concrete technical subsystem, sensor, algorithm, benchmark, metric, dataset, task setting, robot capability, or numerical claim in a question must be supported by the supplied profile facts or material excerpts.
@@ -2335,6 +2504,11 @@ Avoid:
 Quality bar:
 - Make each question specific, concise, and answerable aloud in the live setting.
 - Prefer questions that help the student rehearse a response, not questions that merely request a definition.
+- Follow the requested practice difficulty: supportive uses constructive prompts and limited pressure;
+  standard matches a realistic committee; rigorous persistently probes assumptions, evidence,
+  limitations, and weak answers without becoming hostile.
+- Prioritize the student's areas_of_focus when supplied, while remaining grounded in the evidence.
+- For dissertation defenses, use defense_priorities as explicit coverage targets and balance the set across them when possible.
 - Use the supplied member_id and member_name for the person most likely to ask the question.
 - Return only valid JSON in this shape:
 {{"questions":[{{"tag":"Methods","q":"...","member_id":"...","member_name":"...","grounded_in":["profile fact, persona angle, publication title, talk title, or material excerpt"]}}]}}"""
@@ -2382,6 +2556,14 @@ async def llm_profile_questions(
             "research_summary": _compact_text(request.research_summary, MAX_SUMMARY_CHARS),
             "materials": material_context,
             "question_count": candidate_count,
+            "practice_room": {
+                "difficulty": request.difficulty,
+                "target_presentation_minutes": request.target_presentation_minutes,
+                "areas_of_focus": _compact_text(request.areas_of_focus, 1200),
+                "audience_levels": request.audience_levels,
+                "audience_interests": request.audience_interests,
+                "defense_priorities": request.defense_priorities,
+            },
             "count_guidance": (
                 "question_count is a MAXIMUM, not a quota. Return only questions genuinely "
                 "grounded in the supplied evidence — if the material honestly supports 4 "
@@ -2607,6 +2789,10 @@ async def analyze_defense_presentation(
     deck: Optional[UploadFile] = File(None),
     slides_json: str = Form("[]"),
     deck_name: str = Form("Slide deck"),
+    format: Literal["defense", "poster", "talk"] = Form("defense"),
+    target_presentation_minutes: int = Form(20),
+    audience_levels_json: str = Form("[]"),
+    audience_interests_json: str = Form("[]"),
     current_user: User = Depends(get_current_active_user),
 ):
     """Analyze a recorded talk together with the original uploaded slide deck file."""
@@ -2635,61 +2821,40 @@ async def analyze_defense_presentation(
     if not deck_bytes and not slides and not media_bytes:
         raise HTTPException(status_code=400, detail="No slide deck or presentation recording was provided.")
 
-    material, transcript, summary, delivery_notes, delivery, generation_method = await _analyze_presentation_recording(
+    format_key = format if isinstance(format, str) and format in QUESTION_FORMAT_DIRECTIVES else "defense"
+    target_minutes = target_presentation_minutes if isinstance(target_presentation_minutes, int) else 20
+    try:
+        audience_levels = json.loads(audience_levels_json) if isinstance(audience_levels_json, str) else []
+        audience_interests = json.loads(audience_interests_json) if isinstance(audience_interests_json, str) else []
+    except (json.JSONDecodeError, TypeError):
+        audience_levels, audience_interests = [], []
+    if not isinstance(audience_levels, list):
+        audience_levels = []
+    if not isinstance(audience_interests, list):
+        audience_interests = []
+
+    material, transcript, summary, delivery_notes, presentation_feedback, delivery, generation_method = await _analyze_presentation_recording(
         deck_name=deck_name,
         slides=slides,
         deck_bytes=deck_bytes,
         deck_mime_type=deck_mime_type,
         media_bytes=media_bytes,
         media_mime_type=media_mime_type,
+        format_key=format_key,
+        target_minutes=max(1, min(180, target_minutes)),
+        audience_levels=[str(level) for level in audience_levels[:3]],
+        audience_interests=[_compact_text(interest, 120) for interest in audience_interests[:8]],
     )
-    # Remember the practice session so chat advisors know how it went.
-    try:
-        from app.core.library import schedule_event_memory
-
-        memory_lines = [f"Practiced presenting '{deck_name}'. {summary}".strip()]
-        memory_lines += [f"Delivery note: {note}" for note in (delivery_notes or [])[:3]]
-        if delivery:
-            memory_lines += [f"Strength: {s}" for s in (delivery.strengths or [])[:2]]
-            memory_lines += [f"To work on: {f}" for f in (delivery.fixes or [])[:2]]
-        schedule_event_memory(
-            str(current_user.id), "Defense & presentation practice", memory_lines
-        )
-    except Exception as memory_error:
-        logger.warning("Could not record presentation memory: %s", memory_error)
-
     return DefensePresentationAnalysisResponse(
         material=material,
         transcript=transcript,
         summary=summary,
         delivery_notes=delivery_notes,
+        presentation_feedback=presentation_feedback,
         delivery=delivery,
         generation_method=generation_method,
+        provenance=_simulation_provenance(audience_interests),
     )
-
-
-def _remember_defense_questions(
-    user: User, request: DefenseQuestionsRequest, questions: List[DefenseQuestion]
-) -> None:
-    """Fold a practice round into the student's long-term memory (best-effort)."""
-    try:
-        from app.core.library import schedule_event_memory
-
-        title = request.thesis_title or "their thesis"
-        members = ", ".join(
-            member.name for member in request.committee_members[:4]
-            if getattr(member, "name", "")
-        )
-        lines = [
-            f"Ran a {request.format} practice round on '{title}'"
-            + (f" with committee: {members}" if members else "")
-        ]
-        lines += [
-            f"Practice question ({q.member_name}): {q.q}" for q in questions[:6]
-        ]
-        schedule_event_memory(str(user.id), "Defense & presentation practice", lines)
-    except Exception as exc:
-        logger.warning("Could not record defense practice memory: %s", exc)
 
 
 @router.post("/defense/questions", response_model=DefenseQuestionsResponse)
@@ -2707,14 +2872,6 @@ async def defense_questions(
                 "message": "Defense Room no longer supports fallback question generation.",
             },
         )
-    if not request.committee_members:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "reason": "committee_member_required",
-                "message": "Add at least one real committee member before generating questions.",
-            },
-        )
     if chat_orchestrator.llm_client is None:
         raise HTTPException(
             status_code=503,
@@ -2724,19 +2881,24 @@ async def defense_questions(
             },
         )
 
-    profiles = [
+    resolved_profiles = [
         await resolve_committee_profile(
             member,
             llm_client=chat_orchestrator.llm_client,
         )
         for member in request.committee_members
     ]
+    # Audience perspectives are primary for posters and talks; optional named
+    # experts follow them so a short Q&A still covers each selected audience.
+    profiles = [*_audience_profiles(request), *resolved_profiles]
+    if request.format == "defense" and not profiles:
+        profiles = [_balanced_defense_profile(request)]
     if not profiles:
         raise HTTPException(
             status_code=400,
             detail={
                 "reason": "no_profiles",
-                "message": "No committee profiles were available for question generation.",
+                "message": "Select at least one audience level or academic profile for question generation.",
             },
         )
     allowed_sources = {"web", "persona"}
@@ -2790,15 +2952,15 @@ async def defense_questions(
             recovery_diagnostics = diagnostics.model_copy(deep=True)
             recovery_diagnostics.accepted_count = len(recovered_questions)
             recovery_diagnostics.failure_reason = "llm_provider_recovered_with_profile_questions"
-            _remember_defense_questions(
-                current_user, request, recovered_questions[: request.question_count]
-            )
             return DefenseQuestionsResponse(
                 format=request.format,
                 questions=recovered_questions[: request.question_count],
                 profiles=profiles,
                 generation_method="profile_grounded_recovery",
                 diagnostics=recovery_diagnostics,
+                provenance=_simulation_provenance(
+                    [profile.name for profile in profiles]
+                ),
             )
 
     missing_profiles = _missing_profile_coverage(questions, profiles, request.question_count)
@@ -2823,15 +2985,15 @@ async def defense_questions(
             repaired_diagnostics.missing_member_ids = []
             repaired_diagnostics.missing_member_names = []
             repaired_diagnostics.failure_reason = ""
-            _remember_defense_questions(
-                current_user, request, repaired_questions[: request.question_count]
-            )
             return DefenseQuestionsResponse(
                 format=request.format,
                 questions=repaired_questions[: request.question_count],
                 profiles=profiles,
                 generation_method="llm_coverage_repaired",
                 diagnostics=repaired_diagnostics,
+                provenance=_simulation_provenance(
+                    [profile.name for profile in profiles]
+                ),
             )
 
     remaining_missing_profiles = _missing_profile_coverage(questions, profiles, request.question_count)
@@ -2876,11 +3038,13 @@ async def defense_questions(
         )
         diagnostics.failure_reason = ""
 
-    _remember_defense_questions(current_user, request, questions[: request.question_count])
     return DefenseQuestionsResponse(
         format=request.format,
         questions=questions[: request.question_count],
         profiles=profiles,
         generation_method="llm",
         diagnostics=diagnostics,
+        provenance=_simulation_provenance(
+            [profile.name for profile in profiles]
+        ),
     )

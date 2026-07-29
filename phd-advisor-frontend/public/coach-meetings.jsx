@@ -84,7 +84,7 @@ function CoachMeetings({ onToast }) {
     <div className="page">
       <div className="greeting" style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <h1 className="display" style={{ fontSize: 26 }}>Meetings</h1>
+          <h1 className="display" style={{ fontSize: 26 }}>Meeting Notes</h1>
           <div className="sub">Record it, upload it, or paste your notes — the AI writes the transcript, summary, and action items.</div>
         </div>
         <label className="meetp-cadence">

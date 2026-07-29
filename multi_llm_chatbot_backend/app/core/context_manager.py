@@ -26,7 +26,29 @@ class ContextManager:
         """
         Prepare context for LLM with intelligent windowing and formatting
         """
-        # Calculate token budget
+        # Chat's persona context builder has already applied the authoritative
+        # category budget. This layer should only format it for the provider.
+        if any(message.get("_context_budgeted") for message in messages if isinstance(message, dict)):
+            prepared_messages = [
+                {
+                    key: value
+                    for key, value in message.items()
+                    if not key.startswith("_")
+                }
+                for message in messages
+            ]
+            formatted_messages = self._format_for_provider(
+                prepared_messages,
+                system_prompt,
+                llm_provider,
+            )
+            return ContextWindow(
+                messages=formatted_messages,
+                total_tokens=self._estimate_tokens_for_messages(formatted_messages),
+                truncated=False,
+            )
+
+        # Non-chat callers continue to use the general-purpose window manager.
         system_tokens = self._estimate_tokens(system_prompt)
         available_tokens = self.max_context_tokens - system_tokens - 500  # Reserve for response
         

@@ -1,178 +1,294 @@
-# Multi-LLM Chatbot Backend
+# PhD Navigator Backend
 
-A modular, extensible FastAPI backend for building an AI-powered research advisor chatbot that supports:
-- Multiple AI personas with configurable tone and behavior
-- Dynamic switching between Gemini (cloud) and Ollama (local) LLMs
-- Chat session persistence and context memory
-- Document upload, chunking, and retrieval using RAG
-- Rich export features (PDF, DOCX, TXT)
-- User authentication and JWT-based access control
+This directory contains the current FastAPI processing and account service for
+PhD Navigator. It supports authenticated chat, plan generation, document
+parsing and retrieval, meeting transcription and follow-up, Defense Room
+simulation, source-aware insights, integrations, and the prototype's remaining
+server synchronization paths.
 
----
+For the product scope, privacy model, and full-stack setup, start with the
+[repository README](../README.md).
 
-## Backend Architecture
+## Backend responsibilities
+
+The backend currently provides:
+
+- authentication and account APIs;
+- streaming, context-aware chat;
+- program-material extraction and plan generation;
+- document parsing, analysis, comparison, and retrieval;
+- meeting agenda generation, transcription, summaries, and action extraction;
+- simulated Defense Room questions and answer feedback;
+- public academic profile lookup for optional topic emphasis;
+- calendar, mail, and document integrations; and
+- compatibility endpoints retained from earlier prototypes.
+
+## Data boundary and privacy status
+
+PhD Navigator's product requirement is to keep sensitive student context
+device-local at rest by default. The backend should receive only the bounded
+context needed for an AI operation explicitly requested by the student.
+
+The current backend predates full enforcement of that requirement. Its storage
+components should be read as implementation status, not the desired final
+privacy architecture:
+
+| Component | Current use |
+| --- | --- |
+| MongoDB | Accounts, authenticated chat sessions, and legacy/best-effort workspace and document synchronization |
+| ChromaDB | Retrieval index for documents sent to server-side chat upload workflows |
+| Browser storage | Primary product state for the plan, tools, meetings, local document copies, and Defense Room history |
+| Configured LLM service | Processes the context included in chat, extraction, transcription, planning, and simulation requests |
+
+Meeting recordings and Defense Room recordings are uploaded when the student
+requests analysis. The API processes those payloads to produce structured
+results; the resulting meeting record may still enter a legacy workspace sync
+path from the current frontend. Signed-in document uploads are also currently
+mirrored into the server library.
+
+Removing implicit synchronization of sensitive meetings, transcripts,
+documents, and plan state is remaining work. Do not characterize the current
+prototype as fully local-only.
+
+## Runtime components
+
+- **FastAPI and Uvicorn** — HTTP endpoints and OpenAPI documentation
+- **Gemini, Ollama, or OpenAI-compatible vLLM** — AI processing
+- **MongoDB** — current account, chat, and compatibility persistence
+- **ChromaDB** — current server-side retrieval index
+- **Format-specific parsers** — PDF, Word, text, Markdown, HTML, JSON, CSV,
+  XLSX, and PPTX
+- **ffmpeg** — recording conversion for transcription workflows
 
 ```text
-User Input
-   ↓
-/chat-stream → Orchestrator
-     ↓            ↙         ↘
-  SessionManager   ContextManager   RAGManager
-         ↓              ↓             ↓
-     MongoDB        Token Trimming   ChromaDB
-         ↓              ↓             ↓
-        Persisted Chat & Doc Context → LLM (Gemini/Ollama)
+Browser-local student state
+          │
+          │ explicit AI request with bounded context
+          ▼
+FastAPI
+  ├─ authentication / chat-session APIs
+  ├─ document and recording parsing
+  ├─ plan, meeting, chat, and simulation orchestration
+  └─ configured AI provider
+          │
+          ▼
+structured result returned to the browser
 ```
 
----
+The current code also contains server-persistence paths described in
+[Data boundary and privacy status](#data-boundary-and-privacy-status).
 
-## Features
+## Local setup
 
-- Persona-based multi-agent conversation (`Theorist`, `Pragmatist`, etc.)
-- Provider switching (Gemini ↔ Ollama)
-- Context-aware response routing + top-K advisor selection
-- PDF, DOCX, and TXT file upload and semantic retrieval
-- Developer tools: debug personas, test RAG, export sessions
-- Secure authentication and session scoping
-
----
-
-## Setup Instructions
-
-### 1. Clone and Configure Environment
-
-```bash
-git clone https://github.com/yourorg/multi-llm-chatbot-backend
-cd multi-llm-chatbot-backend
-cp .env.example .env  # already provided
-```
-
-### 2. Python Environment Setup
+The CI matrix uses Python 3.10, 3.11, and 3.12.
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Run the Server
+On Windows:
+
+```powershell
+venv\Scripts\activate
+```
+
+Create `.env` in this directory:
+
+```dotenv
+CONFIG_PATH=../phd_config.yaml
+MONGODB_CONNECTION_STRING=mongodb://localhost:27017
+JWT_SECRET_KEY=replace-with-a-long-random-value
+GEMINI_API_KEY=your-gemini-api-key
+CORS_ORIGINS=http://localhost:3000
+
+# Optional
+OLLAMA_BASE_URL=http://localhost:11434
+VLLM_API_KEY=
+```
+
+Start the service:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-> Server will be available at: `http://localhost:8000`
+Open:
 
----
+- API root: <http://localhost:8000>
+- OpenAPI UI: <http://localhost:8000/docs>
+- OpenAPI JSON: <http://localhost:8000/openapi.json>
 
-## FastAPI Routing & Modules
+The current provider defaults to Gemini, so startup requires
+`GEMINI_API_KEY`.
 
-| Folder | Description |
-|--------|-------------|
-| [`app/api`](./api_README.md) | REST API endpoints for chat, auth, RAG, exports |
-| [`app/core`](./core_README.md) | Main orchestration, context windows, database logic |
-| [`app/llm`](./llm_README.md) | Gemini + Ollama LLM wrappers |
-| [`app/models`](./models_README.md) | Persona and user schemas |
-| [`app/utils`](./utils_README.md) | File parsing, summaries, exports, vector helpers |
+## Configuration
 
----
+Configuration is modeled in [`app/config.py`](app/config.py) and normally
+loaded from [`../phd_config.yaml`](../phd_config.yaml).
 
-## Key Files
+| Variable | Purpose |
+| --- | --- |
+| `CONFIG_PATH` | Application YAML path |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URL used by the current backend |
+| `JWT_SECRET_KEY` | JWT signing secret |
+| `GEMINI_API_KEY` | Gemini API key |
+| `OLLAMA_BASE_URL` | Ollama server |
+| `VLLM_API_KEY` | Optional vLLM key |
+| `CORS_ORIGINS` | Comma-separated browser origins |
+| `CORS_ORIGIN_REGEX` | Additional allowed-origin regex |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Google integration OAuth |
+| `MS_OAUTH_CLIENT_ID` / `MS_OAUTH_CLIENT_SECRET` | Microsoft integration OAuth |
+| `OAUTH_REDIRECT_BASE` | Public backend origin used for OAuth callbacks |
 
-### `main.py`
+Model names and `mongodb.database_name` are YAML settings. The legacy
+`GEMINI_MODEL`, `DEFAULT_PROVIDER`, and `MONGODB_DATABASE_NAME` environment
+variables are not consumed by the current configuration loader.
 
-- Loads env vars, sets up FastAPI instance with CORS and routers
-- Calls `connect_to_mongo()` on startup and `close_mongo_connection()` on shutdown
-- Imports and registers all routers (`auth`, `chat_sessions`, etc.)
+Some configuration keys and internal model names remain from an earlier
+advisory-panel implementation. They are compatibility details, not current
+user-facing product concepts.
 
-### `.env` (Sample Vars)
+## AI providers
 
-```ini
-# MongoDB
-MONGODB_CONNECTION_STRING=mongodb://localhost:27017
-MONGODB_DATABASE_NAME=neon_ai_backend
-
-# Gemini API Key and model
-GEMINI_API_KEY=...  # Replace with real key
-GEMINI_MODEL=gemini-2.0-flash
-
-# Default provider
-DEFAULT_PROVIDER=gemini
-```
-
-### `requirements.txt`
-
-Includes:
-- **FastAPI**, **Uvicorn**: API framework and server
-- **httpx**: Async LLM request handler
-- **motor**, **pymongo**: MongoDB async access
-- **chromadb**, **sentence-transformers**: Vector database + embeddings
-- **PyPDF2**, **docx2txt**, **reportlab**: Document parsing and PDF generation
-- **passlib**, **python-jose**: Auth and security
-
----
-
-## Persona Design & Context Handling
-
-- Personas defined in `app/models/default_personas.py`
-- Rich system prompts, styles, and epistemologies
-- Responses routed through `ImprovedChatOrchestrator`
-- Context trimmed and weighted via `ContextManager`
-
----
-
-## Switching LLM Providers
-
-You can hot-swap models via API:
+The provider manager exposes `gemini`, `ollama`, and `vllm`.
 
 ```http
+GET /current-provider
 POST /switch-provider
-{ "provider": "gemini" } | { "provider": "ollama" }
+Content-Type: application/json
+
+{"provider":"ollama"}
 ```
 
-> Also supported: `/switch-model`, `/current-model`, `/current-provider`
+Related endpoints:
 
----
+- `GET /current-model`
+- `POST /switch-model`
 
-## Document Upload + RAG
+Provider settings are under `llm` in the selected YAML configuration. The vLLM
+client expects an OpenAI-compatible endpoint.
 
-- Upload PDFs, DOCX, or TXT to sessions
-- Text is extracted → chunked → embedded → stored in ChromaDB
-- Queried during conversation by persona-aware `EnhancedRAGManager`
+## API organization
 
----
+Use `/docs` as the authoritative request and response reference. The main
+current product route groups are:
 
-## Export Options
+| Area | Representative routes |
+| --- | --- |
+| Authentication | `/auth/signup`, `/auth/login`, `/auth/me` |
+| Grounded chat | `/chat-stream` |
+| Chat history | `/api/chat-sessions` |
+| Program discovery | `/api/discover-deliverables` |
+| Plan building | `/api/plan/base-template`, `/api/plan/generate`, `/api/plan/import`, `/api/plan/retrofit` |
+| Documents | `/api/library/documents`, `/upload-document`, `/search-documents` |
+| Meeting work | `/api/workspace/meeting/suggest`, `/api/workspace/meeting/actions`, `/api/workspace/meeting/analyze-recording` |
+| Defense practice | `/api/defense/materials/parse`, `/api/defense/presentation/analyze`, `/api/defense/questions` |
+| Insights | `/api/insights/brain` |
+| Integrations | `/api/integrations/*` |
+| Voice | `/voice/status`, `/voice/transcribe`, `/voice/tts` |
+| Provider selection | `/current-provider`, `/switch-provider`, `/current-model` |
 
-| Format | Export Endpoint |
-|--------|------------------|
-| PDF | `/export-chat?format=pdf` |
-| DOCX | `/export-chat?format=docx` |
-| TXT | `/export-chat?format=txt` |
-| Summary | `/chat-summary?format=pdf` |
+Additional compatibility routes remain registered and are visible in OpenAPI.
+Their presence does not make them part of the current product scope.
 
----
+## Grounding behavior
 
-## Developer & Debug Endpoints
+The chat frontend currently assembles bounded context from:
 
-| Endpoint | Purpose |
-|----------|---------|
-| `/debug/personas` | See registered advisors and prompts |
-| `/debug/ranked-personas` | View top-K advisors for context |
-| `/debug/rag-status` | Run sample search to test document index |
+- the current, previous, and upcoming plan steps;
+- uploaded or synchronized document references;
+- recent meeting notes;
+- tasks, deadlines, and recent plan activity; and
+- the active conversation.
 
----
+The backend retrieves relevant document passages when server-side indexed
+content is available and returns grounding metadata for the UI's **Context
+used** disclosure. Responses may also include assumptions and information to
+verify.
 
-## Status & Roadmap
+Grounding is an evidence aid, not a correctness guarantee. Official program
+requirements and deadlines must still be checked against university sources.
 
-- [x] Multi-LLM backend ready (Gemini + Ollama)
-- [x] Document RAG + export system
-- [x] Session-aware persona routing
-- [x] JWT Auth + MongoDB user handling
-- [ ] UI enhancements and persona memory
-- [ ] Persona fine-tuning support (future)
+## Document pipeline
 
----
+[`app/parsing/document_extractor.py`](app/parsing/document_extractor.py)
+dispatches by MIME type and then filename extension:
 
-For questions, contributions, or deployment help — feel free to reach out!
+```text
+.pdf .doc .docx .txt .md .markdown .html .htm .json .csv .xlsx .pptx
+```
+
+The root chat-upload route enforces a 10 MB limit. Content sent to the current
+server retrieval workflow is extracted, chunked, and indexed in ChromaDB.
+Signed-in Documents-page uploads are currently mirrored into the MongoDB-backed
+server library for analysis and comparison. That automatic mirror conflicts
+with the local-only target and should become explicit or be removed.
+
+## Meeting and Defense Room processing
+
+Meeting recording analysis accepts audio, an agenda, a meeting title, and the
+other participant's name. It returns a transcript, structured notes, a summary,
+and proposed action items. These are AI interpretations and require student
+review.
+
+Defense Room endpoints:
+
+- parse submitted materials or a slide deck;
+- optionally analyze a practice recording and slide timing;
+- generate a student-selected number of simulated questions;
+- vary difficulty and selected areas of scrutiny;
+- optionally use public academic information for topic emphasis; and
+- provide feedback on practice answers.
+
+Public profile information must never be represented as knowledge of what an
+actual committee member asked, will ask, believes, or intends. Defense history
+is practice evidence only.
+
+## Source layout
+
+| Directory | Responsibility |
+| --- | --- |
+| [`app/api`](app/api/README.md) | Route aggregation and endpoints |
+| [`app/core`](app/core/README.md) | Authentication, sessions, database, and context |
+| [`app/llm`](app/llm/README.md) | AI orchestration and provider clients |
+| [`app/models`](app/models/README.md) | API and persistence models |
+| [`app/parsing`](app/parsing) | Per-format document extraction |
+| [`app/rag`](app/rag) | Server-side chunking and retrieval |
+| [`app/tools`](app/tools) | Optional backend tools |
+| [`app/utils`](app/utils/README.md) | Export, summary, icon, and file helpers |
+| [`app/tests`](app/tests) | Unit and integration tests |
+| [`tests`](tests) | Additional behavior and regression tests |
+
+## Testing
+
+Install test dependencies:
+
+```bash
+pip install -r requirements.txt -r test_requirements.txt
+```
+
+Run the CI unit-test directory:
+
+```bash
+pytest app/tests/unit/
+```
+
+Run the complete backend test tree:
+
+```bash
+pytest app/tests/ tests/
+```
+
+## Docker and deployment
+
+- The root [`Dockerfile`](../Dockerfile) contains backend and frontend targets.
+- [`docker-compose.yml`](../docker-compose.yml) starts the current backend,
+  frontend, and MongoDB stack.
+- [`Dockerfile.render`](../Dockerfile.render) is the slim backend-only Render
+  image.
+- The main backend Docker target installs `ffmpeg` for recording
+  transcription.
+- Current MongoDB and ChromaDB volumes are prototype persistence, not the
+  desired sensitive-data architecture.

@@ -176,7 +176,7 @@ function PlanHowTo({ roadmap, step, sub, code, onAsk }) {
   );
 }
 
-function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touchStep, onCelebrate, onOpenSos, onAsk, onNav, onOpenStep, skillsUnlocked = true }) {
+function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touchStep, onCelebrate, onOpenSos, onAsk, onNav, onOpenStep, skillsUnlocked = true, searchTarget }) {
   const [selected, setSelected] = useS2(() => {
     const c = roadmap.steps.findIndex(s => s.status === "current");
     return c >= 0 ? c : 0;
@@ -210,6 +210,19 @@ function PlanView({ roadmap, setRoadmap, doneTasks, setDoneTasks, activity, touc
     setSpineOpen(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
   useE2(() => { setTaskEdit(null); setNewTask(""); setOpenTask(-1); }, [selected]);
+  useE2(() => {
+    if (!searchTarget?.stepId) return;
+    const stepIndex = roadmap.steps.findIndex(item => item.id === searchTarget.stepId);
+    if (stepIndex < 0) return;
+    const taskIndex = Number.isInteger(searchTarget.taskIndex) &&
+      searchTarget.taskIndex >= 0 &&
+      searchTarget.taskIndex < (roadmap.steps[stepIndex].subtasks || []).length
+      ? searchTarget.taskIndex
+      : null;
+    setSelected(stepIndex);
+    setSelectedSub(taskIndex);
+    setSpineOpen(previous => new Set(previous).add(searchTarget.stepId));
+  }, [searchTarget?.nonce]);
 
   const step = roadmap.steps[selected];
   const activeCount = roadmap.steps.filter(s => s.status === "current" || s.status === "redo").length;
@@ -870,8 +883,8 @@ function ChatView({ roadmap, onNav }) {
 const HELP_GLOSSARY = [
   ["Milestone / step", "One stage of the PhD journey — each has its own objective, tools, and checklist."],
   ["Gate", "A major checkpoint (prelim, proposal defense, candidacy). Clearing one unlocks the next phase."],
-  ["Persona / lens", "An advisor's point of view (methods, theory, writing, wellbeing…). Pick who answers in Chat."],
-  ["Skill", "A specialized assistant that does a task and drops the result into your Workspace or Documents."],
+  ["Perspective", "An optional analytical emphasis for a PhD Navigator answer, such as methods, theory, critique, or stakeholders."],
+  ["Action", "A visible task that creates something useful in your Workspace or Documents."],
   ["Deliverable", "Something your program requires you to produce — a form, an exam, a document."],
   ["Recovery / re-plan", "When something goes wrong, describe it and your plan re-routes with concrete steps."],
   ["ABD", "“All But Dissertation” — everything's done except writing and defending."],
@@ -880,6 +893,7 @@ const HELP_GLOSSARY = [
   ["Candidacy", "Officially cleared to do dissertation research (the paperwork after prelims)."]
 ];
 const HELP_FAQ = [
+  ["Why don't I see Actions yet?", "Actions unlock after 5 chat messages — or turn on “Reveal everything now” in Settings → Feature unlocks."],
   ["How do I simplify my home screen?", "Set Display density to “Just what I need” in Settings."],
   ["Something went wrong with my research", "Use “Something came up?” on Home or My Plan — describe it in plain words and your plan re-routes around it."],
   ["Are my conversations private?", "Choose on-device / private models in Settings to keep processing local (slightly lower accuracy)."],
@@ -1101,8 +1115,7 @@ function SettingsView({ roadmap = null, setRoadmap, theme, onToggleTheme, prefs 
       return { ...r, program: { ...program, [key === "program" ? "name" : "institution"]: clean } };
     });
   };
-  // "skills" omitted — the Skills page is temporarily hidden for beta.
-  const unlockRows = [["multiple", "Compare advisors (Multiple mode)", "after 1 message", 1], ["personas10", "All 10 advisors", "after 15 messages", 15]];
+  const unlockRows = [["skills", "Actions library", "after 5 messages", 5]];
 
   return (
     <div className="page page-narrow">
@@ -1441,65 +1454,13 @@ function CraftToolModal({ stepTitle, onClose, onCreated }) {
 }
 
 // ============================================================================
-// COMMAND PALETTE (⌘K) — jump anywhere, or type to capture a note/deadline.
-// ============================================================================
-function CommandPalette({ onClose, onNav, onSos, onToggleTheme, onReplayTour, onToast, skillsUnlocked = true }) {
-  const [q, setQ] = useS2("");
-  const inputRef = useR2(null);
-  useE2(() => { inputRef.current && inputRef.current.focus(); }, []);
-
-  const NAV = [
-    ["home", "Home", "Home"], ["plan", "My Plan", "Map"], ["chat", "Chat", "MessageCircle"],
-    ["skills", "Skills", "Sparkles"], ["insights", "Insights", "Lightbulb"],
-    ["defense", "Defense Room", "Presentation"], ["documents", "Documents", "FileText"], ["settings", "Settings", "Settings"]
-  ].filter(([id]) => id !== "skills" || skillsUnlocked)
-   .map(([id, label, icon]) => ({ id: "nav-" + id, label: "Go to " + label, icon, run: () => { onNav(id); onClose(); } }));
-  const ACTIONS = [
-    { id: "act-newchat", label: "Start a new chat", icon: "Plus", run: () => { onNav("chat"); onClose(); } },
-    { id: "act-help", label: "Help / get unstuck", icon: "LifeBuoy", run: () => { onNav("settings"); onClose(); } },
-    { id: "act-sos", label: "Something came up (re-plan)", icon: "LifeBuoy", run: () => { onSos(); onClose(); } },
-    { id: "act-theme", label: "Toggle light / dark theme", icon: "Moon", run: () => { onToggleTheme(); onClose(); } },
-    { id: "act-tour", label: "Replay the welcome tour", icon: "Rocket", run: () => { onReplayTour(); onClose(); } }
-  ];
-  const ql = q.trim().toLowerCase();
-  const matches = (ql ? [...NAV, ...ACTIONS].filter(c => c.label.toLowerCase().includes(ql)) : [...NAV, ...ACTIONS]);
-  const captures = ql ? [
-    { id: "cap-note", label: `Add note: “${q.trim()}”`, icon: "StickyNote", run: () => { const k = "phd-tool-notes"; const a = H.loadJSON(k, []); a.unshift({ id: "n" + Date.now(), text: q.trim(), at: Date.now() }); H.saveJSON(k, a); onToast && onToast("Note saved — find it in a Notes widget"); onClose(); } },
-    { id: "cap-dl", label: `Add deadline: “${q.trim()}”`, icon: "Calendar", run: () => { const k = window.DEADLINES_KEY || "phd-coach-deadlines-v1"; const a = H.loadJSON(k, []); a.push({ id: "d" + Date.now(), label: q.trim(), date: "" }); H.saveJSON(k, a); onToast && onToast("Deadline added — set a date in the Deadlines widget"); onClose(); } }
-  ] : [];
-  const list = [...matches, ...captures];
-  const onKeyDown = (e) => { if (e.key === "Escape") onClose(); else if (e.key === "Enter" && list[0]) list[0].run(); };
-
-  return (
-    <div className="backdrop cmd-backdrop" onClick={onClose}>
-      <div className="cmd" role="dialog" aria-modal="true" aria-label="Command palette" onClick={e => e.stopPropagation()}>
-        <div className="cmd-input">
-          <Ico name="Search" size={16} />
-          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKeyDown}
-            placeholder="Search actions, or type to add a note / deadline…" aria-label="Command search" />
-          <kbd>esc</kbd>
-        </div>
-        <div className="cmd-list">
-          {list.length === 0 && <div className="cmd-empty">No matches.</div>}
-          {list.map((c, i) => (
-            <button key={c.id} className="cmd-item" onClick={c.run}>
-              <span className="cmd-i"><Ico name={c.icon} size={15} /></span> {c.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // UNLOCK POPUP — one reusable modal for each engagement milestone.
 // ============================================================================
 const UNLOCK_CONTENT = {
   multiple: { icon: "Users", title: "Want more than one perspective?", to: "chat", cta: "Try Multiple mode",
     body: "You can now switch Chat to Multiple mode and hear up to three advisor lenses on the same question — or keep it to one. Your call." },
-  skills: { icon: "Sparkles", title: "Skills are unlocked", to: "skills", cta: "Explore Skills",
-    body: "Skills are specialized assistants that do the work — find a literature gap, outline a chapter, critique your methods. They drop results into your Workspace or Documents." },
+  skills: { icon: "Sparkles", title: "Actions are unlocked", to: "skills", cta: "Explore Actions",
+    body: "Actions create useful outputs such as a literature-gap review, chapter outline, methods critique, or meeting-prep document." },
   personas10: { icon: "Users", title: "All 10 advisors are available", to: "chat", cta: "Open Chat",
     body: "Your full panel of advisor lenses is unlocked — methods, theory, writing, wellbeing, career, and more. Mix and match whoever fits the question." }
 };
@@ -1552,11 +1513,14 @@ function CoachRoot() {
   const [showTour, setShowTour] = useS2(false);
   const [authMode, setAuthMode] = useS2("login"); // login | signup
   const [restoring, setRestoring] = useS2(false); // fetching a returning user's saved plan
-  const [palette, setPalette] = useS2(false); // ⌘K command palette
+  const [globalSearchOpen, setGlobalSearchOpen] = useS2(false);
+  const [planSearchTarget, setPlanSearchTarget] = useS2(null);
+  const [savedChatTarget, setSavedChatTarget] = useS2(null);
   const [activity, setActivity] = useS2(() => H.loadJSON(H.ACT_KEY, {})); // per-step last-touched
   const touchStep = (id) => { if (id) setActivity(a => ({ ...a, [id]: Date.now() })); };
-  const [chatSeed, setChatSeed] = useS2(null); // prefill the chat composer + jump there
-  const askInChat = (q) => { setChatSeed(q); setView("chat"); };
+  const [chatSeed, setChatSeed] = useS2(null); // { text, contextSource, eligibleForMemory }
+  const [freshChatKey, setFreshChatKey] = useS2(0);
+  const askInChat = (q) => { setChatSeed({ text: q }); setView("chat"); };
   const [wsStep, setWsStep] = useS2(null); // step id whose workspace popup is open
   const openWorkspace = (id) => setWsStep(id);
   const toggleTaskFor = (stepId, t) => {
@@ -1598,7 +1562,7 @@ function CoachRoot() {
     setToast("Hidden for now — turn it back on anytime in Settings → Feature unlocks.");
   };
   const toggleHidden = (id) => setPrefs(p => { const h = new Set(p.hidden || []); h.has(id) ? h.delete(id) : h.add(id); return { ...p, hidden: [...h] }; });
-  const revealAllNow = () => { setPrefs(p => ({ ...p, revealAll: true, hidden: [] })); setSeenUnlocks(["multiple", "skills", "personas10"]); setUnlockPopup(null); };
+  const revealAllNow = () => { setPrefs(p => ({ ...p, revealAll: true, hidden: [] })); setSeenUnlocks(["skills"]); setUnlockPopup(null); };
   const resetDrip = () => { setEngagement(e => ({ messages: 0, visits: e.visits || 0 })); setSeenUnlocks([]); setPrefs(p => ({ ...p, revealAll: false, hidden: [] })); setUnlockPopup(null); };
   const academicProfile = useM2(() => rebuildProfile || buildAcademicProfile(signedInUserProfile(), prefs, roadmap), [rebuildProfile, prefs, roadmap, authed]);
 
@@ -1622,12 +1586,20 @@ function CoachRoot() {
     return () => window.removeEventListener("phd-add-todos", onAdd);
   }, []);
 
-  // Defense Room "ask a follow-up" → jump into Chat pre-seeded (the persona
-  // selection is written to localStorage before this fires).
+  // Defense Room follow-ups → open Chat pre-seeded; individual report actions
+  // can request a fresh conversation instead of reopening recent history.
   useE2(() => {
     const onOpenChat = (e) => {
-      const seed = (((e || {}).detail || {}).seed || "").trim();
-      if (seed) setChatSeed(seed);
+      const detail = ((e || {}).detail || {});
+      const seed = (detail.seed || "").trim();
+      if (seed) {
+        setChatSeed({
+          text: seed,
+          contextSource: detail.contextSource || null,
+          eligibleForMemory: detail.eligibleForMemory !== false
+        });
+      }
+      if (detail.newChat) setFreshChatKey(key => key + 1);
       setView("chat");
     };
     window.addEventListener("phd-open-chat", onOpenChat);
@@ -1657,16 +1629,16 @@ function CoachRoot() {
   // Fire one unlock popup when a message threshold is first crossed (drip users only).
   useE2(() => {
     if (prefs.revealAll || unlockPopup) return;
-    const order = ["multiple", "skills", "personas10"];
+    const order = ["skills"];
     const next = order.find(id => unlocked[id] && !seenUnlocks.includes(id));
     if (next) setUnlockPopup(next);
   }, [engagement.messages, prefs.revealAll]);
   // If Skills gets re-locked (reset drip) while viewing it, bounce home.
   useE2(() => { if (view === "skills" && !unlocked.skills) setView("home"); }, [view, unlocked.skills]);
-  // ⌘K / Ctrl+K opens the command palette anywhere in the app.
+  // ⌘K / Ctrl+K opens the same search experience from anywhere in the app.
   useE2(() => {
     const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); setPalette(p => !p); }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); setGlobalSearchOpen(open => !open); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1813,8 +1785,8 @@ function CoachRoot() {
   if (v === "home") body = <window.CoachDashboard roadmap={roadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} onNav={setView} onOpenSos={() => setSosOpen(true)} onOpenStep={openWorkspace} focused={focused} theme={theme} />;
   // My Plan uses the V2 PlanView (the version deployed on main); the newer
   // spreadsheet (CoachPlanSheet) is retired while we redo this section.
-  else if (v === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} />;
-  else if (v === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} onSeedConsumed={() => setChatSeed(null)} unlocked={unlocked} onMessage={bumpMessages} />;
+  else if (v === "plan") body = <PlanView roadmap={roadmap} setRoadmap={setRoadmap} doneTasks={doneTasks} setDoneTasks={setDoneTasks} activity={activity} touchStep={touchStep} onCelebrate={setCelebrate} onOpenSos={() => setSosOpen(true)} onAsk={askInChat} onNav={setView} onOpenStep={openWorkspace} skillsUnlocked={unlocked.skills} searchTarget={planSearchTarget} />;
+  else if (v === "chat") body = <window.CoachChatView roadmap={roadmap} setRoadmap={setRoadmap} onNav={setView} onToast={setToast} seed={chatSeed} freshChatKey={freshChatKey} onFreshChatConsumed={() => setFreshChatKey(0)} onSeedConsumed={() => setChatSeed(null)} unlocked={unlocked} onMessage={bumpMessages} savedChatTarget={savedChatTarget} onSavedChatConsumed={() => setSavedChatTarget(null)} onOpenPlanItem={(stepId, taskIndex) => { setPlanSearchTarget({ stepId, taskIndex, nonce: Date.now() }); setView("plan"); }} />;
   else if (v === "meetings") body = <window.CoachMeetings onToast={setToast} />;
   else if (v === "skills") body = <window.CoachSkills roadmap={roadmap} onNav={setView} />;
   else if (v === "insights") body = <window.CoachInsights onNav={setView} roadmap={roadmap} doneTasks={doneTasks} />;
@@ -1834,17 +1806,17 @@ function CoachRoot() {
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <window.CoachRail view={view} onNav={setView} user={window.MOCK_USER} skillsUnlocked={unlocked.skills} onSignOut={signOut} />
       <main className="main" id="main-content" tabIndex={-1}>
-        <div className={v === "documents" ? "topbar compact" : "topbar"}>
-          <div style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
-            <Ico name="Compass" size={15} /> {roadmap.program?.name || "PhD Navigator"}
-            {prefs.modelMode === "private" && <span className="private-pill" title="On-device / private models"><Ico name="ShieldCheck" size={12} /> Private</span>}
+        {v !== "chat" && (
+          <div className={v === "documents" ? "topbar compact" : "topbar"}>
+            <div style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+              <Ico name="Compass" size={15} /> {roadmap.program?.name || "PhD Navigator"}
+              {prefs.modelMode === "private" && <span className="private-pill" title="On-device / private models"><Ico name="ShieldCheck" size={12} /> Private</span>}
+            </div>
+            <div className="tb-r">
+              <button className="btn sm" onClick={() => setGlobalSearchOpen(true)} title="Search" aria-label="Open search"><Ico name="Search" size={15} /> Search</button>
+            </div>
           </div>
-          <div className="tb-r">
-            <button className="btn sm" onClick={() => setPalette(true)} title="Command palette" aria-label="Open command palette"><Ico name="Search" size={15} /> Search</button>
-            <button className="btn icon sm" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle light or dark theme"><Ico name={theme === "light" ? "Moon" : "Sun"} size={16} /></button>
-            <button className="btn sm" onClick={() => setView("chat")}><Ico name="MessageCircle" size={15} /> Chat</button>
-          </div>
-        </div>
+        )}
         {body}
       </main>
 
@@ -1900,14 +1872,24 @@ function CoachRoot() {
         onToast={setToast}
         skillsUnlocked={unlocked.skills}
         onClose={() => setWsStep(null)} />}
-      {palette && <CommandPalette
-        onClose={() => setPalette(false)}
-        onNav={setView}
-        onSos={() => setSosOpen(true)}
-        onToggleTheme={toggleTheme}
-        onReplayTour={() => { setView("home"); setShowTour(true); }}
-        skillsUnlocked={unlocked.skills}
-        onToast={setToast} />}
+      {globalSearchOpen && window.CoachSearchModal && <window.CoachSearchModal
+        roadmap={roadmap}
+        onClose={() => setGlobalSearchOpen(false)}
+        onOpenChat={chat => {
+          setSavedChatTarget({ id: chat.id, nonce: Date.now() });
+          setView("chat");
+        }}
+        onOpenDocument={document => {
+          const key = "phd-coach-docs-v1";
+          const store = H.loadJSON(key, { projects: {}, activeId: null });
+          store.activeId = document.id;
+          H.saveJSON(key, store);
+          setView("documents");
+        }}
+        onOpenPlan={(stepId, taskIndex) => {
+          setPlanSearchTarget({ stepId, taskIndex, nonce: Date.now() });
+          setView("plan");
+        }} />}
       {unlockPopup && <UnlockPopup id={unlockPopup}
         onDismiss={() => dismissUnlock(unlockPopup)}
         onKeepHidden={keepHidden}

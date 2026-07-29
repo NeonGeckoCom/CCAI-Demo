@@ -115,8 +115,33 @@ class PersonaContextBuilderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("What constraint matters most?", user_messages)
         self.assertEqual(user_messages[-1], "Please recap the questions I asked.")
 
+    async def test_document_evidence_and_latest_question_are_pinned(self):
+        builder = PersonaContextBuilder(max_context_tokens=2500)
+        document_context = (
+            "DOCUMENT CONTEXT:\n"
+            "=== FROM DOCUMENT: Dissertation Outline.docx ===\n"
+            "[Document excerpt]\n"
+            + ("Chapter structure and contribution evidence. " * 700)
+        )
+
+        context = await builder.build_enhanced_context_for_persona(
+            FakeSession(),
+            FakePersona(),
+            "What are the weakest parts of my dissertation outline?",
+            document_context,
+        )
+
+        self.assertTrue(context[0]["_context_budgeted"])
+        self.assertIn("Dissertation Outline.docx", context[0]["content"])
+        self.assertLess(len(context.included_document_context), len(document_context))
+        self.assertEqual(context[-1]["role"], "user")
+        self.assertEqual(
+            context[-1]["content"],
+            "What are the weakest parts of my dissertation outline?",
+        )
+
     async def test_long_conversation_compacts_older_history_by_budget(self):
-        builder = PersonaContextBuilder(max_context_tokens=1000)
+        builder = PersonaContextBuilder(max_context_tokens=1450)
 
         context = await builder.build_enhanced_context_for_persona(
             LongFakeSession(),
@@ -169,6 +194,7 @@ class PersonaContextBuilderTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Dissertation Proposal", context)
         self.assertIn("[Document excerpt]", context)
+        self.assertIn("SOURCE METADATA", context)
         self.assertNotIn("[Document excerpt (Chapter 2)]", context)
         self.assertNotIn("Part 45", context)
         self.assertNotIn("45 of 300", context)

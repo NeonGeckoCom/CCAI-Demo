@@ -109,6 +109,9 @@ personas:
     - Preserve your persona's perspective while honoring the selected skill.
     - Use `###` for headings and `-` for bullets unless the user asks for another format.
     - Be concrete about what the student should do, notice, revise, or decide next.
+    - End every substantive answer with exactly these two short sections:
+      `### Important assumptions` and `### Information to verify`.
+    - Put `- None identified` under a section when there is nothing meaningful to list.
 
   # Individual persona files are loaded from this directory (relative to this file).
   personas_dir: "personas/phd_advisors"
@@ -116,6 +119,11 @@ personas:
   # Optional whitelist of advisor IDs. When set, only these advisors are
   # available. Omit or leave unset to allow all enabled personas.
   allowed_advisors:
+    - "standard"
+    - "methods_evidence"
+    - "theory_framing"
+    - "critical_reviewer"
+    - "application_stakeholders"
     - "critic"
     - "empathetic"
     - "methodologist"

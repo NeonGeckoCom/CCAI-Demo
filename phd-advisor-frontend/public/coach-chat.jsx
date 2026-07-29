@@ -1,7 +1,7 @@
-/* coach-chat.jsx — Chat v3
-   - Left aside: choose PERSONAS (lenses) + run SKILLS (workflows)
-   - Composer: Single ↔ Multiple toggle controls how many persona replies show
-   - Skills actually mutate the Workspace + Documents stores (window.CoachActions)
+/* coach-chat.jsx — PhD Navigator chat
+   - One assistant with plan context, sources, and per-answer actions
+   - Explicit plan context, source grounding, and per-answer actions
+   - Visible creation actions remain outcome-based; internal advisor skills stay hidden
    Exports window.CoachChatView. Shares scope; uses window.Icon + window.coachHelpers.
 */
 
@@ -175,7 +175,8 @@ window.CoachMarkdownMessage = MarkdownMessage;
 // ---- Actions the AI can take: write straight into the stores the views read ----
 const WS_STORE = "phd-coach-workspace-v1";
 const DOC_STORE = "phd-coach-docs-v1";
-const RAG_SYNC_STORE = "phd-coach-rag-sync-v1";
+const RAG_SYNC_STORE = "phd-coach-rag-sync-v2";
+const CHATS_STORE = "phd-coach-chats-v1";
 const cload = (k, d) => { try { const r = localStorage.getItem(k); return r != null ? JSON.parse(r) : d; } catch (e) { return d; } };
 const csave = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
@@ -193,6 +194,225 @@ const dataUrlToBlob = async (dataUrl) => {
   return await res.blob();
 };
 
+const exportXmlEscape = (value) => String(value || "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&apos;");
+
+const exportZipCrc32 = (bytes) => {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+};
+
+const exportWrite16 = (view, offset, value) => view.setUint16(offset, value, true);
+const exportWrite32 = (view, offset, value) => view.setUint32(offset, value >>> 0, true);
+
+function buildStoredZip(files) {
+  const encoder = new TextEncoder();
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+  const dosDate = ((Math.max(1980, now.getFullYear()) - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const localParts = [];
+  const centralParts = [];
+  let localOffset = 0;
+
+  files.forEach(file => {
+    const name = encoder.encode(file.name);
+    const data = typeof file.data === "string" ? encoder.encode(file.data) : file.data;
+    const crc = exportZipCrc32(data);
+    const local = new Uint8Array(30 + name.length);
+    const localView = new DataView(local.buffer);
+    exportWrite32(localView, 0, 0x04034B50);
+    exportWrite16(localView, 4, 20);
+    exportWrite16(localView, 6, 0x0800);
+    exportWrite16(localView, 8, 0);
+    exportWrite16(localView, 10, dosTime);
+    exportWrite16(localView, 12, dosDate);
+    exportWrite32(localView, 14, crc);
+    exportWrite32(localView, 18, data.length);
+    exportWrite32(localView, 22, data.length);
+    exportWrite16(localView, 26, name.length);
+    exportWrite16(localView, 28, 0);
+    local.set(name, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + name.length);
+    const centralView = new DataView(central.buffer);
+    exportWrite32(centralView, 0, 0x02014B50);
+    exportWrite16(centralView, 4, 20);
+    exportWrite16(centralView, 6, 20);
+    exportWrite16(centralView, 8, 0x0800);
+    exportWrite16(centralView, 10, 0);
+    exportWrite16(centralView, 12, dosTime);
+    exportWrite16(centralView, 14, dosDate);
+    exportWrite32(centralView, 16, crc);
+    exportWrite32(centralView, 20, data.length);
+    exportWrite32(centralView, 24, data.length);
+    exportWrite16(centralView, 28, name.length);
+    exportWrite16(centralView, 30, 0);
+    exportWrite16(centralView, 32, 0);
+    exportWrite16(centralView, 34, 0);
+    exportWrite16(centralView, 36, 0);
+    exportWrite32(centralView, 38, 0);
+    exportWrite32(centralView, 42, localOffset);
+    central.set(name, 46);
+    centralParts.push(central);
+    localOffset += local.length + data.length;
+  });
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  exportWrite32(endView, 0, 0x06054B50);
+  exportWrite16(endView, 4, 0);
+  exportWrite16(endView, 6, 0);
+  exportWrite16(endView, 8, files.length);
+  exportWrite16(endView, 10, files.length);
+  exportWrite32(endView, 12, centralSize);
+  exportWrite32(endView, 16, localOffset);
+  exportWrite16(endView, 20, 0);
+  return new Blob([...localParts, ...centralParts, end], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+}
+
+function buildChatDocx(title, programName, exportedAt, entries) {
+  const paragraph = (text, options = {}) => {
+    const runProperties = [
+      options.bold ? "<w:b/>" : "",
+      options.size ? `<w:sz w:val="${options.size}"/>` : "",
+      options.color ? `<w:color w:val="${options.color}"/>` : ""
+    ].join("");
+    const spacing = `<w:pPr><w:spacing w:after="${options.after || 100}"${options.before ? ` w:before="${options.before}"` : ""}/></w:pPr>`;
+    return `<w:p>${spacing}<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ""}<w:t xml:space="preserve">${exportXmlEscape(text || " ")}</w:t></w:r></w:p>`;
+  };
+  const body = [
+    paragraph(title, { bold: true, size: 32, after: 120 }),
+    paragraph(`${programName} · Exported ${exportedAt}`, { size: 19, color: "666666", after: 300 })
+  ];
+  entries.forEach(entry => {
+    body.push(paragraph(entry.speaker, { bold: true, size: 22, before: 120, after: 70 }));
+    String(entry.text).split(/\r?\n/).forEach(line => body.push(paragraph(line, { size: 21, after: 70 })));
+  });
+  body.push('<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080"/></w:sectPr>');
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body.join("")}</w:body></w:document>`;
+  return buildStoredZip([
+    {
+      name: "[Content_Types].xml",
+      data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+    },
+    {
+      name: "_rels/.rels",
+      data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+    },
+    { name: "word/document.xml", data: documentXml }
+  ]);
+}
+
+const pdfSafeText = (value) => String(value || "")
+  .normalize("NFKD")
+  .replace(/[\u2018\u2019]/g, "'")
+  .replace(/[\u201C\u201D]/g, '"')
+  .replace(/[\u2013\u2014]/g, "-")
+  .replace(/\u2022/g, "*")
+  .replace(/[^\x20-\x7E]/g, "");
+
+const pdfEscapeText = (value) => pdfSafeText(value)
+  .replace(/\\/g, "\\\\")
+  .replace(/\(/g, "\\(")
+  .replace(/\)/g, "\\)");
+
+function wrapPdfText(value, maxLength = 88) {
+  const lines = [];
+  String(value || "").split(/\r?\n/).forEach(sourceLine => {
+    const words = pdfSafeText(sourceLine).split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push("");
+      return;
+    }
+    let line = "";
+    words.forEach(word => {
+      if (word.length > maxLength) {
+        if (line) lines.push(line);
+        for (let i = 0; i < word.length; i += maxLength) lines.push(word.slice(i, i + maxLength));
+        line = "";
+      } else if (!line) {
+        line = word;
+      } else if (`${line} ${word}`.length <= maxLength) {
+        line += ` ${word}`;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+    });
+    if (line) lines.push(line);
+  });
+  return lines;
+}
+
+function buildChatPdf(title, programName, exportedAt, entries) {
+  const pages = [[]];
+  let y = 738;
+  const addLine = (text, options = {}) => {
+    const size = options.size || 10;
+    const leading = options.leading || 14;
+    if (y < 58) {
+      pages.push([]);
+      y = 738;
+    }
+    pages[pages.length - 1].push({ text, y, size, bold: Boolean(options.bold) });
+    y -= leading;
+  };
+  wrapPdfText(title, 70).forEach(line => addLine(line, { size: 16, bold: true, leading: 19 }));
+  addLine(`${programName} · Exported ${exportedAt}`, { size: 9, leading: 22 });
+  entries.forEach(entry => {
+    y -= 5;
+    addLine(entry.speaker, { size: 11, bold: true, leading: 15 });
+    wrapPdfText(entry.text, 88).forEach(line => addLine(line || " ", { size: 10, leading: 14 }));
+  });
+
+  const normalFontId = 3 + pages.length * 2;
+  const boldFontId = normalFontId + 1;
+  const objects = [];
+  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+  const pageIds = pages.map((_, index) => 3 + index * 2);
+  objects[2] = `<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
+  pages.forEach((page, index) => {
+    const pageId = 3 + index * 2;
+    const contentId = pageId + 1;
+    const stream = page.map(line =>
+      `BT /${line.bold ? "F2" : "F1"} ${line.size} Tf 54 ${line.y} Td (${pdfEscapeText(line.text)}) Tj ET`
+    ).join("\n");
+    objects[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${normalFontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
+    objects[contentId] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  });
+  objects[normalFontId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  objects[boldFontId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>";
+
+  const encoder = new TextEncoder();
+  let pdf = "%PDF-1.4\n%1234\n";
+  const offsets = [0];
+  for (let id = 1; id < objects.length; id++) {
+    offsets[id] = encoder.encode(pdf).length;
+    pdf += `${id} 0 obj\n${objects[id]}\nendobj\n`;
+  }
+  const xrefOffset = encoder.encode(pdf).length;
+  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let id = 1; id < objects.length; id++) {
+    pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([encoder.encode(pdf)], { type: "application/pdf" });
+}
+
 const flattenDocProject = (doc) => {
   if (!doc) return "";
   if (doc.content) return String(doc.content);
@@ -202,6 +422,135 @@ const flattenDocProject = (doc) => {
     .map(([key, value]) => `${key}\n${value}`)
     .join("\n\n");
 };
+
+function CoachSearchModal({ roadmap, chats: suppliedChats, onClose, onOpenChat, onOpenDocument, onOpenPlan }) {
+  const [query, setQuery] = useSC("");
+  const [tab, setTab] = useSC("all");
+  const inputRef = useRC(null);
+  const chats = suppliedChats || cload(CHATS_STORE, []);
+  const documents = cload(DOC_STORE, { projects: {}, activeId: null });
+
+  useEC(() => {
+    inputRef.current?.focus();
+    const onKeyDown = event => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const sortedChats = [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const items = [
+    ...sortedChats.map(chat => ({
+      id: `chat-${chat.id}`,
+      type: "chats",
+      icon: "MessageCircle",
+      title: (
+        (chat.messages || []).find(message => message.type === "user")?.text ||
+        chat.title ||
+        "New chat"
+      ).trim(),
+      snippet: (chat.messages || []).map(message => message.text || message.content || "").join(" "),
+      timestamp: chat.updatedAt || 0,
+      ref: chat
+    })),
+    ...Object.values(documents.projects || {}).map(document => ({
+      id: `document-${document.id}`,
+      type: "documents",
+      icon: "FileText",
+      title: document.name || document.fileName || "Untitled document",
+      snippet: flattenDocProject(document),
+      timestamp: document.updatedAt || document.createdAt || 0,
+      ref: document
+    })),
+    ...(roadmap?.steps || []).flatMap(step => {
+      const subtasks = step.subtasks || [];
+      if (!subtasks.length) {
+        return [{
+          id: `plan-${step.id}`,
+          type: "plan",
+          icon: "Map",
+          title: step.title,
+          snippet: step.objective || step.phase || "Plan milestone",
+          timestamp: 0,
+          ref: { stepId: step.id, taskIndex: null }
+        }];
+      }
+      return subtasks.map((task, taskIndex) => ({
+        id: `plan-${step.id}-${taskIndex}`,
+        type: "plan",
+        icon: "ListChecks",
+        title: task,
+        snippet: step.title,
+        timestamp: 0,
+        ref: { stepId: step.id, taskIndex }
+      }));
+    })
+  ];
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleItems = items.filter(item => {
+    if (tab !== "all" && item.type !== tab) return false;
+    if (!normalizedQuery) return true;
+    return `${item.title} ${item.snippet}`.toLowerCase().includes(normalizedQuery);
+  });
+  const openItem = item => {
+    if (item.type === "chats") onOpenChat && onOpenChat(item.ref);
+    else if (item.type === "documents") onOpenDocument && onOpenDocument(item.ref);
+    else onOpenPlan && onOpenPlan(item.ref.stepId, item.ref.taskIndex);
+    onClose();
+  };
+
+  return (
+    <div className="chat-search-backdrop" onMouseDown={onClose}>
+      <section className="chat-search-modal" role="dialog" aria-modal="true" aria-label="Search PhD Navigator"
+        onMouseDown={event => event.stopPropagation()}>
+        <div className="chat-search-head">
+          <IcoC name="Search" size={18} />
+          <input ref={inputRef} value={query} onChange={event => setQuery(event.target.value)}
+            placeholder="Search chats, documents, and My Plan" aria-label="Search" />
+          {query && <button className="chat-search-clear" onClick={() => setQuery("")}>Clear</button>}
+          <span className="chat-search-divider" />
+          <button className="chat-search-close" onClick={onClose} aria-label="Close search">
+            <IcoC name="X" size={20} />
+          </button>
+        </div>
+        <div className="chat-search-tabs" role="tablist" aria-label="Search categories">
+          {[
+            ["all", "All"],
+            ["chats", "Chats"],
+            ["documents", "Documents"],
+            ["plan", "My Plan"]
+          ].map(([id, label]) => (
+            <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}
+              role="tab" aria-selected={tab === id}>{label}</button>
+          ))}
+        </div>
+        <div className="chat-search-results">
+          {visibleItems.length === 0 ? (
+            <div className="chat-search-empty">
+              <IcoC name="SearchX" size={22} />
+              <strong>No results found</strong>
+              <span>Try another phrase or category.</span>
+            </div>
+          ) : visibleItems.map(item => (
+            <button key={item.id} className="chat-search-result" onClick={() => openItem(item)}>
+              <span className="chat-search-result-icon"><IcoC name={item.icon} size={17} /></span>
+              <span className="chat-search-result-copy">
+                <strong>{item.title}</strong>
+                <span>{item.snippet || "No preview available"}</span>
+              </span>
+              <span className="chat-search-result-meta">
+                <span>{item.type === "chats" ? "Chat" : item.type === "documents" ? "Document" : "My Plan"}</span>
+                {item.timestamp ? <time>{new Date(item.timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</time> : null}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+window.CoachSearchModal = CoachSearchModal;
 
 const docProjectSignature = (doc) => {
   const text = doc.rawDataUrl || (doc.kind === "pdf" ? (doc.dataUrl || "") : flattenDocProject(doc));
@@ -435,117 +784,300 @@ function responseStageText(phase, data = {}) {
   }
 }
 
-// ============================================================================
-function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsumed, unlocked = { multiple: true, skills: true, personas10: true }, onMessage }) {
-  const current = roadmap.steps.find(s => s.status === "current") || roadmap.steps.find(s => s.status === "redo") || roadmap.steps[0];
-  // Personas plus the real committee members added in the Defense Room —
-  // those are always chattable, whatever the persona unlock state.
-  const realCommittee = (() => {
-    try {
-      const v = JSON.parse(localStorage.getItem("phd-defense-committee-v1") || "[]");
-      return (Array.isArray(v) ? v : []).map((m, i) => ({
-        id: m.id, name: m.name,
-        role: [m.profile?.title, m.institution].filter(Boolean).join(" · ") || "Committee member",
-        color: m.color || ["#B45309", "#0F766E", "#7C3AED"][i % 3], icon: "GraduationCap",
-        real: true, profile: m.profile || {}, institution: m.institution || ""
-      }));
-    } catch (e) { return []; }
-  })();
-  const advisors = [...(window.ADVISORS || []), ...realCommittee];
-  // Until 15 messages (or reveal-all), only the first 3 advisor lenses are
-  // offered — but your real committee members are always available.
-  const availableAdvisors = unlocked.personas10
-    ? advisors
-    : [...advisors.filter(a => !a.real).slice(0, 3), ...advisors.filter(a => a.real)];
+const CHAT_ASSISTANT = {
+  id: "standard",
+  name: "PhD Navigator"
+};
 
-  const [mode, setMode] = useSC(() => { try { return localStorage.getItem("phd-chat-mode") || "single"; } catch (e) { return "single"; } });
-  const [active, setActive] = useSC(() => {
-    try { const r = JSON.parse(localStorage.getItem("phd-chat-personas")); if (Array.isArray(r) && r.length) return r; } catch (e) {}
-    return [advisors[0]?.id].filter(Boolean);
-  });
+function formatModelName(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "PhD Navigator";
+  return raw
+    .replace(/^models\//, "")
+    .replace(/[-_:]+/g, " ")
+    .replace(/\bgemini\b/i, "Gemini")
+    .replace(/\bllama\b/i, "Llama")
+    .replace(/\bflash\b/i, "Flash")
+    .replace(/\bpro\b/i, "Pro")
+    .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
+function recentMeetingContext() {
+  try {
+    const meetings = JSON.parse(localStorage.getItem("phd-coach-meetings-v1") || "[]");
+    return (Array.isArray(meetings) ? meetings : [])
+      .filter(meeting => meeting && (meeting.notes || meeting.transcript || (meeting.actions || []).length))
+      .sort((a, b) => (b.updatedAt || b.date || 0) > (a.updatedAt || a.date || 0) ? 1 : -1)
+      .slice(0, 3)
+      .map(meeting => ({
+        id: meeting.id || "",
+        title: meeting.title || `Meeting with ${meeting.withName || "advisor"}`,
+        date: meeting.date || "",
+        with_name: meeting.withName || "",
+        notes: String(meeting.notes || "").slice(0, 1800),
+        actions: (meeting.actions || []).slice(0, 8)
+      }));
+  } catch (e) {
+    return [];
+  }
+}
+
+function contextualChatSuggestions(step) {
+  if (!step) {
+    return [
+      "What should I work on next?",
+      "Help me make a practical plan",
+      "Turn my goal into a task list",
+      "What information do you need from me?"
+    ];
+  }
+  const title = String(step.title || "").toLowerCase();
+  const suggestions = [
+    "What should I do next?",
+    /advisor|advising|meeting/.test(title)
+      ? "Help me prepare for my next advisor meeting"
+      : `Help me prepare for ${step.title}`,
+    "Turn this step into a task list",
+    "How will I know when this step is complete?"
+  ];
+  const meetings = recentMeetingContext();
+  const documents = listDocumentProjectsForContext();
+  if (meetings.length) suggestions[1] = "Turn my latest advisor meeting notes into next steps";
+  if (documents.length && !/advisor|advising|meeting/.test(title)) {
+    suggestions[2] = `Review ${documents[0].name || documents[0].file_name} against this step`;
+  }
+  return suggestions;
+}
+
+function documentProjectForSource(sourceName) {
+  const store = cload(DOC_STORE, { projects: {}, activeId: null });
+  const sourceKey = String(sourceName || "").trim().split(/[\\/]/).pop().toLowerCase();
+  const sourceStem = sourceKey.replace(/\.[^.]+$/, "");
+  return Object.values(store.projects || {}).find(project => {
+    const candidates = [project.name, project.fileName]
+      .filter(Boolean)
+      .map(value => String(value).trim().split(/[\\/]/).pop().toLowerCase());
+    return candidates.some(candidate =>
+      candidate === sourceKey || candidate.replace(/\.[^.]+$/, "") === sourceStem
+    );
+  }) || null;
+}
+
+function compactNumberRanges(values) {
+  const numbers = [...new Set((values || []).map(Number).filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
+  const ranges = [];
+  for (let i = 0; i < numbers.length; i++) {
+    const start = numbers[i];
+    let end = start;
+    while (i + 1 < numbers.length && numbers[i + 1] === end + 1) end = numbers[++i];
+    ranges.push(start === end ? String(start) : `${start}–${end}`);
+  }
+  return ranges.join(", ");
+}
+
+function sourceSectionLabels(sections) {
+  return [...new Set((sections || []).map(section => {
+    const text = String(section || "").trim();
+    const numbered = text.match(/^(\d+(?:\.\d+)*)\b/);
+    return numbered ? numbered[1] : text;
+  }).filter(section => section && !["content", "unknown"].includes(section.toLowerCase())))];
+}
+
+function naturalList(values) {
+  if (!values.length) return "";
+  if (values.length === 1) return values[0];
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`;
+}
+
+function documentLocationLabel(source) {
+  const parts = [];
+  const sections = sourceSectionLabels(source.sections);
+  const pages = compactNumberRanges(source.page_numbers);
+  const slides = compactNumberRanges(source.slide_numbers);
+  if (sections.length) parts.push(`${sections.length === 1 ? "Section" : "Sections"} ${naturalList(sections)}`);
+  if (pages) parts.push(`${(source.page_numbers || []).length === 1 ? "Page" : "Pages"} ${pages}`);
+  if (slides) parts.push(`${(source.slide_numbers || []).length === 1 ? "Slide" : "Slides"} ${slides}`);
+  return parts.join("; ");
+}
+
+function contextDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+
+function GroundingDetails({ grounding, onOpenDocument }) {
+  if (!grounding) return null;
+  const documents = (grounding.uploaded_documents || []).map(source => (
+    typeof source === "string"
+      ? { filename: source, title: source, page_numbers: [], slide_numbers: [], sections: [] }
+      : source
+  )).filter(source => source && (source.filename || source.title));
+  const meetings = (grounding.meeting_notes || []).filter(Boolean);
+  const assumptions = (grounding.assumptions || []).filter(Boolean);
+  const verify = (grounding.verify || []).filter(Boolean);
+  const rawPlan = grounding.plan_context;
+  const plan = rawPlan && typeof rawPlan === "object" ? rawPlan : null;
+  const legacyPlan = typeof rawPlan === "string" && rawPlan.trim() && rawPlan.trim() !== "My Plan"
+    ? rawPlan.trim()
+    : "";
+  const planItems = (plan?.items || []).filter(item => item && item.title);
+  const hasDetails = Boolean(
+    planItems.length ||
+    legacyPlan ||
+    documents.length ||
+    meetings.length ||
+    assumptions.length ||
+    verify.length
+  );
+  if (!hasDetails) return null;
+  return (
+    <details className="ma-grounding">
+      <summary><IcoC name="BookMarked" size={12} /> Context used</summary>
+      <div className="ma-grounding-grid">
+        {(planItems.length > 0 || legacyPlan) && (
+          <div>
+            <strong>{plan?.label || "My Plan"}</strong>
+            <span className="ma-context-lines">
+              {planItems.map(item => (
+                <React.Fragment key={item.title}>
+                  <span>“{item.title}”{item.status ? ` — ${item.status}` : ""}</span>
+                </React.Fragment>
+              ))}
+              {legacyPlan && <span>“{legacyPlan}”</span>}
+              {plan?.status_last_updated && (
+                <span>Status last updated {contextDate(plan.status_last_updated)}</span>
+              )}
+            </span>
+          </div>
+        )}
+        {documents.length > 0 && (
+          <div>
+            <strong>Documents</strong>
+            <span className="ma-source-list">
+              {documents.map((source, index) => {
+              const documentName = source.filename || source.title;
+              const project = documentProjectForSource(documentName);
+              const location = documentLocationLabel(source);
+              const canOpen = Boolean(source.file_id || project);
+              return (
+                <React.Fragment key={`${source.file_id || documentName}-${index}`}>
+                  {canOpen && onOpenDocument ? (
+                    <button type="button" className="ma-document-link" onClick={() => onOpenDocument(source, project)}>
+                      {documentName}{location ? `, ${location}` : ""}
+                    </button>
+                  ) : <span>{documentName}{location ? `, ${location}` : ""}</span>}
+                </React.Fragment>
+              );
+              })}
+            </span>
+          </div>
+        )}
+        {meetings.length > 0 && (
+          <div><strong>Meeting notes</strong><span>{meetings.join(", ")}</span></div>
+        )}
+        {assumptions.length > 0 && (
+          <div><strong>Assumptions</strong><span>{assumptions.join(" • ")}</span></div>
+        )}
+        {verify.length > 0 && (
+          <div><strong>Needs verification</strong><span>{verify.join(" • ")}</span></div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// ============================================================================
+function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, freshChatKey = 0, onFreshChatConsumed, onSeedConsumed, unlocked = { multiple: true, skills: true, personas10: true }, onMessage, savedChatTarget, onSavedChatConsumed, onOpenPlanItem }) {
+  const defaultStep = roadmap.steps.find(s => s.status === "current") || roadmap.steps.find(s => s.status === "redo") || roadmap.steps[0];
+  const current = defaultStep;
   const [messages, setMessages] = useSC([]);
   const [input, setInput] = useSC("");
-  const [pop, setPop] = useSC(null); // 'personas' | 'skills' | null
   const [sessionId, setSessionId] = useSC(null); // backend chat-session id
+  const [contextSource, setContextSource] = useSC(null);
+  const [eligibleForMemory, setEligibleForMemory] = useSC(true);
   const [busy, setBusy] = useSC(false);
+  const [retryingId, setRetryingId] = useSC(null);
+  const [copiedId, setCopiedId] = useSC(null);
   const [streamStatus, setStreamStatus] = useSC("");
   const endRef = useRC(null);
-  const toolsRef = useRC(null);
   // Chat history — persisted locally so it works offline (backend wires real sessions later).
-  const CHATS_KEY = "phd-coach-chats-v1";
-  const [chats, setChats] = useSC(() => { try { return JSON.parse(localStorage.getItem(CHATS_KEY)) || []; } catch (e) { return []; } });
+  const [chats, setChats] = useSC(() => { try { return JSON.parse(localStorage.getItem(CHATS_STORE)) || []; } catch (e) { return []; } });
   const [activeChatId, setActiveChatId] = useSC(null); // null = a fresh, not-yet-saved chat
   const [attached, setAttached] = useSC([]); // { name, file } for the next message
   const [editing, setEditing] = useSC(null); // { id, draft } for edit-and-regenerate
   const fileRef = useRC(null);
-  const [histOpen, setHistOpen] = useSC(false); // chat-history dropdown
-  const histRef = useRC(null);
+  const [historyCollapsed, setHistoryCollapsed] = useSC(false);
+  const [historyTooltip, setHistoryTooltip] = useSC(null);
+  const [searchOpen, setSearchOpen] = useSC(false);
+  const [exportOpen, setExportOpen] = useSC(false);
+  const [exporting, setExporting] = useSC("");
 
-  useEC(() => { try { localStorage.setItem("phd-chat-mode", mode); } catch (e) {} }, [mode]);
-  useEC(() => { try { localStorage.setItem("phd-chat-personas", JSON.stringify(active)); } catch (e) {} }, [active]);
   useEC(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamStatus]);
   // Open the most recent saved chat on first mount.
   useEC(() => {
+    if (freshChatKey) return;
     if (!chats.length) return;
     const c = [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-    setActiveChatId(c.id); setMessages(c.messages || []); setSessionId(c.sessionId || null);
+    setActiveChatId(c.id);
+    setMessages(c.messages || []);
+    setSessionId(c.sessionId || null);
+    setContextSource(c.contextSource || null);
+    setEligibleForMemory(c.eligibleForMemory !== false);
   }, []);
-  useEC(() => { try { localStorage.setItem(CHATS_KEY, JSON.stringify(chats)); } catch (e) {} }, [chats]);
+  useEC(() => {
+    if (!freshChatKey) return;
+    setMessages([]);
+    setSessionId(null);
+    setActiveChatId(null);
+    setInput("");
+    setContextSource(null);
+    setEligibleForMemory(true);
+    if (window.CoachAPI) window.CoachAPI.newChat().catch(() => {});
+    onFreshChatConsumed && onFreshChatConsumed();
+  }, [freshChatKey]);
+  useEC(() => { try { localStorage.setItem(CHATS_STORE, JSON.stringify(chats)); } catch (e) {} }, [chats]);
   // Save the live conversation into history whenever it changes.
   useEC(() => {
     if (!messages.length) return;
     if (messages.some(m => m.streaming)) return;
+    // Opening a saved chat reuses its stored message array. That is navigation,
+    // not activity, so preserve its existing history position and timestamp.
+    const storedChat = activeChatId
+      ? chats.find(chat => chat.id === activeChatId)
+      : null;
+    if (storedChat && storedChat.messages === messages) return;
     const id = activeChatId || ("chat-" + Date.now());
     if (!activeChatId) setActiveChatId(id);
     const firstUser = messages.find(m => m.type === "user");
-    const title = firstUser ? (firstUser.content.length > 42 ? firstUser.content.slice(0, 42) + "…" : firstUser.content) : "New chat";
-    const entry = { id, title, messages, sessionId, updatedAt: Date.now() };
+    const title = firstUser ? (firstUser.text || firstUser.content || "New chat").trim() : "New chat";
+    const entry = {
+      id,
+      title,
+      messages,
+      sessionId,
+      contextSource,
+      eligibleForMemory,
+      updatedAt: Date.now()
+    };
     setChats(prev => { const i = prev.findIndex(c => c.id === id); if (i >= 0) { const n = [...prev]; n[i] = entry; return n; } return [entry, ...prev]; });
   }, [messages]);
   // Arriving from a "Help me with this step" action — prefill the composer so the
   // student just reviews and hits Send (no surprise auto-send to the backend).
-  useEC(() => { if (seed) { setInput(seed); onSeedConsumed && onSeedConsumed(); } }, [seed]);
   useEC(() => {
-    if (!pop) return;
-    const onDown = (e) => { if (toolsRef.current && !toolsRef.current.contains(e.target)) setPop(null); };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [pop]);
-  useEC(() => {
-    if (!histOpen) return;
-    const onDown = (e) => { if (histRef.current && !histRef.current.contains(e.target)) setHistOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [histOpen]);
-
-  // switching to single keeps only the first active persona
-  const setSingle = () => { setMode("single"); setActive(a => a.slice(0, 1).length ? a.slice(0, 1) : [advisors[0].id]); };
-  // Entering multiple mode should actually show a panel: expand to three
-  // advisors unless the user already curated two or more.
-  const setMulti = () => { if (!unlocked.multiple) return; setMode("multiple"); setActive(a => a.length >= 2 ? a : advisors.slice(0, 3).map(x => x.id)); };
-  // Reconcile saved chat state with what's currently unlocked (e.g. after a drip reset).
-  useEC(() => {
-    if (!unlocked.multiple && mode === "multiple") setMode("single");
-    setActive(a => { const ok = a.filter(id => availableAdvisors.some(x => x.id === id)); return ok.length ? ok : [availableAdvisors[0] && availableAdvisors[0].id].filter(Boolean); });
-  }, [unlocked.multiple, unlocked.personas10]);
-
-  const pickPersona = (id) => {
-    if (mode === "single") { setActive([id]); return; }
-    setActive(a => a.includes(id) ? (a.length > 1 ? a.filter(x => x !== id) : a) : (a.length < 3 ? [...a, id] : a));
-  };
-
-  const responders = () => {
-    const chosen = advisors.filter(a => active.includes(a.id));
-    const list = chosen.length ? chosen : [advisors[0]];
-    return mode === "single" ? list.slice(0, 1) : list.slice(0, 3);
-  };
-
+    if (!seed) return;
+    const seedText = typeof seed === "string" ? seed : seed.text;
+    if (seedText) setInput(seedText);
+    setContextSource(typeof seed === "string" ? null : (seed.contextSource || null));
+    setEligibleForMemory(typeof seed === "string" ? true : seed.eligibleForMemory !== false);
+    onSeedConsumed && onSeedConsumed();
+  }, [seed]);
   const makeMsgId = (prefix) => `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
   const normalizeAdvisorId = (data = {}) => data.persona_id || data.personaId || data.advisor_id || data.advisorId || data.advisor || "";
   const advisorDisplayName = (data = {}) => {
-    const id = normalizeAdvisorId(data);
-    const advisor = id ? (advisors.find(x => x.id === id) || HC.advisorById(id)) : null;
-    return data.persona_name || data.personaName || data.advisorName || advisor?.name || id || "Advisor";
+    return data.persona_name || data.personaName || data.advisorName || CHAT_ASSISTANT.name;
   };
   const updateStreamingAdvisorStatus = (personaId, status) => {
     setMessages(prev => prev.map(m => (
@@ -589,37 +1121,48 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
       return updated;
     });
   };
-  const responderListFor = (ids) => {
-    if (!ids || !ids.length) return responders();
-    const chosen = advisors.filter(a => ids.includes(a.id));
-    return chosen.length ? chosen : responders();
-  };
   const buildStudentContext = (syncedDocuments = []) => {
     const user = (window.CoachAPI && window.CoachAPI.getUser && window.CoachAPI.getUser()) || window.MOCK_USER || {};
-    const currentIndex = roadmap.steps.findIndex(s => s.id === current.id);
+    const contextStep = current;
+    const currentIndex = contextStep ? roadmap.steps.findIndex(s => s.id === contextStep.id) : -1;
     const previousStep = currentIndex > 0 ? roadmap.steps[currentIndex - 1] : null;
-    const upcoming = roadmap.steps.slice(Math.max(0, currentIndex + 1), currentIndex + 4).map(s => ({
+    const upcoming = contextStep ? roadmap.steps.slice(Math.max(0, currentIndex + 1), currentIndex + 4).map(s => ({
       title: s.title,
       phase: s.phase || "",
       status: s.status,
       estimate: s.estimate || s.when || "",
       objective: s.objective || ""
-    }));
-    const focus = {
-      title: current.title,
-      phase: current.phase || "",
-      status: current.status || "",
-      estimate: current.estimate || current.when || "",
-      objective: current.objective || "",
-      deliverable: current.deliverable || "",
-      source: current.deliverableSource || current.source || "",
-      template_id: current.templateId || current.id || "",
-      step_id: current.id || "",
-      step_number: currentIndex >= 0 ? currentIndex + 1 : null,
-      total_steps: roadmap.steps.length,
-      subtasks: (current.subtasks || []).slice(0, 8)
-    };
+    })) : [];
+    let recentActivity = null;
+    let planActivity = {};
+    try {
+      planActivity = JSON.parse(localStorage.getItem(HC.ACT_KEY) || "{}");
+      recentActivity = contextStep && planActivity[contextStep.id] ? {
+        step_id: contextStep.id,
+        last_touched_at: new Date(planActivity[contextStep.id]).toISOString()
+      } : null;
+    } catch (e) {}
+    const statusLastUpdated = Math.max(
+      0,
+      ...Object.values(planActivity).map(value => Number(value) || 0)
+    );
+    const completedTaskKeys = new Set(cload(HC.TASK_KEY, []));
+    const tasks = roadmap.steps.flatMap(step => (step.subtasks || []).map(task => ({
+      title: task,
+      milestone: step.title,
+      status: completedTaskKeys.has(`${step.id}::${task}`) ? "done" : "open"
+    }))).slice(0, 40);
+    const deadlines = cload("phd-coach-deadlines-v1", [])
+      .filter(deadline => deadline && (deadline.label || deadline.date))
+      .sort((a, b) => String(a.date || "9999").localeCompare(String(b.date || "9999")))
+      .slice(0, 20)
+      .map(deadline => ({
+        label: deadline.label || "",
+        date: deadline.date || "",
+        time: deadline.time || ""
+      }));
     return {
+      chat_context: { type: "automatic", title: "My Plan" },
       profile: {
         name: firstProfileValue(user.name),
         email: firstProfileValue(user.email),
@@ -629,34 +1172,54 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
       },
       roadmap: {
         program: roadmap.program || null,
-        current_step: {
-          title: current.title,
-          phase: current.phase || "",
-          status: current.status,
-          estimate: current.estimate || current.when || "",
-          objective: current.objective || "",
-          deliverable: current.deliverable || "",
-          source: current.deliverableSource || current.source || "",
-          subtasks: (current.subtasks || []).slice(0, 8)
-        },
-        conversation_focus: focus,
+        status_last_updated: statusLastUpdated
+          ? new Date(statusLastUpdated).toISOString()
+          : "",
+        current_step: contextStep ? {
+          title: contextStep.title,
+          phase: contextStep.phase || "",
+          status: contextStep.status,
+          estimate: contextStep.estimate || contextStep.when || "",
+          objective: contextStep.objective || "",
+          deliverable: contextStep.deliverable || "",
+          source: contextStep.deliverableSource || contextStep.source || "",
+          subtasks: (contextStep.subtasks || []).slice(0, 8)
+        } : null,
+        conversation_focus: null,
         previous_step: previousStep ? {
           title: previousStep.title,
           phase: previousStep.phase || "",
           status: previousStep.status || "",
           estimate: previousStep.estimate || previousStep.when || ""
         } : null,
-        upcoming_steps: upcoming
+        upcoming_steps: upcoming,
+        steps: roadmap.steps.map((step, index) => ({
+          step_number: index + 1,
+          title: step.title,
+          phase: step.phase || "",
+          status: step.status || "",
+          estimate: step.estimate || step.when || "",
+          objective: step.objective || "",
+          deliverable: step.deliverable || "",
+          last_updated: planActivity[step.id]
+            ? new Date(planActivity[step.id]).toISOString()
+            : "",
+          subtasks: (step.subtasks || []).slice(0, 5)
+        }))
       },
       documents: listDocumentProjectsForContext(),
-      rag_synced_documents: syncedDocuments
+      rag_synced_documents: syncedDocuments,
+      recent_meetings: recentMeetingContext(),
+      recent_activity: recentActivity,
+      tasks,
+      deadlines
     };
   };
 
   // Apply the client-side plan-fork flourish (kept from the prototype — it's a
   // UI feature layered on top of the real chat, not a backend call).
   const maybeFork = (t) => {
-    if (setRoadmap && window.RoadmapEngine.shouldFork(roadmap, t)) {
+    if (current && setRoadmap && window.RoadmapEngine.shouldFork(roadmap, t)) {
       const fork = window.RoadmapEngine.detectFork(roadmap, t);
       const prev = roadmap;
       const res = window.RoadmapEngine.forkPlan(roadmap, fork);
@@ -676,21 +1239,20 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     const API = window.CoachAPI;
     const docNote = docs.length ? `\n\n📎 Attached: ${docs.join(", ")}` : "";
     const content = opts.content || ((t || "(see attached documents)") + docNote);
-    const targetAdvisorIds = opts.activeAdvisors || active.slice();
+    const targetAdvisorIds = [CHAT_ASSISTANT.id];
     const userMsg = {
       id: opts.userMessageId || makeMsgId("u"),
       type: "user",
       content,
       text: opts.text || t || content,
-      docs,
-      advisorIds: targetAdvisorIds.slice()
+      docs
     };
-    setMessages(p => [...p, userMsg]);
+    if (!opts.skipUserMessage) setMessages(p => [...p, userMsg]);
     if (!opts.keepComposer) {
       setInput("");
       setAttached([]);
     }
-    if (!opts.skipEngagement) onMessage && onMessage(); // count this engagement (drives feature unlocks)
+    if (!opts.skipEngagement && !opts.skipUserMessage) onMessage && onMessage(); // count this engagement (drives feature unlocks)
     setBusy(true);
     setStreamStatus("Sending your question...");
 
@@ -720,20 +1282,11 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
           userMessageId: userMsg.id,
           sessionId: sid,
           activeAdvisors: targetAdvisorIds,
-          customAdvisors: targetAdvisorIds
-            .filter(id => String(id).startsWith("real-"))
-            .map(id => {
-              const m = advisors.find(a => a.id === id);
-              if (!m) return null;
-              const p = m.profile || {};
-              return {
-                id: m.id, name: m.name, title: p.title || "",
-                institution: m.institution || p.institution || "",
-                research_areas: p.research_areas || [],
-                summary: p.summary || p.bio || [p.title, p.department, m.institution].filter(Boolean).join(", ")
-              };
-            }).filter(Boolean),
+          retryOfMessageId: opts.retryOf || null,
+          retryUserInput: opts.retryOf ? content : null,
           studentContext: buildStudentContext(ragSyncedDocuments),
+          contextSource,
+          eligibleForMemory,
           onEvent: ({ type, data }) => {
             const d = data || {};
             if (type === "advisor_start") {
@@ -742,10 +1295,11 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
               const status = `${name} is drafting your answer...`;
               setStreamStatus(status);
               upsertAdvisorMessage(d, existing => ({
-                content: existing.content || "",
-                thoughts: existing.thoughts || "",
+                content: opts.retryOf ? "" : (existing.content || ""),
+                thoughts: opts.retryOf ? "" : (existing.thoughts || ""),
                 streaming: true,
                 status,
+                modelName: d.model_name || existing.modelName || "",
                 advisorSkill: d.advisor_skill,
                 advisorSkillName: d.advisor_skill_name
               }));
@@ -797,6 +1351,9 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
                 status: "",
                 usedDocuments: d.used_documents || false,
                 documentChunksUsed: d.document_chunks_used || 0,
+                modelName: d.model_name || existing.modelName || "",
+                grounding: d.grounding || existing.grounding || null,
+                sourceUserMessageId: d.source_user_message_id || userMsg.id,
                 advisorSkill: d.advisor_skill,
                 advisorSkillName: d.advisor_skill_name
               }));
@@ -806,30 +1363,15 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
               got = true;
               finishedResponse = true;
               setStreamStatus("");
-              setMessages(p => [...p, { id: makeMsgId("c"), type: "advisor", personaId: (advisors[0] || {}).id, content: d.message }]);
+              setMessages(p => [...p, { id: makeMsgId("c"), type: "advisor", personaId: CHAT_ASSISTANT.id, content: d.message }]);
               return;
             }
             if (type === "error") {
               got = true;
               finishedResponse = true;
               setStreamStatus("");
-              setMessages(p => [...p, { id: makeMsgId("e"), type: "advisor", personaId: (advisors[0] || {}).id, content: d.detail || "Sorry, something went wrong." }]);
+              setMessages(p => [...p, { id: makeMsgId("e"), type: "advisor", personaId: CHAT_ASSISTANT.id, content: d.detail || "Sorry, something went wrong." }]);
               return;
-            }
-            if (type === "advisor") {
-              got = true;
-              const msg = {
-                id: data.message_id || makeMsgId("a"),
-                type: "advisor", personaId: data.persona_id,
-                personaName: data.persona_name || data.persona_id, content: data.content
-              };
-              setMessages(p => [...p, msg]);
-            } else if (type === "clarification") {
-              got = true;
-              setMessages(p => [...p, { id: makeMsgId("c"), type: "advisor", personaId: (advisors[0] || {}).id, content: data.message }]);
-            } else if (type === "error") {
-              got = true;
-              setMessages(p => [...p, { id: makeMsgId("e"), type: "advisor", personaId: (advisors[0] || {}).id, content: data.detail || "Sorry — something went wrong." }]);
             }
           }
         });
@@ -850,18 +1392,36 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
         setMessages(p => [...p, {
           id: makeMsgId("e"),
           type: "advisor",
-          personaId: (advisors[0] || {}).id,
+          personaId: CHAT_ASSISTANT.id,
           content: "Your backend session was rejected, so I could not reach the real advisor model. Please sign out and sign in or sign up again, then resend your question."
         }]);
         return;
       }
       // Backend unreachable → demo replies so the chat still works offline.
       setStreamStatus("");
-      setMessages(p => [...p, ...responderListFor(targetAdvisorIds).map((a) => ({
-        id: makeMsgId("a"), type: "advisor", personaId: a.id, content: personaReply(a, current)
-      }))]);
+      const offlineMessages = [CHAT_ASSISTANT].map((a) => ({
+        id: opts.retryOf || makeMsgId("a"),
+        type: "advisor",
+        personaId: a.id,
+        personaName: a.name,
+        modelName: "Offline demo",
+        sourceUserMessageId: userMsg.id,
+        grounding: {
+          plan_context: current ? current.title : "",
+          uploaded_documents: [],
+          meeting_notes: [],
+          general_guidance_only: true,
+          assumptions: [],
+          verify: []
+        },
+        content: personaReply(a, current || { title: "your question" })
+      }));
+      setMessages(p => opts.retryOf
+        ? p.map(message => message.id === opts.retryOf ? offlineMessages[0] : message)
+        : [...p, ...offlineMessages]);
     } finally {
       setBusy(false);
+      setRetryingId(null);
       setStreamStatus("");
     }
 
@@ -893,19 +1453,9 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     await send(edited, {
       userMessageId: userMsg.id,
       docs: userMsg.docs || [],
-      activeAdvisors: userMsg.advisorIds || undefined,
       skipEngagement: true,
       skipFork: true
     });
-  };
-
-  const runSkill = (skill) => {
-    setPop(null);
-    setMessages(p => [...p, { id: "u" + Date.now(), type: "user", content: `Run skill: ${skill.name}` }]);
-    setTimeout(() => {
-      const res = skill.run({ current, roadmap });
-      setMessages(p => [...p, { id: "act" + Date.now(), type: "action", result: res }]);
-    }, 500);
   };
 
   const undoFork = (msgId, prev) => {
@@ -914,11 +1464,173 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     if (onToast) onToast("Fork undone — your plan is back to how it was.");
   };
 
-  const newChat = () => { setMessages([]); setSessionId(null); setActiveChatId(null); setInput(""); if (window.CoachAPI) window.CoachAPI.newChat().catch(() => {}); };
-  const openChat = (c) => { setActiveChatId(c.id); setMessages(c.messages || []); setSessionId(c.sessionId || null); };
-  const deleteChat = (id, e) => { if (e) e.stopPropagation(); setChats(prev => prev.filter(c => c.id !== id)); if (id === activeChatId) { setMessages([]); setSessionId(null); setActiveChatId(null); } };
+  const copyAnswer = async (message) => {
+    try {
+      await navigator.clipboard.writeText(message.content || message.text || "");
+      setCopiedId(message.id);
+      setTimeout(() => setCopiedId(id => id === message.id ? null : id), 1600);
+    } catch (e) {
+      onToast && onToast("Could not copy this message.");
+    }
+  };
+
+  const openSourceDocument = (source, project) => {
+    const store = cload(DOC_STORE, { projects: {}, activeId: null });
+    if (project?.id && store.projects && store.projects[project.id]) {
+      store.activeId = project.id;
+      csave(DOC_STORE, store);
+    }
+    if (source?.file_id) {
+      try {
+        sessionStorage.setItem("phd-open-server-document", JSON.stringify({
+          type: "server",
+          id: source.file_id
+        }));
+      } catch (e) {}
+    }
+    onNav("documents");
+  };
+
+  const retryAnswer = async (message) => {
+    if (!message || busy) return;
+    const messageIndex = messages.findIndex(item => item.id === message.id);
+    const source = message.sourceUserMessageId
+      ? messages.find(item => item.id === message.sourceUserMessageId)
+      : [...messages.slice(0, messageIndex)].reverse().find(item => item.type === "user");
+    if (!source) {
+      onToast && onToast("The original question for this answer is unavailable.");
+      return;
+    }
+    setRetryingId(message.id);
+    await send(source.text || source.content, {
+      content: source.content,
+      text: source.text || source.content,
+      userMessageId: source.id,
+      docs: source.docs || [],
+      retryOf: message.id,
+      skipUserMessage: true,
+      keepComposer: true,
+      skipEngagement: true,
+      skipFork: true
+    });
+  };
+
+  const newChat = () => {
+    setMessages([]);
+    setSessionId(null);
+    setActiveChatId(null);
+    setInput("");
+    setContextSource(null);
+    setEligibleForMemory(true);
+    if (window.CoachAPI) window.CoachAPI.newChat().catch(() => {});
+  };
+  const openChat = (c) => {
+    setHistoryTooltip(null);
+    setActiveChatId(c.id);
+    setMessages(c.messages || []);
+    setSessionId(c.sessionId || null);
+    setContextSource(c.contextSource || null);
+    setEligibleForMemory(c.eligibleForMemory !== false);
+  };
+  useEC(() => {
+    if (!savedChatTarget?.id) return;
+    const chat = chats.find(item => item.id === savedChatTarget.id);
+    if (chat) openChat(chat);
+    onSavedChatConsumed && onSavedChatConsumed();
+  }, [savedChatTarget?.nonce]);
+  const deleteChat = (id, e) => { if (e) e.stopPropagation(); setChats(prev => prev.filter(c => c.id !== id)); if (id === activeChatId) { setMessages([]); setSessionId(null); setActiveChatId(null); setContextSource(null); setEligibleForMemory(true); } };
   const timeAgo = (ts) => { if (!ts) return ""; const m = Math.floor((Date.now() - ts) / 60000); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; const d = Math.floor(h / 24); return d + "d ago"; };
   const sortedChats = [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const chatTitleFor = (chat) => (
+    (chat.messages || []).find(message => message.type === "user")?.text ||
+    chat.title ||
+    "New chat"
+  ).trim();
+  const showHistoryTooltip = (event, title) => {
+    if (!historyCollapsed) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHistoryTooltip({
+      title,
+      left: rect.right + 9,
+      top: rect.top + rect.height / 2
+    });
+  };
+  const exportEntryFor = (message) => {
+    if (message.type === "user") {
+      return { speaker: "You", text: message.text || message.content || "" };
+    }
+    if (message.type === "advisor") {
+      return {
+        speaker: formatModelName(message.modelName) || "PhD Navigator",
+        text: message.content || ""
+      };
+    }
+    if (message.type === "action") {
+      const result = message.result || {};
+      return {
+        speaker: "PhD Navigator action",
+        text: [result.title, result.body, ...(result.items || [])].filter(Boolean).join("\n")
+      };
+    }
+    if (message.type === "forked") {
+      const fork = message.fork || {};
+      return {
+        speaker: "Plan update",
+        text: message.undone
+          ? "Fork undone. Your plan was restored."
+          : [fork.title, fork.reason, fork.objective].filter(Boolean).join("\n")
+      };
+    }
+    return null;
+  };
+  const downloadBlob = (blob, fileName) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+  const exportChat = async (format) => {
+    if (!messages.length || exporting) return;
+    const entries = messages.map(exportEntryFor).filter(entry => entry && entry.text.trim());
+    const storedChat = chats.find(chat => chat.id === activeChatId);
+    const title = storedChat
+      ? chatTitleFor(storedChat)
+      : ((messages.find(message => message.type === "user")?.text || "PhD Navigator chat").trim());
+    const safeName = (title || "PhD Navigator chat")
+      .replace(/[\\/:*?"<>|]/g, "-")
+      .replace(/\s+/g, " ")
+      .slice(0, 80)
+      .trim() || "PhD Navigator chat";
+    const programName = roadmap.program?.name || "PhD Navigator";
+    const exportedAt = new Date().toLocaleString();
+    setExporting(format);
+    try {
+      if (format === "txt") {
+        const transcript = [
+          title,
+          programName,
+          `Exported ${exportedAt}`,
+          "",
+          ...entries.flatMap(entry => [entry.speaker, entry.text, ""])
+        ].join("\n");
+        downloadBlob(new Blob([transcript], { type: "text/plain;charset=utf-8" }), `${safeName}.txt`);
+      } else if (format === "docx") {
+        downloadBlob(buildChatDocx(title, programName, exportedAt, entries), `${safeName}.docx`);
+      } else if (format === "pdf") {
+        downloadBlob(buildChatPdf(title, programName, exportedAt, entries), `${safeName}.pdf`);
+      }
+      setExportOpen(false);
+      onToast && onToast(`Chat downloaded as .${format}.`);
+    } catch (error) {
+      onToast && onToast(error?.message || `Could not download the .${format} file.`);
+    } finally {
+      setExporting("");
+    }
+  };
 
   const hasMsgs = messages.length > 0;
   // group consecutive advisor messages into a row
@@ -929,51 +1641,89 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
     else if (messages[i].type === "forked") groups.push({ k: "fk", m: messages[i] });
     else groups.push({ k: "u", m: messages[i] });
   }
+  const lastAdvisorGroupIndex = groups.reduce(
+    (last, group, index) => group.k === "a" ? index : last,
+    -1
+  );
   const hasStreamingAdvisor = messages.some(m => m.type === "advisor" && m.streaming);
   const visibleStreamStatus = streamStatus || (busy ? "Preparing your response..." : "");
 
-  const activeNames = advisors.filter(a => active.includes(a.id)).map(a => a.name);
-  const activeCount = Math.min(active.length, mode === "single" ? 1 : 3);
-
   return (
     <div className="chat-wrap">
-      <div className="chat-context" style={{ marginTop: 14 }}>
-        <IcoC name="MapPin" size={14} /> Chatting about: <strong>&nbsp;{current.title}</strong>
-        <div className="chat-hist" ref={histRef} style={{ marginLeft: "auto", position: "relative" }}>
-          <button className={`btn sm ghost ${histOpen ? "on" : ""}`} onClick={() => setHistOpen(o => !o)} title="Chat history" aria-label="Chat history"><IcoC name="History" size={14} /> Chat History</button>
-          {histOpen && (
-            <div className="chat-hist-pop">
-              <div className="chat-hist-h">Recent chats</div>
-              <div className="chat-hist-list">
-                {sortedChats.length === 0 && <div className="chat-hist-empty">No past chats yet.</div>}
-                {sortedChats.map(c => (
-                  <button key={c.id} className={`chat-hist-item ${c.id === activeChatId ? "active" : ""}`} onClick={() => { openChat(c); setHistOpen(false); }}>
-                    <IcoC name="MessageCircle" size={13} />
-                    <span className="chi-main"><span className="chi-title">{c.title}</span><span className="chi-time">{timeAgo(c.updatedAt)}</span></span>
-                    <span className="chi-del" onClick={(e) => deleteChat(c.id, e)} title="Delete" role="button" aria-label="Delete chat"><IcoC name="Trash2" size={12} /></span>
+      <div className="chat-shell">
+        <aside className={`chat-history-rail ${historyCollapsed ? "collapsed" : ""}`} aria-label="Chat history">
+          <div className="chat-history-head">
+            {!historyCollapsed && <strong>Chats</strong>}
+            <button className="chat-history-collapse" onClick={() => {
+              setHistoryTooltip(null);
+              setHistoryCollapsed(value => !value);
+            }}
+              title={historyCollapsed ? "Expand chat history" : "Collapse chat history"}
+              aria-label={historyCollapsed ? "Expand chat history" : "Collapse chat history"}>
+              <IcoC name={historyCollapsed ? "PanelLeftOpen" : "PanelLeftClose"} size={15} />
+            </button>
+          </div>
+          <button className="chat-history-search" onClick={() => setSearchOpen(true)} title="Search">
+            <IcoC name="Search" size={14} />
+            {!historyCollapsed && <span>Search</span>}
+          </button>
+          <button className="chat-history-new" onClick={newChat} title="New chat">
+            <IcoC name="Plus" size={14} />
+            {!historyCollapsed && <span>New chat</span>}
+          </button>
+          <div className="chat-history-list">
+            {!historyCollapsed && sortedChats.length === 0 && <div className="chat-history-empty">No past chats yet.</div>}
+            {sortedChats.map(c => { const chatTitle = chatTitleFor(c); return (
+              <div key={c.id} className={`chat-history-row ${c.id === activeChatId ? "active" : ""}`}>
+                <button className="chat-history-open" onClick={() => openChat(c)} title={chatTitle} aria-label={`Open chat: ${chatTitle}`}
+                  onMouseEnter={event => showHistoryTooltip(event, chatTitle)} onMouseLeave={() => setHistoryTooltip(null)}
+                  onFocus={event => showHistoryTooltip(event, chatTitle)} onBlur={() => setHistoryTooltip(null)}>
+                  <IcoC name="MessageCircle" size={14} />
+                  {!historyCollapsed && (
+                    <span className="chi-main">
+                      <span className="chi-title">{chatTitle}</span>
+                      <span className="chi-time">{timeAgo(c.updatedAt)}</span>
+                    </span>
+                  )}
+                </button>
+                {!historyCollapsed && (
+                  <button className="chi-del" onClick={(e) => deleteChat(c.id, e)} title="Delete chat" aria-label={`Delete chat: ${chatTitle}`}>
+                    <IcoC name="Trash2" size={12} />
                   </button>
-                ))}
+                )}
               </div>
-            </div>
-          )}
-        </div>
-        <button className="btn sm ghost" onClick={newChat}><IcoC name="Plus" size={13} /> New chat</button>
-        <button className="btn sm ghost" onClick={() => onNav("plan")}>Open in plan <IcoC name="ArrowRight" size={13} /></button>
-      </div>
+            ); })}
+          </div>
+        </aside>
 
-      <div className="chat-scroll">
+        <main className="chat-main">
+          <header className="chat-topbar">
+            <div className="chat-topbar-title">
+              <IcoC name="Compass" size={15} />
+              <span>{roadmap.program?.name || "PhD Navigator"}</span>
+            </div>
+            <div className="chat-topbar-actions">
+              <button className="btn sm" onClick={() => setSearchOpen(true)} title="Search" aria-label="Open search">
+                <IcoC name="Search" size={15} /> <span>Search</span>
+              </button>
+              <button className="btn sm" onClick={() => setExportOpen(true)} disabled={!hasMsgs}
+                title={hasMsgs ? "Download this chat" : "Start a chat before downloading"} aria-label="Download this chat">
+                <IcoC name="Download" size={15} /> <span>Download</span>
+              </button>
+            </div>
+          </header>
+          <div className="chat-scroll">
         {!hasMsgs ? (
           <>
             <div className="chat-welcome">
-              <h2 className="display">How can I help with {current.title.toLowerCase()}?</h2>
-              <p>{mode === "single" ? <>Answering as <strong>{activeNames[0]}</strong>. Add lenses or skills from the chat box below.</> : <>Comparing <strong>{activeNames.join(", ")}</strong>. Adjust lenses in the chat box below.</>}</p>
+              <h2 className="display">How can PhD Navigator help?</h2>
+              <p>Ask a question, review what comes next, or attach a source for more specific guidance.</p>
             </div>
-            <div className="suggest-grid">
-              {(window.CHAT_SUGGESTIONS || []).slice(0, 2).map(cat => (
-                <div key={cat.title} className="suggest-cat">
-                  <div className="sc-h"><span className="sc-i" style={{ background: cat.bg, color: cat.color }}><IcoC name={cat.icon} size={15} /></span><span className="sc-t" style={{ color: cat.color }}>{cat.title}</span></div>
-                  {cat.items.map(q => <button key={q} className="suggest-btn" onClick={() => send(q)}>{q}</button>)}
-                </div>
+            <div className="suggest-list">
+              {contextualChatSuggestions(current).map(q => (
+                <button key={q} className="suggest-btn" onClick={() => send(q)}>
+                  <span>{q}</span><IcoC name="ArrowUpRight" size={14} />
+                </button>
               ))}
             </div>
           </>
@@ -985,9 +1735,14 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
                 return (
                   <div className={`msg-user ${isEditing ? "editing" : ""}`} key={gr.m.id}>
                     {!isEditing && (
-                      <button className="user-edit-regen" onClick={() => startEditingMessage(gr.m)} disabled={busy} title="Edit and regenerate from here" aria-label="Edit and regenerate this message">
-                        <IcoC name="PencilLine" size={13} />
-                      </button>
+                      <div className="user-msg-actions">
+                        <button className="user-msg-action" onClick={() => copyAnswer(gr.m)} title="Copy message" aria-label="Copy this message">
+                          <IcoC name={copiedId === gr.m.id ? "Check" : "Copy"} size={13} />
+                        </button>
+                        <button className="user-msg-action" onClick={() => startEditingMessage(gr.m)} disabled={busy} title="Edit and regenerate from here" aria-label="Edit and regenerate this message">
+                          <IcoC name="PencilLine" size={13} />
+                        </button>
+                      </div>
                     )}
                     <div className="b">
                       {isEditing ? (
@@ -1047,11 +1802,12 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
               ); }
               return (
                 <div className="msg-adv-row" key={gi}>
-                  {gr.g.map(m => { const personaId = m.personaId || m.persona_id || m.advisorId || m.advisor_id || m.advisor; const a = advisors.find(x => x.id === personaId) || HC.advisorById(personaId); return (
-                    <div className={`msg-adv ${m.streaming ? "streaming" : ""}`} key={m.id} style={{ borderTopColor: a.color }}>
+                  {gr.g.map(m => (
+                    <div className={`msg-adv ${m.streaming ? "streaming" : ""}`} key={m.id}>
                       <div className="ma-h">
-                        <div className="ma-i" style={{ background: a.color }}><IcoC name={a.icon} size={14} color="#fff" /></div>
-                        <div><div className="ma-n">{m.personaName || m.advisorName || a.name}</div><div className="ma-r">{a.role}</div></div>
+                        <div className="ma-meta">
+                          <div className="ma-n">{formatModelName(m.modelName)}</div>
+                        </div>
                       </div>
                       {m.streaming && (m.status || visibleStreamStatus) && (
                         <div className="ma-stage"><IcoC name="Loader" size={12} className="spin" /> {m.status || visibleStreamStatus}</div>
@@ -1060,19 +1816,30 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
                         {m.content ? <MarkdownMessage text={m.content} tone="advisor" /> : <span className="stream-placeholder">Waiting for the first words...</span>}
                         {m.streaming && m.content ? <span className="stream-cursor" aria-hidden="true" /> : null}
                       </div>
+                      {!m.streaming && <GroundingDetails grounding={m.grounding} onOpenDocument={openSourceDocument} />}
+                      <div className="ma-actions">
+                        <button onClick={() => copyAnswer(m)} disabled={m.streaming || !m.content}>
+                          <IcoC name={copiedId === m.id ? "Check" : "Copy"} size={13} /> {copiedId === m.id ? "Copied" : "Copy"}
+                        </button>
+                        {gi === lastAdvisorGroupIndex && !groups.slice(gi + 1).some(group => group.k === "u") && (
+                          <button onClick={() => retryAnswer(m)} disabled={busy || m.streaming}>
+                            <IcoC name={retryingId === m.id ? "Loader" : "RefreshCw"} size={13} className={retryingId === m.id ? "spin" : ""} /> Try again
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ); })}
+                  ))}
                 </div>
               );
             })}
             {busy && !hasStreamingAdvisor && (
               <div className="msg-adv-row">
-                <div className="msg-adv msg-progress" style={{ borderTopColor: "var(--primary)" }}>
+                <div className="msg-adv msg-progress">
                   <div className="progress-stage">
                     <IcoC name="Loader" size={13} className="spin" />
                     <span>{visibleStreamStatus}</span>
                   </div>
-                  <div className="ma-h"><div className="ma-i" style={{ background: "var(--primary)" }}><IcoC name="Loader" size={14} color="#fff" className="spin" /></div><div><div className="ma-n">Your advisors</div><div className="ma-r">thinking…</div></div></div>
+                  <div className="ma-h"><div className="ma-i"><IcoC name="Loader" size={14} color="#fff" className="spin" /></div><div><div className="ma-n">PhD Navigator</div><div className="ma-r">Preparing your answer…</div></div></div>
                 </div>
               </div>
             )}
@@ -1098,76 +1865,72 @@ function CoachChatView({ roadmap, setRoadmap, onNav, onToast, seed, onSeedConsum
               ))}
             </div>
           )}
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`Ask about ${current.title.toLowerCase()}…`} />
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask PhD Navigator..." />
           <div className="ci-row">
-            <div className="composer-tools" ref={toolsRef}>
-              {/* add documents */}
-              <button className="composer-btn" onClick={() => fileRef.current && fileRef.current.click()} title="Add documents"><IcoC name="Paperclip" size={15} /> Add documents</button>
-
-              {/* personas with individual on/off toggles */}
-              <div style={{ position: "relative" }}>
-                <button className={`composer-btn ${pop === "personas" ? "on" : ""}`} onClick={() => setPop(p => p === "personas" ? null : "personas")} title="Choose advisor lenses">
-                  <IcoC name="Users" size={15} /> Personas <span className="cb-count">{activeCount}</span>
-                </button>
-                {pop === "personas" && (
-                  <div className="composer-pop">
-                    <div className="composer-pop-h"><IcoC name="Users" size={12} /> Advisor lenses</div>
-                    <div className="composer-pop-note">{mode === "single" ? "Single mode: one lens replies — turning one on turns the others off." : "Multiple mode: turn on up to 3 lenses to compare."}</div>
-                    <div className="persona-list">
-                      {availableAdvisors.map(a => {
-                        const on = active.includes(a.id);
-                        const lockOff = mode === "multiple" && !on && active.length >= 3;
-                        return (
-                          <div key={a.id} className={`persona-pick ${on ? "on" : ""}`}>
-                            <span className="pp-av" style={{ background: a.color }}><IcoC name={a.icon} size={14} color="#fff" /></span>
-                            <span style={{ flex: 1, minWidth: 0 }}><span className="pp-n" style={{ display: "block" }}>{a.name}</span><span className="pp-r">{a.summary}</span></span>
-                            <button className={`pp-switch ${on ? "on" : ""} ${lockOff ? "disabled" : ""}`} disabled={lockOff} onClick={() => pickPersona(a.id)} title={on ? "On" : "Off"} />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* skills (hidden until unlocked) */}
-              {unlocked.skills && <div style={{ position: "relative" }}>
-                <button className={`composer-btn ${pop === "skills" ? "on" : ""}`} onClick={() => setPop(p => p === "skills" ? null : "skills")} title="Attach a skill">
-                  <IcoC name="Sparkles" size={15} /> Skill
-                </button>
-                {pop === "skills" && (
-                  <div className="composer-pop">
-                    <div className="composer-pop-h"><IcoC name="Sparkles" size={12} /> Run a skill</div>
-                    <div className="composer-pop-note">Skills do the work — they produce a tool in your Workspace, a draft in Documents, or an answer here.</div>
-                    <div className="skill-list">
-                      {SKILLS.map(s => (
-                        <button key={s.id} className="skill-card" onClick={() => runSkill(s)}>
-                          <span className="sk-i"><IcoC name={s.icon} size={15} /></span>
-                          <span style={{ flex: 1, minWidth: 0 }}>
-                            <span className="sk-n" style={{ display: "block" }}>{s.name}</span>
-                            <span className="sk-d">{s.blurb}</span>
-                            <span className="sk-to"><IcoC name={s.to === "documents" ? "FileText" : "LayoutDashboard"} size={10} /> → {s.to}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>}
-
-              {/* single / multiple toggle — Multiple appears once unlocked */}
-              {unlocked.multiple ? (
-                <div className="mode-seg" role="tablist" title="How many advisor lenses reply">
-                  <button className={mode === "single" ? "on" : ""} onClick={setSingle}><IcoC name="User" size={13} /> Single</button>
-                  <button className={mode === "multiple" ? "on" : ""} onClick={setMulti}><IcoC name="Users" size={13} /> Multiple</button>
-                </div>
-              ) : null}
+            <div className="composer-tools">
+              <button className="composer-btn" onClick={() => fileRef.current && fileRef.current.click()} title="Attach documents"><IcoC name="Paperclip" size={15} /> Attach</button>
             </div>
 
-            <button className="btn primary sm" disabled={!input.trim() || busy} onClick={() => send()}><IcoC name="Send" size={14} color="#fff" /> Send</button>
+            <button className="btn primary sm" disabled={(!input.trim() && attached.length === 0) || busy} onClick={() => send()}><IcoC name="Send" size={14} color="#fff" /> Send</button>
           </div>
         </div>
       </div>
+        </main>
+      </div>
+      {historyTooltip && historyCollapsed && (
+        <div className="chat-history-tooltip" role="tooltip" style={{ left: historyTooltip.left, top: historyTooltip.top }}>
+          {historyTooltip.title}
+        </div>
+      )}
+      {searchOpen && (
+        <CoachSearchModal
+          roadmap={roadmap}
+          chats={chats}
+          onClose={() => setSearchOpen(false)}
+          onOpenChat={openChat}
+          onOpenDocument={document => {
+            const store = cload(DOC_STORE, { projects: {}, activeId: null });
+            store.activeId = document.id;
+            csave(DOC_STORE, store);
+            onNav("documents");
+          }}
+          onOpenPlan={(stepId, taskIndex) => onOpenPlanItem && onOpenPlanItem(stepId, taskIndex)}
+        />
+      )}
+      {exportOpen && (
+        <div className="chat-export-backdrop" onMouseDown={() => !exporting && setExportOpen(false)}>
+          <section className="chat-export-modal" role="dialog" aria-modal="true" aria-labelledby="chat-export-title"
+            onMouseDown={event => event.stopPropagation()}>
+            <div className="chat-export-head">
+              <div>
+                <h2 id="chat-export-title">Download this chat</h2>
+                <p>Choose the file format for the complete conversation.</p>
+              </div>
+              <button onClick={() => setExportOpen(false)} disabled={Boolean(exporting)} aria-label="Close download options">
+                <IcoC name="X" size={18} />
+              </button>
+            </div>
+            <div className="chat-export-options">
+              {[
+                ["txt", "FileText", "Plain text", ".txt"],
+                ["docx", "FileType2", "Word document", ".docx"],
+                ["pdf", "FileDown", "PDF document", ".pdf"]
+              ].map(([format, icon, label, extension]) => (
+                <button key={format} onClick={() => exportChat(format)} disabled={Boolean(exporting)}>
+                  <span className="chat-export-icon">
+                    <IcoC name={exporting === format ? "Loader" : icon} size={20} className={exporting === format ? "spin" : ""} />
+                  </span>
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{extension}</small>
+                  </span>
+                  <IcoC name="Download" size={16} />
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

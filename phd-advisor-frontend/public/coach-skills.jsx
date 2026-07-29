@@ -94,12 +94,12 @@ function CreateSkillModal({ onClose, onCreate }) {
         <div className="modal-h">
           <div style={{ display: "flex", gap: 12 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--primary-soft)", color: "var(--primary-deep)", display: "grid", placeItems: "center", flexShrink: 0 }}><IcoK name="Wand2" size={18} /></div>
-            <div><h2 className="display" id="create-skill-title">Create a skill</h2><p>No code needed. Describe the task in plain words — we'll tune a specialized assistant for it.</p></div>
+            <div><h2 className="display" id="create-skill-title">Create an action</h2><p>No code needed. Describe the outcome you want in plain words.</p></div>
           </div>
           <button className="modal-x" onClick={onClose} aria-label="Close"><IcoK name="X" size={14} /></button>
         </div>
         <div className="modal-b">
-          <div className="field"><label>Skill name</label><div className="wrap" style={{ paddingLeft: 0 }}>
+          <div className="field"><label>Action name</label><div className="wrap" style={{ paddingLeft: 0 }}>
             <input style={{ paddingLeft: 14 }} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Grant Reviewer" /></div></div>
           <div className="field"><label>What should it do?</label>
             <textarea className="modal-textarea" style={{ minHeight: 80 }} value={desc} onChange={e => setDesc(e.target.value)} placeholder="e.g. Read my draft like an NSF panelist and flag what would lose points." /></div>
@@ -113,11 +113,11 @@ function CreateSkillModal({ onClose, onCreate }) {
           </div>
         </div>
         <div className="modal-f">
-          <span style={{ fontSize: 12, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}><IcoK name="Sparkles" size={12} /> Built on Chen's skills system</span>
+          <span style={{ fontSize: 12, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}><IcoK name="Sparkles" size={12} /> Reusable visible action</span>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn ghost" onClick={onClose}>Cancel</button>
             <button className="btn primary" disabled={!can} onClick={() => onCreate({ id: "custom-" + Date.now(), name: name.trim(), desc: desc.trim(), cat, output, icon: "Wand2", model: "Custom-LLM", custom: true })}>
-              <IcoK name="Plus" size={14} color="#fff" /> Create skill
+              <IcoK name="Plus" size={14} color="#fff" /> Create action
             </button>
           </div>
         </div>
@@ -193,23 +193,23 @@ function CoachSkills({ roadmap, onNav }) {
   return (
     <div className="page">
       <div className="greeting" style={{ marginBottom: 14 }}>
-        <h1 className="display" style={{ fontSize: 26 }}>Skills</h1>
-        <div className="sub">Specialized assistants that do the work. Turn them on, run them, or use them in Chat.</div>
+        <h1 className="display" style={{ fontSize: 26 }}>Actions</h1>
+        <div className="sub">Create useful outputs such as meeting prep, task boards, outlines, and review notes.</div>
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
         <div className="field" data-ptour="sk-search" style={{ margin: 0, flex: 1, minWidth: 200 }}>
           <div className="wrap"><span className="fi"><IcoK name="Search" size={15} /></span>
-            <input placeholder="Search skills…" aria-label="Search skills" value={q} onChange={e => setQ(e.target.value)} /></div>
+            <input placeholder="Search actions…" aria-label="Search actions" value={q} onChange={e => setQ(e.target.value)} /></div>
         </div>
-        <button className="btn primary" data-ptour="sk-create" onClick={() => setCreating(true)}><IcoK name="Plus" size={15} color="#fff" /> Create a skill</button>
+        <button className="btn primary" data-ptour="sk-create" onClick={() => setCreating(true)}><IcoK name="Plus" size={15} color="#fff" /> Create an action</button>
       </div>
 
       {searching ? (
         <>
           <div className="section-label"><span className="ic"><IcoK name="Search" size={13} /></span> Results · {searchResults.length}</div>
           <div className="sk-grid-3">{searchResults.map(s => <Tile key={s.id} s={s} />)}</div>
-          {searchResults.length === 0 && <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: 14, padding: "40px 0" }}>No skills match — try a different search.</div>}
+          {searchResults.length === 0 && <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: 14, padding: "40px 0" }}>No actions match — try a different search.</div>}
         </>
       ) : (
         <>

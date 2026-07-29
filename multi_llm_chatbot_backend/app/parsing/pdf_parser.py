@@ -25,10 +25,10 @@ class PdfParser(BaseParser):
 
             text_parts = []
             with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-                for page in doc:
+                for page_number, page in enumerate(doc, start=1):
                     page_text = page.get_text("text")
                     if page_text:
-                        text_parts.append(page_text)
+                        text_parts.append(f"# Page {page_number}\n{page_text}")
             joined = "\n".join(text_parts).strip()
             if joined:
                 return joined
@@ -39,4 +39,8 @@ class PdfParser(BaseParser):
             logger.warning(f"PyMuPDF failed ({e}); falling back to PyPDF2")
 
         reader = PyPDF2.PdfReader(BytesIO(file_bytes))
-        return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        return "\n".join(
+            f"# Page {page_number}\n{page_text}"
+            for page_number, page in enumerate(reader.pages, start=1)
+            if (page_text := page.extract_text())
+        )

@@ -264,7 +264,7 @@
   // ---- Streaming chat -----------------------------------------------------
   // Calls onEvent({type, data}) for every NDJSON line the backend streams.
   // type ∈ "advisor" | "clarification" | "progress" | "error".
-  async function streamChat({ userInput, userMessageId, sessionId, responseLength = "medium", activeAdvisors, customAdvisors, advisorSkill, studentContext, onEvent }) {
+  async function streamChat({ userInput, userMessageId, sessionId, responseLength = "medium", activeAdvisors, advisorSkill, studentContext, contextSource, eligibleForMemory = true, retryOfMessageId, retryUserInput, onEvent }) {
     const res = await fetch(`${base()}/chat-stream`, {
       method: "POST", headers: authHeaders(),
       body: JSON.stringify({
@@ -273,9 +273,12 @@
         response_length: responseLength,
         chat_session_id: sessionId || null,
         active_advisors: activeAdvisors || null,
-        custom_advisors: (customAdvisors && customAdvisors.length) ? customAdvisors : null,
         advisor_skill: advisorSkill || null,
-        student_context: studentContext || null
+        student_context: studentContext || null,
+        context_source: contextSource || null,
+        eligible_for_memory: eligibleForMemory !== false,
+        retry_of_message_id: retryOfMessageId || null,
+        retry_user_input: retryUserInput || null
       })
     });
     if (!res.ok || !res.body) {
@@ -308,10 +311,15 @@
     return jsonOrThrow(res);
   }
 
-  async function defenseAnswerFeedback({ format, items } = {}) {
+  async function defenseAnswerFeedback({ format, items, difficulty, areasOfFocus } = {}) {
     const res = await fetch(`${base()}/api/workspace/defense/answer-feedback`, {
       method: "POST", headers: authHeaders(),
-      body: JSON.stringify({ format: format || "defense", items: items || [] })
+      body: JSON.stringify({
+        format: format || "defense",
+        difficulty: difficulty || "standard",
+        areas_of_focus: areasOfFocus || "",
+        items: items || []
+      })
     });
     return jsonOrThrow(res);
   }
@@ -342,19 +350,30 @@
     return jsonOrThrow(res);
   }
 
-  async function analyzeDefensePresentation({ mediaBlob, deckFile, deckName, slides }) {
+  async function analyzeDefensePresentation({
+    mediaBlob, deckFile, deckName, slides, format, targetPresentationMinutes,
+    audienceLevels, audienceInterests
+  }) {
     const form = new FormData();
     if (deckFile) form.append("deck", deckFile, deckFile.name || deckName || "defense-deck.pptx");
     if (mediaBlob) form.append("media", mediaBlob, mediaBlob.type?.startsWith("audio/") ? "presentation-audio.webm" : "presentation-video.webm");
-    if (!deckFile && slides) form.append("slides_json", JSON.stringify(slides || []));
+    if (slides) form.append("slides_json", JSON.stringify(slides || []));
     form.append("deck_name", deckName || "Slide deck");
+    form.append("format", format || "defense");
+    form.append("target_presentation_minutes", String(targetPresentationMinutes || 20));
+    form.append("audience_levels_json", JSON.stringify(audienceLevels || []));
+    form.append("audience_interests_json", JSON.stringify(audienceInterests || []));
     const res = await fetch(`${base()}/api/defense/presentation/analyze`, {
       method: "POST", headers: authHeaders(false), body: form
     });
     return jsonOrThrow(res);
   }
 
-  async function generateDefenseQuestions({ format, thesisTitle, researchSummary, materials, committeeMembers, questionCount = 6 }) {
+  async function generateDefenseQuestions({
+    format, thesisTitle, researchSummary, materials, committeeMembers, questionCount = 6,
+    difficulty, targetPresentationMinutes, areasOfFocus, audienceLevels, audienceInterests,
+    defensePriorities
+  }) {
     const res = await fetch(`${base()}/api/defense/questions`, {
       method: "POST", headers: authHeaders(),
       body: JSON.stringify({
@@ -363,7 +382,13 @@
         research_summary: researchSummary || "",
         materials: materials || [],
         committee_members: committeeMembers || [],
-        question_count: questionCount
+        question_count: questionCount,
+        difficulty: difficulty || "standard",
+        target_presentation_minutes: targetPresentationMinutes || 20,
+        areas_of_focus: areasOfFocus || "",
+        audience_levels: audienceLevels || [],
+        audience_interests: audienceInterests || [],
+        defense_priorities: defensePriorities || []
       })
     });
     return jsonOrThrow(res);

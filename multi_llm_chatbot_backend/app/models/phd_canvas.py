@@ -11,6 +11,10 @@ class CanvasInsight(BaseModel):
     """Individual insight extracted from chat messages"""
     content: str
     source_persona: str
+    source_type: str = "generated_interpretation"
+    generated_by: str = "AI"
+    real_person_statement: bool = False
+    user_verified: bool = False
     source_message_id: Optional[str] = None
     source_chat_session: Optional[str] = None
     confidence_score: float = Field(ge=0.0, le=1.0, default=0.8)

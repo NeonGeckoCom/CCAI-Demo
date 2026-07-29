@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
-from typing import Literal, Optional, List
+from typing import Any, Dict, Literal, Optional, List
 from datetime import datetime
 from bson import ObjectId
 
@@ -94,6 +94,9 @@ class PersistMessage(BaseModel):
     advisor_skill: Optional[str] = None
     advisor_skill_name: Optional[str] = None
     thoughts: Optional[str] = None
+    model_name: Optional[str] = None
+    grounding: Optional[Dict[str, Any]] = None
+    source_user_message_id: Optional[str] = None
     # Clarification-specific
     suggestions: Optional[List[str]] = None
     # Reply/expand metadata

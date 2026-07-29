@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, List, Optional
 
+from app.advisor_skills import get_advisor_skill
 from app.core.context_manager import get_context_manager
 from app.llm.clients.llm_client import LLMClient
 from app.rag.manager import get_rag_manager
@@ -24,6 +25,11 @@ CONVERSATION_SUMMARY_MAX_TOKENS = 800
 CONVERSATION_SUMMARY_RATIO = 0.25
 RAG_QUERY_KEYWORD_LIMIT = 12
 RAG_QUERY_REWRITE_MAX_TOKENS = 120
+APPLICATION_CONTEXT_MAX_TOKENS = 1200
+KNOWLEDGE_CONTEXT_MAX_TOKENS = 700
+DOCUMENT_CONTEXT_MAX_TOKENS = 3200
+MIN_APPLICATION_CONTEXT_TOKENS = 400
+PROMPT_STRUCTURE_RESERVE_TOKENS = 160
 
 StageCallback = Callable[[str, Dict[str, str]], Awaitable[None]]
 
@@ -34,6 +40,20 @@ class ConversationContext:
     messages: List[Dict[str, str]]
     summary: str = ""
     compacted: bool = False
+
+
+class PreparedPersonaContext(list):
+    """A fully budgeted chat prompt plus evidence that survived budgeting."""
+
+    def __init__(
+        self,
+        messages: List[Dict[str, str]],
+        included_document_context: str = "",
+        retrieved_document_context: str = "",
+    ):
+        super().__init__(messages)
+        self.included_document_context = included_document_context
+        self.retrieved_document_context = retrieved_document_context
 
 
 class PersonaContextBuilder:
@@ -284,20 +304,65 @@ class PersonaContextBuilder:
         for chunk in high_quality_chunks:
             doc_source = chunk.get("document_source", {})
             filename = doc_source.get("filename", "unknown")
+            document_key = doc_source.get("file_id") or filename
 
-            if filename not in documents:
-                documents[filename] = {
+            if document_key not in documents:
+                documents[document_key] = {
+                    "filename": filename,
                     "title": doc_source.get("document_title", filename),
+                    "source": doc_source,
                     "chunks": []
                 }
-            documents[filename]["chunks"].append(chunk)
+            documents[document_key]["chunks"].append(chunk)
 
         # Format each document's content
-        for filename, doc_data in documents.items():
+        for doc_data in documents.values():
+            filename = doc_data["filename"]
             doc_title = doc_data["title"]
             doc_chunks = doc_data["chunks"]
+            source = doc_data["source"]
+            source_metadata = {
+                "file_id": source.get("file_id", ""),
+                "file_type": source.get("file_type", "unknown"),
+                "filename": filename,
+                "title": doc_title,
+                "page_numbers": sorted({
+                    int(chunk.get("document_source", {}).get("page_number") or 0)
+                    for chunk in doc_chunks
+                    if int(chunk.get("document_source", {}).get("page_number") or 0) > 0
+                }),
+                "slide_numbers": sorted({
+                    int(chunk.get("document_source", {}).get("slide_number") or 0)
+                    for chunk in doc_chunks
+                    if int(chunk.get("document_source", {}).get("slide_number") or 0) > 0
+                }),
+                "sections": list(dict.fromkeys(
+                    chunk.get("document_source", {}).get("heading")
+                    or chunk.get("document_source", {}).get("section")
+                    for chunk in doc_chunks
+                    if (
+                        chunk.get("document_source", {}).get("heading")
+                        or chunk.get("document_source", {}).get("section")
+                    ) not in ("", "unknown", "content")
+                    and not re.match(
+                        r"^(?:Page|Slide)\s+\d+$",
+                        str(
+                            chunk.get("document_source", {}).get("heading")
+                            or ""
+                        ),
+                        flags=re.IGNORECASE,
+                    )
+                )),
+                "version_or_upload_date": source.get("version_or_upload_date", ""),
+                "open_route": source.get("open_route", ""),
+            }
 
             formatted_sections.append(f"=== FROM DOCUMENT: {doc_title} ===")
+            formatted_sections.append(
+                "=== SOURCE METADATA: "
+                + json.dumps(source_metadata, ensure_ascii=False, separators=(",", ":"))
+                + " ==="
+            )
 
             for chunk in doc_chunks:
                 chunk_intro = "[Document excerpt]"
@@ -351,6 +416,18 @@ Use this context to inform your response. When referencing information from docu
         Get persona-specific instructions for handling document context
         """
         instructions = {
+            "methods_evidence": """
+When analyzing the document context:
+- Focus on design, evidence, analysis, and inference fit
+- Identify validity, reliability, sampling, and ethical issues
+- Reference the source document by name when using it""",
+
+            "theory_framing": """
+When analyzing the document context:
+- Focus on concepts, assumptions, literature positioning, and contribution
+- Identify unclear constructs and theoretical inconsistencies
+- Reference the source document by name when using it""",
+
             "methodologist": """
 When analyzing the document context:
 - Focus on methodological rigor and research design elements
@@ -378,90 +455,205 @@ When analyzing the document context:
 
         return instructions.get(persona_id, "Provide helpful guidance based on the document context.")
 
-    async def build_enhanced_context_for_persona(self, session, persona, user_message: str, document_context: str) -> List[Dict[str, str]]:
-        """
-        Build enhanced context that properly integrates document information with conversation history
-        FIXED VERSION - Ensures document context is properly preserved for both providers
-        """
-        enhanced_context = []
+    async def build_enhanced_context_for_persona(
+        self,
+        session,
+        persona,
+        user_message: str,
+        document_context: str,
+        response_length: str = "medium",
+        advisor_skill=None,
+    ) -> PreparedPersonaContext:
+        """Build the final chat prompt once, with explicit category budgets."""
+        skill = get_advisor_skill(
+            getattr(advisor_skill, "id", advisor_skill) or "quick_advice"
+        )
+        instruction_text = (
+            f"{persona.system_prompt}\n\n"
+            f"{skill.prompt_contract(response_length, '<END_RESPONSE>')}"
+        )
+        instruction_tokens = self._estimate_tokens(instruction_text)
+        output_reserve = skill.max_tokens(response_length)
+        latest_question_tokens = self._estimate_tokens(user_message) + 20
+        available = max(
+            0,
+            self.max_context_tokens
+            - instruction_tokens
+            - output_reserve
+            - latest_question_tokens
+            - PROMPT_STRUCTURE_RESERVE_TOKENS,
+        )
 
-        # Check if we actually have meaningful document content
-        has_documents = bool(document_context and document_context.strip() and len(document_context.strip()) > 50)
         student_context = (getattr(session, "student_context_prompt", "") or "").strip()
-        student_context_block = (
-            "\n    STUDENT PROFILE AND ROADMAP CONTEXT:\n"
-            f"    {student_context}\n\n"
-            "    CURRENT-STAGE GUIDANCE:\n"
-            "    Use the current conversation focus as the default frame for the response. "
-            "If the student's message is ambiguous, short, or refers to 'this stage', "
-            "'where I am', 'next', or being stuck, interpret it as about that current "
-            "milestone. Anchor advice, examples, and next actions to that stage unless "
-            "the student explicitly changes topic.\n"
-            if student_context else ""
+        knowledge_context = (getattr(session, "knowledge_context_prompt", "") or "").strip()
+
+        # Document evidence is the highest-priority dynamic category. Preserve a
+        # compact application frame, then give retrieved evidence a hard bound.
+        minimum_app = min(
+            MIN_APPLICATION_CONTEXT_TOKENS,
+            self._estimate_tokens(student_context),
+            available,
+        )
+        document_budget = min(
+            DOCUMENT_CONTEXT_MAX_TOKENS,
+            max(0, available - minimum_app),
+        )
+        included_document_context = self._fit_document_context(
+            document_context,
+            document_budget,
+        )
+        available -= self._estimate_tokens(included_document_context)
+
+        application_budget = min(APPLICATION_CONTEXT_MAX_TOKENS, available)
+        included_student_context = self._clip_to_token_budget(
+            student_context,
+            application_budget,
+        )
+        available -= self._estimate_tokens(included_student_context)
+
+        knowledge_budget = min(KNOWLEDGE_CONTEXT_MAX_TOKENS, available)
+        included_knowledge_context = self._clip_to_token_budget(
+            knowledge_context,
+            knowledge_budget,
+        )
+        available -= self._estimate_tokens(included_knowledge_context)
+
+        conversation_messages = [
+            {
+                "role": message.get("role", "assistant"),
+                "content": str(message.get("content", "")),
+            }
+            for message in getattr(session, "messages", [])
+            if message.get("role") != "system" and str(message.get("content", "")).strip()
+        ]
+        latest_index = next(
+            (
+                index
+                for index in range(len(conversation_messages) - 1, -1, -1)
+                if conversation_messages[index]["role"] == "user"
+                and conversation_messages[index]["content"] == user_message
+            ),
+            None,
+        )
+        history_messages = (
+            conversation_messages[:latest_index]
+            if latest_index is not None
+            else conversation_messages
+        )
+        conversation_context = self._prepare_messages_context(
+            history_messages,
+            available,
         )
 
-        # Build the system message with proper document awareness
-        if has_documents:
-            # Get list of uploaded documents
-            uploaded_docs = session.uploaded_files if hasattr(session, 'uploaded_files') else []
-            doc_list = ", ".join(uploaded_docs) if uploaded_docs else "uploaded documents"
-
-            system_message = f"""{persona.system_prompt}
-{student_context_block}
-
-    CURRENT SESSION CONTEXT:
-    The student has uploaded the following documents: {doc_list}
-
-    {{conversation_summary}}
-
-    DOCUMENT CONTENT:
-    {document_context}
-
-    IMPORTANT: When the student refers to "my document," "my dissertation," "my proposal," etc., they are referring to one of their uploaded documents. Use the document context above to understand which specific document they mean and reference it by name in your response.
-
-    When referencing information from their documents, cite the document by name only, using phrasing like: "According to your [document_name]..." Do not expose internal passage labels, chunk numbers, relevance scores, or positions.
-    """
+        blocks = []
+        if included_student_context:
+            blocks.append(
+                "STUDENT PROFILE AND RELEVANT PLAN CONTEXT:\n"
+                f"{included_student_context}\n\n"
+                "Use the current milestone as status context, not as the only "
+                "knowledge source. Interpret ambiguous references to what is "
+                "next or where the student is as referring to that milestone."
+            )
+        if included_knowledge_context:
+            blocks.append(included_knowledge_context)
+        if included_document_context:
+            blocks.append(
+                "REQUIRED DOCUMENT EVIDENCE:\n"
+                f"{included_document_context}\n\n"
+                "Use the evidence above when the question concerns the student's "
+                "documents. Cite document names only; do not expose internal "
+                "chunk labels, positions, or relevance scores."
+            )
+        elif getattr(session, "uploaded_files", []):
+            blocks.append(
+                "Documents exist in the student's library, but no relevant "
+                "document passages fit this answer context. Do not imply that "
+                "you reviewed their contents."
+            )
         else:
-            # NO DOCUMENTS - Explicitly tell persona not to reference documents
-            system_message = f"""{persona.system_prompt}
-{student_context_block}
+            blocks.append(
+                "No uploaded documents are available. Do not invent document "
+                "contents or names."
+            )
+        if conversation_context.summary:
+            blocks.append(conversation_context.summary)
 
-    IMPORTANT: The student has NOT uploaded any documents yet. Do not reference any specific documents, files, or assume you have access to their research materials.
-
-    {{conversation_summary}}
-
-    If they mention "my document," "my dissertation," "my proposal," etc., you should:
-    1. Acknowledge that you don't have access to their specific documents
-    2. Ask them to upload the relevant files for more targeted advice
-    3. Provide general guidance based on best practices in your area of expertise
-
-    Do NOT make up document names or pretend to have access to files that don't exist."""
-
-        conversation_context = self._prepare_conversation_context(
-            getattr(session, "messages", []),
-            system_message.replace("{conversation_summary}", ""),
-        )
-        conversation_summary = (
-            f"\n    {conversation_context.summary}\n"
-            if conversation_context.summary
-            else ""
-        )
-        system_message = system_message.replace("{conversation_summary}", conversation_summary)
-
-        enhanced_context.append({
+        messages = [{
             "role": "system",
-            "content": system_message
-        })
+            "content": "\n\n".join(blocks),
+            "_context_budgeted": True,
+        }]
+        messages.extend(conversation_context.messages)
+        messages.append({"role": "user", "content": user_message})
+        return PreparedPersonaContext(
+            messages,
+            included_document_context=included_document_context,
+            retrieved_document_context=document_context,
+        )
 
-        # Add conversation messages (all messages when they fit; otherwise a token-budgeted recent tail).
-        for message in conversation_context.messages:
-            if message.get('role') != 'system':
-                enhanced_context.append({
-                    "role": message['role'],
-                    "content": message['content']
-                })
+    def _clip_to_token_budget(self, text: str, token_budget: int) -> str:
+        if token_budget <= 0 or not text:
+            return ""
+        char_budget = max(0, int(token_budget * self.chars_per_token))
+        if len(text) <= char_budget:
+            return text.strip()
+        return text[:char_budget].rsplit("\n", 1)[0].rstrip()
 
-        return enhanced_context
+    def _fit_document_context(self, document_context: str, token_budget: int) -> str:
+        """Bound evidence while retaining at least one excerpt per retrieved source."""
+        if token_budget <= 0 or not document_context.strip():
+            return ""
+        char_budget = int(token_budget * self.chars_per_token)
+        if len(document_context) <= char_budget:
+            return document_context.strip()
+
+        matches = list(re.finditer(
+            r"=== FROM DOCUMENT:\s*(.+?)\s*===",
+            document_context,
+        ))
+        if not matches:
+            return self._clip_to_token_budget(document_context, token_budget)
+
+        prefix = document_context[:matches[0].start()].strip()
+        blocks = []
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(document_context)
+            blocks.append(document_context[match.start():end].strip())
+
+        prefix_budget = min(len(prefix), 700)
+        remaining = max(0, char_budget - prefix_budget - (2 * len(blocks)))
+        per_block = max(240, remaining // max(1, len(blocks)))
+        selected = [prefix[:prefix_budget]] if prefix else []
+        for block in blocks:
+            selected.append(block[:per_block].rstrip())
+        return "\n\n".join(part for part in selected if part).strip()[:char_budget]
+
+    def _prepare_messages_context(
+        self,
+        messages: List[Dict[str, str]],
+        token_budget: int,
+    ) -> ConversationContext:
+        if not messages or token_budget <= 0:
+            return ConversationContext(messages=[])
+        if self._estimate_messages_tokens(messages) <= token_budget:
+            return ConversationContext(messages=messages)
+
+        summary_budget = self._conversation_summary_budget(token_budget)
+        recent_budget = max(0, token_budget - summary_budget)
+        recent_messages = self._take_recent_messages_by_budget(
+            messages,
+            recent_budget,
+        )
+        older_count = len(messages) - len(recent_messages)
+        summary = self._summarize_messages_by_tokens(
+            messages[:older_count],
+            summary_budget,
+        )
+        return ConversationContext(
+            messages=recent_messages,
+            summary=summary,
+            compacted=True,
+        )
 
     def _prepare_conversation_context(
         self,
@@ -477,39 +669,15 @@ When analyzing the document context:
             for message in messages
             if message.get("role") != "system" and str(message.get("content", "")).strip()
         ]
-        if not conversation_messages:
-            return ConversationContext(messages=[])
-
         available_tokens = (
             self.max_context_tokens
             - self._estimate_tokens(base_system_message)
             - CONVERSATION_RESPONSE_RESERVE_TOKENS
         )
         available_tokens = max(0, available_tokens)
-
-        if self._estimate_messages_tokens(conversation_messages) <= available_tokens:
-            return ConversationContext(messages=conversation_messages)
-
-        summary_budget = self._conversation_summary_budget(available_tokens)
-        recent_budget = max(0, available_tokens - summary_budget)
-        recent_messages = self._take_recent_messages_by_budget(
+        return self._prepare_messages_context(
             conversation_messages,
-            recent_budget,
-        )
-        older_count = len(conversation_messages) - len(recent_messages)
-        older_messages = conversation_messages[:older_count]
-        summary = self._summarize_messages_by_tokens(older_messages, summary_budget)
-
-        logger.info(
-            "Compacted conversation context: %s older messages summarized, "
-            "%s recent messages kept verbatim",
-            len(older_messages),
-            len(recent_messages),
-        )
-        return ConversationContext(
-            messages=recent_messages,
-            summary=summary,
-            compacted=True,
+            available_tokens,
         )
 
     def _take_recent_messages_by_budget(

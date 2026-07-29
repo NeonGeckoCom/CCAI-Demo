@@ -26,13 +26,13 @@
   const PAGE_TOURS = {
     documents: [
       { center: true, icon: "FileText", title: "This is your Documents shelf.",
-        body: "Everything your program requires you to produce lives here — the forms they emailed you, and the drafts your Skills generate. Here's the 20-second tour." },
+        body: "Everything your program requires you to produce lives here — the forms they emailed you, and the drafts your Actions generate. Here's the 20-second tour." },
       { anchor: "doc-upload", icon: "Upload", title: "Upload what your program sent you",
         body: "Drop in a PDF, Word doc, or text file. Word and text open as fully editable drafts; PDFs are stored so you can read them anytime." },
       { anchor: "doc-dropzone", icon: "UploadCloud", title: "Or drag it right here",
         body: "This dropzone does the same thing — grab a file and let go. We keep your original so you can always download it back." },
-      { center: true, icon: "Sparkles", title: "Skills draft documents for you",
-        body: "Run a Skill (like “Chapter outline” or “Meeting prep”) and the finished draft lands right here, ready to edit. That's the loop." }
+      { center: true, icon: "Sparkles", title: "Actions draft documents for you",
+        body: "Run an Action (like “Chapter outline” or “Meeting prep”) and the finished draft lands right here, ready to edit. That's the loop." }
     ],
     insights: [
       { center: true, icon: "Lightbulb", title: "This page composes itself.",
@@ -43,10 +43,10 @@
         body: "Charts, tables, and written reads, ranked the same way. If one isn't useful, open it and say so — the next candidate takes its place. There's no refresh button: the page rebuilds itself whenever the system learns something new." }
     ],
     skills: [
-      { center: true, icon: "Sparkles", title: "Skills are assistants that do the work.",
-        body: "Each one is tuned to a single task — find a literature gap, critique your methods, outline a chapter — and drops its result into your Workspace or Documents." },
-      { anchor: "sk-search", icon: "Search", title: "Find the right skill",
-        body: "Search by what you're trying to do. Turn a skill on with its switch, then hit Run — or “Use in chat” to bring it into a conversation." },
+      { center: true, icon: "Sparkles", title: "Actions create useful outputs.",
+        body: "Each one handles a visible task — find a literature gap, critique your methods, outline a chapter — and puts the result into your Workspace or Documents." },
+      { anchor: "sk-search", icon: "Search", title: "Find the right action",
+        body: "Search by what you're trying to create, then run the action when you need it." },
       { anchor: "sk-create", icon: "Wand2", title: "Build your own — no code",
         body: "Describe a task in plain words (“review my draft like an NSF panelist”) and we tune a specialized assistant for it. It shows up alongside the rest." }
     ],
@@ -55,8 +55,8 @@
         body: "A private room to rehearse before the real thing. Two ways to practice: field committee questions, or present your slides deck out loud and get feedback." },
       { anchor: "def-mode", icon: "LayoutTemplate", title: "Pick how you want to practice",
         body: "“Answer questions” drops you into a committee grilling. “Present your slides” walks you through your deck slide-by-slide while recording you." },
-      { anchor: "def-committee", icon: "Users", title: "Choose who grills you",
-        body: "Build a committee from advisor personas, or add your real committee members by name so their questions sound like the people you'll actually face." },
+      { anchor: "def-committee", icon: "Users", title: "Add public academic profiles",
+        body: "Save as many profiles as you need, then use the checkboxes to select up to six for this practice. Click a saved name anytime to review its public details." },
       { anchor: "def-materials", icon: "Upload", title: "Bring your materials",
         body: "Upload your slides or draft. Once the backend is wired, your materials seed the questions so they're about your work — not generic ones." },
       { anchor: "def-start", icon: "Play", title: "Flip voice on and go",

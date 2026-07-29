@@ -19,10 +19,10 @@ class ChatMessage(BaseModel):
     active_advisors: Optional[List[str]] = None
     advisor_skill: Optional[str] = None
     student_context: Optional[Dict[str, Any]] = None
-    # Real committee members added in the Defense Room: ephemeral personas
-    # built per-request from their public profiles ({id, name, title,
-    # institution, research_areas, summary}). Ids must start with "real-".
-    custom_advisors: Optional[List[Dict[str, Any]]] = None
+    context_source: Optional[Literal["defense_practice"]] = None
+    eligible_for_memory: bool = True
+    retry_of_message_id: Optional[str] = None
+    retry_user_input: Optional[str] = None
 
 
 class ReplyToAdvisor(BaseModel):

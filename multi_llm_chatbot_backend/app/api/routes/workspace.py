@@ -318,6 +318,8 @@ async def suggest_reading(
 # ---------------------------------------------------------------------------
 class AnswerFeedbackRequest(BaseModel):
     format: str = "defense"
+    difficulty: str = "standard"
+    areas_of_focus: str = Field(default="", max_length=1200)
     items: List[Dict[str, Any]] = Field(default_factory=list)  # [{question, answer, tag}]
 
 
@@ -347,7 +349,12 @@ async def defense_answer_feedback(
     )
     raw = await client.generate(
         system_prompt=ANSWER_FB_SYSTEM_PROMPT,
-        context=[{"role": "user", "content": f"Practice format: {body.format}\n\n{qa}\n\nReturn ONLY the JSON object."}],
+        context=[{"role": "user", "content": (
+            f"Practice format: {body.format}\n"
+            f"Difficulty: {body.difficulty}\n"
+            f"Student's requested areas of focus: {body.areas_of_focus or '(none)'}\n\n"
+            f"{qa}\n\nReturn ONLY the JSON object."
+        )}],
         temperature=0.2,
         max_tokens=1536,
         response_mime_type="application/json",

@@ -2,6 +2,8 @@
 .env
 gcp_build.txt
 
+.DS_Store
+
 # backend
 multi_llm_chatbot_backend/.env
 multi_llm_chatbot_backend/chroma_db/
@@ -28,3 +30,4 @@ phd-advisor-frontend/firebase.json
 
 # Cursor docs
 .cursor/
+

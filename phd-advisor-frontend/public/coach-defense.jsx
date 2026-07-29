@@ -16,7 +16,7 @@
   const IcoD = window.Icon;
 
   const FORMATS = [
-    { id: "defense", name: "Dissertation defense", icon: "GraduationCap", desc: "Full committee grilling: framing, methods, evidence, contribution, limitations." },
+    { id: "defense", name: "Dissertation defense", icon: "GraduationCap", desc: "Committee-style questions on framing, methods, evidence, contribution, and limitations." },
     { id: "poster", name: "Poster presentation", icon: "LayoutTemplate", desc: "Rapid-fire hallway questions: the 30-second pitch, so-what, and methods-at-a-glance." },
     { id: "talk", name: "Research talk", icon: "Presentation", desc: "Conference-style Q&A: audience questions on clarity, novelty, and what comes next." }
   ];
@@ -24,6 +24,28 @@
   // Maximums, not quotas — the committee asks as many strong questions as the
   // material honestly supports.
   const QUESTION_COUNT = { defense: 8, poster: 6, talk: 6 };
+  const FORMAT_DEFAULT_MINUTES = { defense: 20, poster: 2, talk: 15 };
+  const AUDIENCE_LEVELS = [
+    { id: "novice", name: "Novice", desc: "New to the field; tests jargon, motivation, and the basic takeaway." },
+    { id: "general", name: "General academic", desc: "Research-literate but outside the specialty; tests significance and logic." },
+    { id: "field_familiar", name: "Field-familiar", desc: "Knows the field; tests methods, positioning, evidence, and assumptions." }
+  ];
+  const AUDIENCE_INTERESTS = {
+    poster: ["Why it matters", "Methods", "Results", "Practical applications", "Visuals and figures", "Limitations and next steps"],
+    talk: ["Clarity and motivation", "Novelty and prior work", "Methods", "Evidence and results", "Generalization", "Implications and future work"]
+  };
+  const DEFENSE_PRIORITIES = [
+    "Framing and research problem",
+    "Theory",
+    "Methods",
+    "Evidence and results",
+    "Robustness and alternative explanations",
+    "Contribution",
+    "Limitations",
+    "Future work",
+    "Application and stakeholders"
+  ];
+  const MAX_COMMITTEE_SIZE = 6;
   // What to do during a deckless rehearsal, per format.
   const PRACTICE_PROMPTS = {
     defense: "Deliver your defense talk out loud: the question, the gap, your methods, the headline findings, and the contribution. Take 10-20 minutes — your committee questions you on what you say.",
@@ -72,6 +94,9 @@
       "Why this design over the obvious alternative? What does it buy you that the alternative doesn't?",
       "Walk me through your sampling. Who is missing from it, and does their absence change your conclusion?"
     ],
+    Theory: [
+      "Which part of your theoretical framework does the most explanatory work, and what would change if you used a competing framework?"
+    ],
     Evidence: [
       "Which result is your weakest, and why should the committee still believe the overall claim?",
       "What is the alternative explanation for your main finding, and how do you rule it out?",
@@ -86,6 +111,12 @@
       "What is the strongest objection a hostile reviewer could raise, and what is your honest answer?",
       "Where did you overclaim? Point to the sentence you would most like to soften.",
       "What did you leave out because it didn't work, and how does that change the story?"
+    ],
+    Robustness: [
+      "What is the strongest alternative explanation for your main result, and what evidence distinguishes it from your interpretation?"
+    ],
+    Application: [
+      "Who should be able to use this contribution, and what evidence do you still need before recommending that application?"
     ],
     Clarity: [
       "Explain the whole project in ninety seconds, with no jargon.",
@@ -104,6 +135,17 @@
     poster:  ["Clarity", "Framing", "Methods", "Contribution", "Limitations"],
     talk:    ["Clarity", "Framing", "Evidence", "Contribution", "Future work"]
   };
+  const DEFENSE_PRIORITY_TAG = {
+    "Framing and research problem": "Framing",
+    Theory: "Theory",
+    Methods: "Methods",
+    "Evidence and results": "Evidence",
+    "Robustness and alternative explanations": "Robustness",
+    Contribution: "Contribution",
+    Limitations: "Limitations",
+    "Future work": "Future work",
+    "Application and stakeholders": "Application"
+  };
 
   // Pull claim-like sentences out of the student's own uploaded materials so at
   // least some offline questions are grounded in their actual document.
@@ -120,9 +162,21 @@
       .slice(0, 3);
   };
 
-  const buildOfflineQuestions = ({ format, materialPayload, count, panel }) => {
+  const tuneOfflineQuestion = (question, difficulty) => {
+    if (difficulty === "supportive") return `Take a moment to think this through: ${question}`;
+    if (difficulty === "rigorous") return `Be precise and defend every assumption: ${question}`;
+    return question;
+  };
+
+  const buildOfflineQuestions = ({
+    format, materialPayload, count, panel, difficulty = "standard", focusAreas = "",
+    defensePriorities = []
+  }) => {
     const members = (panel && panel.length) ? panel : [{ id: null, name: "Committee member" }];
-    const tags = FORMAT_TAGS[format] || FORMAT_TAGS.defense;
+    const selectedDefenseTags = defensePriorities.map(priority => DEFENSE_PRIORITY_TAG[priority]).filter(Boolean);
+    const tags = format === "defense" && selectedDefenseTags.length
+      ? selectedDefenseTags
+      : FORMAT_TAGS[format] || FORMAT_TAGS.defense;
     const used = {};
     const out = [];
 
@@ -161,13 +215,27 @@
       }
       t++;
     }
-    return out.slice(0, count || 6);
+    const focused = focusAreas.trim()
+      ? [{
+          tag: "Focus area",
+          q: `You asked us to focus on “${focusAreas.trim().slice(0, 240)}.” What is the most important concern there, and how will you address it in the room?`,
+          advisorId: members[0]?.id,
+          groundedIn: ["your requested focus"],
+          sourceUrls: [],
+          offline: true
+        }, ...out]
+      : out;
+    return focused.slice(0, count || 6).map(item => ({
+      ...item,
+      q: tuneOfflineQuestion(item.q, difficulty)
+    }));
   };
 
   // Real committee members the student adds by name/title. Stored locally so the
   // roster survives reloads; the backend resolves public academic profiles when
   // a member is added, then Start practice only generates questions.
   const REAL_KEY = "phd-defense-committee-v1";
+  const PROFILE_SELECTION_KEY = "phd-defense-selected-profiles-v1";
   const REAL_COLORS = ["#B45309", "#0F766E", "#7C3AED", "#BE123C", "#1D4ED8"];
   // Filter to well-formed member objects: a storage-key collision in an older
   // build could leave bare id strings in here, which rendered as broken roster
@@ -526,7 +594,7 @@
     return list.filter(p => p && p.name && p.source_status === "web");
   };
 
-  function CommitteePicker({ query, state, onRetry, onCancel, onConfirm }) {
+  function CommitteePicker({ query, state, onRetry, onCancel, onConfirm, viewOnly = false }) {
     const { status, candidates = [], error = "" } = state;
     const [idx, setIdx] = useState(0);
     const closeRef = useRef(null);
@@ -547,19 +615,18 @@
 
     const who = candidates[idx] || null;
     const many = candidates.length > 1;
-    const pct = who ? Math.round((who.confidence || 0) * 100) : 0;
 
     return (
       <div className="backdrop" onClick={onCancel}>
         <div className="modal cm-modal" role="dialog" aria-modal="true" aria-labelledby="cm-title" onClick={e => e.stopPropagation()}>
           <div className="modal-h">
             <div>
-              <h2 className="display" id="cm-title">Add a committee member</h2>
+              <h2 className="display" id="cm-title">{viewOnly ? "Public academic profile" : "Add an academic profile"}</h2>
               <p>
                 {status === "searching" ? `Searching public academic pages for “${query.name}”…`
                   : status === "found" ? (many
                     ? `${candidates.length} people match “${query.name}”. Pick the right one.`
-                    : `Found a public profile for “${query.name}”. Add them?`)
+                    : viewOnly ? `Public profile details for “${query.name}”.` : `Found a public profile for “${query.name}”. Add them?`)
                   : status === "error" ? `The lookup for “${query.name}” didn't complete.`
                     : `We couldn't find a public academic profile for “${query.name}”.`}
               </p>
@@ -603,33 +670,78 @@
 
                 <div className="cm-card">
                   <div className="cm-card-h">
-                    <span className="cm-av" aria-hidden="true">
-                      {(who.name || "?").split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase()}
-                    </span>
                     <span className="cm-id">
                       <span className="cm-n">{who.name}</span>
                       <span className="cm-t">
                         {[who.title, who.department, who.institution].filter(Boolean).join(" · ") || "Public academic profile"}
                       </span>
                     </span>
-                    {pct > 0 && <span className={`cm-conf ${pct >= 70 ? "hi" : pct >= 40 ? "mid" : "lo"}`}>{pct}% match</span>}
+                    {(who.profile_url || (who.sources || [])[0]?.url) && (
+                      <a className="cm-profile-page" href={who.profile_url || who.sources[0].url} target="_blank" rel="noopener noreferrer">
+                        <IcoD name="ExternalLink" size={12} /> Open public page
+                      </a>
+                    )}
                   </div>
 
                   {who.summary && <p className="cm-sum">{who.summary}</p>}
 
                   {(who.research_areas || []).length > 0 && (
-                    <div className="cm-areas">
-                      {who.research_areas.slice(0, 6).map((a, i) => <span key={i} className="cm-area">{a}</span>)}
+                    <div className="cm-sec">
+                      <div className="cm-sec-t cm-sec-t-accent">Research areas from public sources</div>
+                      <div className="cm-areas">
+                        {who.research_areas.slice(0, 10).map((a, i) => <span key={i} className="cm-area">{a}</span>)}
+                      </div>
+                    </div>
+                  )}
+
+                  {((who.question_angles || []).length > 0 || (who.questioning_style || []).length > 0) && (
+                    <div className="cm-profile-grid">
+                      {(who.question_angles || []).length > 0 && (
+                        <div className="cm-sec">
+                          <div className="cm-sec-t">Likely question angles</div>
+                          <ul className="cm-detail-list">
+                            {who.question_angles.slice(0, 8).map((angle, i) => <li key={i}>{angle}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {(who.questioning_style || []).length > 0 && (
+                        <div className="cm-sec">
+                          <div className="cm-sec-t">How this profile may shape questions</div>
+                          <ul className="cm-detail-list">
+                            {who.questioning_style.slice(0, 5).map((style, i) => <li key={i}>{style}</li>)}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {(who.publications || []).length > 0 && (
                     <div className="cm-sec">
-                      <div className="cm-sec-t">Recent work</div>
-                      {who.publications.slice(0, 3).map((p, i) => (
+                      <div className="cm-sec-t">Recent publications and work</div>
+                      {who.publications.slice(0, 6).map((p, i) => (
                         <div key={i} className="cm-pub">
                           <IcoD name="FileText" size={12} />
-                          <span>{p.title}{p.year ? ` (${p.year})` : ""}{p.venue ? ` · ${p.venue}` : ""}</span>
+                          <span>
+                            {p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.title}</a> : p.title}
+                            {p.year ? ` (${p.year})` : ""}{p.venue ? ` · ${p.venue}` : ""}
+                            {p.summary && <small>{p.summary}</small>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(who.talks || []).length > 0 && (
+                    <div className="cm-sec">
+                      <div className="cm-sec-t">Public talks and presentations</div>
+                      {who.talks.slice(0, 4).map((talk, i) => (
+                        <div key={i} className="cm-pub">
+                          <IcoD name="Presentation" size={12} />
+                          <span>
+                            {talk.url ? <a href={talk.url} target="_blank" rel="noopener noreferrer">{talk.title}</a> : talk.title}
+                            {talk.year ? ` (${talk.year})` : ""}{talk.venue ? ` · ${talk.venue}` : ""}
+                            {talk.summary && <small>{talk.summary}</small>}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -637,8 +749,8 @@
 
                   {(who.sources || []).length > 0 && (
                     <div className="cm-sec">
-                      <div className="cm-sec-t">Where this came from</div>
-                      {who.sources.slice(0, 3).map((s, i) => (
+                      <div className="cm-sec-t">Public sources used for this profile</div>
+                      {who.sources.slice(0, 6).map((s, i) => (
                         <a key={i} className="cm-src" href={s.url} target="_blank" rel="noopener noreferrer">
                           <IcoD name="ExternalLink" size={12} /> {s.title || s.url}
                         </a>
@@ -666,12 +778,12 @@
           </div>
 
           <div className="modal-f">
-            <button className="btn" onClick={onCancel}>Cancel</button>
-            {status === "found" && who
+            <button className="btn" onClick={onCancel}>{viewOnly ? "Close" : "Cancel"}</button>
+            {!viewOnly && status === "found" && who
               ? <button className="btn primary" onClick={() => onConfirm(who)}>
-                  <IcoD name="UserPlus" size={14} color="#fff" /> Add {who.name.split(/\s+/).slice(-1)[0]} to committee
+                  <IcoD name="UserPlus" size={14} color="#fff" /> Add {who.name.split(/\s+/).slice(-1)[0]}
                 </button>
-              : status !== "searching"
+              : !viewOnly && status !== "searching"
                 ? <button className="btn primary" onClick={onRetry}><IcoD name="RefreshCw" size={14} color="#fff" /> Search again</button>
                 : null}
           </div>
@@ -681,25 +793,26 @@
   }
 
   function CoachDefenseRoom({ roadmap, onNav, onToast }) {
-    const advisors = window.ADVISORS || [];
     const [stage, setStage] = useState("setup");        // setup | present | live | feedback | history
-    const [mode, setMode] = useState("qa");             // qa | present
+    const [mode, setMode] = useState("present");        // qa | present
     const [format, setFormat] = useState("defense");
-    // Committee picks persist: the three you chose last time come pre-selected
-    // every session until you click different ones.
-    const [committee, setCommittee] = useState(() => {
-      try {
-        const saved = JSON.parse(localStorage.getItem("phd-defense-selected-v1") || "[]");
-        const known = new Set([...(window.ADVISORS || []).map(a => a.id), ...loadReal().map(m => m.id)]);
-        return (Array.isArray(saved) ? saved : []).filter(id => known.has(id)).slice(0, 3);
-      } catch (e) { return []; }
-    });
-    useEffect(() => {
-      try { localStorage.setItem("phd-defense-selected-v1", JSON.stringify(committee)); } catch (e) {}
-    }, [committee]);
-    const [materials, setMaterials] = useState([]);     // {name, size}
+    const [materials, setMaterials] = useState([]);     // {name, size, supporting}
     const [voice, setVoice] = useState(false);
     const [realMembers, setRealMembers] = useState(loadReal);   // {id, name, institution}
+    const [selectedProfileIds, setSelectedProfileIds] = useState(() => {
+      const available = loadReal().map(member => member.id);
+      try {
+        const raw = localStorage.getItem(PROFILE_SELECTION_KEY);
+        if (raw == null) return available.slice(0, MAX_COMMITTEE_SIZE);
+        const saved = JSON.parse(raw);
+        return (Array.isArray(saved) ? saved : []).filter(id => available.includes(id)).slice(0, MAX_COMMITTEE_SIZE);
+      } catch (e) {
+        return available.slice(0, MAX_COMMITTEE_SIZE);
+      }
+    });
+    useEffect(() => {
+      try { localStorage.setItem(PROFILE_SELECTION_KEY, JSON.stringify(selectedProfileIds)); } catch (e) {}
+    }, [selectedProfileIds]);
     const [newName, setNewName] = useState("");
     const [newInstitution, setNewInstitution] = useState("");
     const [resolvingMember, setResolvingMember] = useState(false);
@@ -720,6 +833,10 @@
     const [slides, setSlides] = useState([]);           // [{ index, thumbnail, text }]
     const [slideIdx, setSlideIdx] = useState(0);
     const [captureMode, setCaptureMode] = useState("both"); // both | camera | audio
+    const [followUpQuestionCount, setFollowUpQuestionCount] = useState(8);
+    const [difficulty, setDifficulty] = useState("standard"); // supportive | standard | rigorous
+    const [targetPresentationMinutes, setTargetPresentationMinutes] = useState(20);
+    const [focusAreas, setFocusAreas] = useState("");
     const [recording, setRecording] = useState(false);
     const [camReady, setCamReady] = useState(false);
     const [camError, setCamError] = useState("");
@@ -727,6 +844,10 @@
     const [refOpen, setRefOpen] = useState(false); // materials panel toggle when a deck is on stage
     const [analysisPhase, setAnalysisPhase] = useState(null); // null | "media" | "questions" (Finish popup)
     const [delivery, setDelivery] = useState(null); // pace/filler/energy feedback from the recording
+    const [presentationFeedback, setPresentationFeedback] = useState([]);
+    const [audienceLevels, setAudienceLevels] = useState(AUDIENCE_LEVELS.map(level => level.id));
+    const [audienceInterests, setAudienceInterests] = useState(AUDIENCE_INTERESTS.poster.slice());
+    const [defensePriorities, setDefensePriorities] = useState(DEFENSE_PRIORITIES.slice());
     // Renders the "How you delivered it" block for feedback + history alike.
     const deliverySection = (d) => d && (
       <>
@@ -762,43 +883,56 @@
         )}
       </>
     );
+    const presentationFeedbackSection = (items, formatKey = format) => {
+      if (!items || !items.length) return null;
+      const label = formatKey === "poster"
+        ? "Poster pitch and audience fit"
+        : formatKey === "talk"
+          ? "Talk structure and audience fit"
+          : "Defense presentation readiness";
+      return (
+        <>
+          <div className="section-label"><span className="ic"><IcoD name="Target" size={13} /></span> {label}</div>
+          <ul className="wt-list amber">{items.map((item, i) => <li key={i}>{item}</li>)}</ul>
+        </>
+      );
+    };
     // Per-answer committee feedback, fetched once when the debrief opens.
     const [answerFb, setAnswerFb] = useState(null); // { loading, items:[{verdict, note}] }
     const answerFbKeyRef = useRef("");
     useEffect(() => {
       if (stage !== "feedback" || !log.length || !window.CoachAPI?.defenseAnswerFeedback) return;
-      const key = JSON.stringify(log.map(l => [l.q, l.answer]));
+      const key = JSON.stringify({
+        answers: log.map(l => [l.q, l.answer]),
+        difficulty,
+        focusAreas: focusAreas.trim()
+      });
       if (answerFbKeyRef.current === key) return;
       answerFbKeyRef.current = key;
       setAnswerFb({ loading: true, items: [] });
       window.CoachAPI.defenseAnswerFeedback({
         format,
+        difficulty,
+        areasOfFocus: focusAreas.trim(),
         items: log.map(l => ({ question: l.q, answer: l.answer || "", tag: l.tag }))
       }).then(res => setAnswerFb({ loading: false, items: res.items || [] }))
         .catch(() => setAnswerFb({ loading: false, items: [] }));
-    }, [stage, log]);
-    // "Ask a follow-up" → open Chat with that persona active, seeded with the exchange.
+    }, [stage, log, difficulty, focusAreas]);
+    // Open this exchange in a fresh Chat conversation.
     const followUp = (l) => {
-      const asker = l.advisorId ? (roster.find(a => a.id === l.advisorId) || {}) : {};
-      try {
-        if (l.advisorId) {
-          localStorage.setItem("phd-chat-personas", JSON.stringify([l.advisorId]));
-          localStorage.setItem("phd-chat-mode", "single");
-        }
-      } catch (e) {}
       const seed = `In my defense practice you asked: "${l.q}"\nMy answer was: ${l.answer ? `"${l.answer}"` : "(I skipped it)"}\nPush me on this — what's missing, and what would a committee-ready answer include?`;
-      window.dispatchEvent(new CustomEvent("phd-open-chat", { detail: { seed, advisorName: asker.name } }));
+      window.dispatchEvent(new CustomEvent("phd-open-chat", {
+        detail: {
+          seed,
+          newChat: true,
+          contextSource: "defense_practice",
+          eligibleForMemory: false
+        }
+      }));
     };
     // "Debrief with an advisor" → open Chat with the session's committee active
     // and a summary (including flagged answers) seeded into the composer.
     const debriefWithAdvisors = () => {
-      try {
-        const ids = panel.map(a => a.id).filter(Boolean).slice(0, 3);
-        if (ids.length) {
-          localStorage.setItem("phd-chat-personas", JSON.stringify(ids));
-          localStorage.setItem("phd-chat-mode", ids.length > 1 ? "multiple" : "single");
-        }
-      } catch (e) {}
       const answeredNow = log.filter(l => l.answer);
       const weak = (answerFb && !answerFb.loading ? answerFb.items : [])
         .map((f, i) => ({ f, l: log[i] }))
@@ -806,9 +940,16 @@
         .slice(0, 3);
       const fmtName = (FORMATS.find(f => f.id === format) || {}).name || "defense";
       const seed = `I just finished a ${fmtName} practice session (${answeredNow.length}/${log.length} questions answered).`
-        + (weak.length ? ` The committee flagged: ${weak.map(x => `"${x.l.q}" — ${x.f.verdict === "needs_work" ? "needs work" : "okay"} (${x.f.note})`).join("; ")}.` : "")
+        + (weak.length ? ` The simulated panel flagged: ${weak.map(x => `"${x.l.q}" — ${x.f.verdict === "needs_work" ? "needs work" : "okay"} (${x.f.note})`).join("; ")}.` : "")
         + " Debrief me: what should I strengthen first before the real thing, and how?";
-      window.dispatchEvent(new CustomEvent("phd-open-chat", { detail: { seed } }));
+      window.dispatchEvent(new CustomEvent("phd-open-chat", {
+        detail: {
+          seed,
+          newChat: true,
+          contextSource: "defense_practice",
+          eligibleForMemory: false
+        }
+      }));
     };
     const [recordedUrl, setRecordedUrl] = useState(""); // playback in feedback
     const [presentLog, setPresentLog] = useState([]);   // per-slide { index, seconds, transcript, ...scores }
@@ -818,6 +959,7 @@
     const [history, setHistory] = useState(loadHistory); // newest first
     const [saving, setSaving] = useState(false);
     const [savedId, setSavedId] = useState("");          // report saved from THIS session
+    const autoSaveStartedRef = useRef(false);
     // If the report was saved before the committee review finished, patch the
     // verdicts into the saved copy once they arrive.
     useEffect(() => {
@@ -833,6 +975,7 @@
     const [openReportId, setOpenReportId] = useState(""); // expanded row in history
 
     const fileRef = useRef(null);
+    const supportingFileRef = useRef(null);
     const deckRef = useRef(null);
     const recRef = useRef(null);       // SpeechRecognition (answers)
     const recSeqRef = useRef(0);       // invalidates late SpeechRecognition callbacks
@@ -846,15 +989,16 @@
     const slideStartRef = useRef(0);   // timestamp the current slide began
     const recordedBlobRef = useRef(null); // the take itself, kept so it can be saved to history
     const recordingStopResolverRef = useRef(null);
+    const targetTimeEditedRef = useRef(false);
+    const questionCountEditedRef = useRef(false);
 
-    const questionCount = QUESTION_COUNT[format] || 6;
+    const questionCount = followUpQuestionCount;
     const parsingMaterials = materials.some(m => m.status === "parsing");
     const researchFieldLabel = (profile) => (profile?.research_areas || [])
       .filter(Boolean)
       .slice(0, 3)
       .join(", ");
-    // Real members render exactly like personas on the panel: name + research
-    // fields, their own color, and a "profile" badge so the source is obvious.
+    // Public academic profiles are the only selectable questioners in the room.
     const realAsPanelists = realMembers.map((m, i) => ({
       id: m.id,
       name: m.name,
@@ -864,19 +1008,86 @@
       real: true,
       profile: m.profile
     }));
-    const roster = [...advisors, ...realAsPanelists];
-    const panel = roster.filter(a => committee.includes(a.id));
+    const roster = realAsPanelists;
+    const panel = roster.filter(profile => selectedProfileIds.includes(profile.id));
     const hasSelectedCommittee = panel.length > 0;
+    const audienceAsPanelists = format === "defense" ? [] : audienceLevels.map((level, i) => {
+      const option = AUDIENCE_LEVELS.find(item => item.id === level);
+      return {
+        id: `audience-${level}`,
+        name: option?.name ? `${option.name} audience member` : "Audience member",
+        role: option?.desc || "Selected audience",
+        color: REAL_COLORS[(panel.length + i) % REAL_COLORS.length],
+        icon: "Users"
+      };
+    });
+    const practicePanel = [...audienceAsPanelists, ...panel];
+    const hasRequiredQuestioners = format === "defense"
+      ? true
+      : audienceLevels.length > 0 || hasSelectedCommittee;
     const questions = (sessionQuestions && sessionQuestions.length) ? sessionQuestions : [];
     const current = questions[qIdx] || null;
     const questionAsker = current && (current.advisorId || current.member_id)
-      ? panel.find(a => a.id === (current.advisorId || current.member_id))
+      ? practicePanel.find(a => a.id === (current.advisorId || current.member_id))
       : null;
-    const asker = questionAsker || (panel.length ? panel[qIdx % panel.length] : { name: "Committee member", role: "", color: "var(--primary)", icon: "User" });
+    const fallbackAskerName = format === "defense" ? "Committee member" : "Audience member";
+    const questionerGroup = format === "defense" ? "committee" : "audience";
+    const isPublicProfilePanelist = (person) => !!person && (person.real || String(person.id || "").startsWith("real-"));
+    const strongNameList = (names) => {
+      const shown = names.slice(0, 3);
+      return (
+        <>
+          {shown.map((name, i) => {
+            const separator = i === 0
+              ? ""
+              : names.length > 3
+                ? ", "
+                : i === shown.length - 1
+                  ? (shown.length === 2 ? " and " : ", and ")
+                  : ", ";
+            return <React.Fragment key={`${name}-${i}`}>{separator}<strong>{name}</strong></React.Fragment>;
+          })}
+          {names.length > 3 ? ", and others" : ""}
+        </>
+      );
+    };
+    const profileInfluenceLine = (panelists, formatKey = format) => {
+      const names = (panelists || []).filter(isPublicProfilePanelist).map(person => person.name).filter(Boolean);
+      if (names.length) return <>Questions informed by public profiles of {strongNameList(names)}.</>;
+      return formatKey === "defense"
+        ? <>Balanced committee-style practice questions without a selected public profile.</>
+        : <>Questions shaped by the selected audience levels and interests.</>;
+    };
+    const asker = questionAsker || (current?.memberName
+      ? { id: current.advisorId, name: current.memberName, role: current.memberRole || "", color: "var(--primary)", icon: "User" }
+      : practicePanel.length
+        ? practicePanel[qIdx % practicePanel.length]
+        : { name: fallbackAskerName, role: "", color: "var(--primary)", icon: "User" });
+    const chooseFormat = (nextFormat) => {
+      setFormat(nextFormat);
+      if (!targetTimeEditedRef.current) setTargetPresentationMinutes(FORMAT_DEFAULT_MINUTES[nextFormat]);
+      if (!questionCountEditedRef.current) setFollowUpQuestionCount(QUESTION_COUNT[nextFormat]);
+      if (nextFormat !== "defense") setAudienceInterests((AUDIENCE_INTERESTS[nextFormat] || []).slice());
+    };
+    const toggleAudienceLevel = (id) => {
+      setAudienceLevels(selected => selected.includes(id)
+        ? selected.filter(level => level !== id)
+        : [...selected, id]);
+    };
+    const toggleAudienceInterest = (interest) => {
+      setAudienceInterests(selected => selected.includes(interest)
+        ? selected.filter(item => item !== interest)
+        : [...selected, interest]);
+    };
+    const toggleDefensePriority = (priority) => {
+      setDefensePriorities(selected => selected.includes(priority)
+        ? selected.filter(item => item !== priority)
+        : [...selected, priority]);
+    };
 
     // Audio out: read each question aloud as it appears, in the asker's voice.
     useEffect(() => {
-      if (stage === "live" && voice && current) DefenseAudio.speakQuestion({ text: current.q, personaId: asker.id });
+      if (stage === "live" && voice && current) DefenseAudio.speakQuestion({ text: current.q, personaId: asker.real ? null : asker.id });
       return () => DefenseAudio.stopSpeaking();
     }, [stage, qIdx, voice]);
     useEffect(() => { liveQuestionRef.current = { stage, qIdx }; }, [stage, qIdx]);
@@ -969,7 +1180,7 @@
             let blob = null;
             try {
               blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || (wantsVideo ? "video/webm" : "audio/webm") });
-              recordedBlobRef.current = blob;   // kept so "Save report" can persist the take
+              recordedBlobRef.current = blob;   // kept so automatic report saving can persist the take
               setRecordedUrl(URL.createObjectURL(blob));
             } catch (e) {}
             if (recordingStopResolverRef.current) {
@@ -993,9 +1204,6 @@
     // unmounts — otherwise every practice run pins its video blob in memory.
     useEffect(() => () => { if (recordedUrl) URL.revokeObjectURL(recordedUrl); }, [recordedUrl]);
 
-    const togglePanelist = (id) => setCommittee(c =>
-      c.includes(id) ? (c.length > 1 ? c.filter(x => x !== id) : c) : (c.length < 3 ? [...c, id] : c));
-
     // Read the file in the browser (pdf.js / mammoth / plain text). Used as the
     // fallback whenever the backend parser can't be reached or returns nothing.
     const readLocalMaterial = (file) =>
@@ -1011,19 +1219,25 @@
     const BACKEND_UPLOAD_LIMIT = 10 * 1024 * 1024;
     const MAX_MATERIAL_BYTES = 200 * 1024 * 1024;
 
-    const addFiles = async (fileList) => {
+    const addFiles = async (fileList, { supporting = false } = {}) => {
       const files = [...(fileList || [])];
       if (!files.length) return;
       // A slide deck uploaded here almost always means "I want to rehearse
       // this." Route it into Present mode (deck + recording + questions on
       // what you said) instead of silently treating it as Q&A context.
-      const deckIdx = files.findIndex(f => /\.(pptx?|key)$/i.test(f.name || ""));
+      const deckIdx = supporting ? -1 : files.findIndex(f => /\.(pptx?|key)$/i.test(f.name || ""));
       if (deckIdx >= 0) {
         const deckFile = files.splice(deckIdx, 1)[0];
+        setMaterials(previous => previous.map(material => ({ ...material, supporting: true })));
         setMode("present");
         addDeck([deckFile]);
         if (onToast) onToast(`"${deckFile.name}" is now your presenting deck — you'll walk through it slide by slide during practice.`);
         if (!files.length) return;
+      }
+      const deckIsMain = deckIdx >= 0 || !!deck;
+      const mainFileIndex = !supporting && !deckIsMain ? 0 : -1;
+      if (mainFileIndex >= 0) {
+        setMaterials(previous => previous.map(material => ({ ...material, supporting: true })));
       }
       const startedAt = Date.now();
       const placeholders = files.map((f, i) => ({
@@ -1034,6 +1248,7 @@
         status: "parsing",
         wordCount: 0,
         fileType: "",
+        supporting: supporting || deckIsMain || i !== mainFileIndex,
         // PDFs keep a blob URL so the practice stage can show the real pages,
         // not just extracted text.
         fileUrl: /\.pdf$/i.test(f.name || "") ? URL.createObjectURL(f) : ""
@@ -1166,7 +1381,7 @@
           status: "error",
           candidates: [],
           error: offlineish
-            ? "The advisor service isn't reachable, so public profiles can't be looked up. Start the backend and try again — or practise with the advisor personas above."
+            ? "The profile service isn't reachable, so public academic profiles can't be looked up. Start the backend and try again."
             : (e?.message || "The profile lookup failed.")
         });
       } finally {
@@ -1185,16 +1400,36 @@
       };
       member.profile.id = member.id;   // question payload keys the profile to the member
       const next = [...realMembers, member];
+      const autoSelected = selectedProfileIds.length < MAX_COMMITTEE_SIZE;
       setRealMembers(next); saveReal(next);
-      setCommittee(c => c.length < 3 ? [...c, member.id] : c);
+      setSelectedProfileIds(selected =>
+        selected.length < MAX_COMMITTEE_SIZE ? [...selected, member.id] : selected);
       setNewName(""); setNewInstitution("");
       setPicker(null);
-      if (onToast) onToast(`Added ${member.name} to your committee.`);
+      if (onToast) onToast(autoSelected
+        ? `Added and selected ${member.name}'s public academic profile.`
+        : `Saved ${member.name}'s profile. Select its checkbox after deselecting another profile.`);
     };
     const removeRealMember = (id) => {
       const next = realMembers.filter(m => m.id !== id);
       setRealMembers(next); saveReal(next);
-      setCommittee(c => c.filter(x => x !== id));
+      setSelectedProfileIds(selected => selected.filter(selectedId => selectedId !== id));
+    };
+    const toggleProfileSelection = (id) => {
+      setSelectedProfileIds(selected => {
+        if (selected.includes(id)) return selected.filter(selectedId => selectedId !== id);
+        if (selected.length >= MAX_COMMITTEE_SIZE) {
+          if (onToast) onToast(`You can select up to ${MAX_COMMITTEE_SIZE} academic profiles for one Defense Room session.`);
+          return selected;
+        }
+        return [...selected, id];
+      });
+    };
+    const openSavedProfile = (member) => {
+      const profile = member?.profile;
+      if (!profile) return;
+      setPickerQuery({ name: member.name || profile.name || "", institution: member.institution || profile.institution || "" });
+      setPicker({ status: "found", candidates: [profile], error: "", viewOnly: true });
     };
 
     const buildDefenseSummary = () => {
@@ -1250,50 +1485,7 @@
       }
       return e?.message || "Question generation failed.";
     };
-    const personaQuestionAngles = (advisor) => {
-      const name = (advisor?.name || "").toLowerCase();
-      if (name.includes("method")) {
-        return [
-          "validity threats, controls, sampling, measurement, and whether the claims follow from the evidence",
-          "methodological assumptions the student should be ready to defend"
-        ];
-      }
-      if (name.includes("theor")) {
-        return [
-          "conceptual framing, definitions, contribution to theory, and alternative explanations",
-          "whether the dissertation's central constructs are precise enough to defend"
-        ];
-      }
-      return [
-        advisor?.summary || advisor?.role || "the selected advisor's stated perspective",
-        "committee-style challenge based on the selected advisor persona"
-      ];
-    };
-    const personaProfileFor = (advisor) => ({
-      id: advisor.id,
-      name: advisor.name,
-      title: advisor.role || "Advisor persona",
-      institution: "",
-      profile_url: `persona://${advisor.id}`,
-      source_status: "persona",
-      confidence: 1,
-      summary: [advisor.role, advisor.summary].filter(Boolean).join(". ") || `${advisor.name} advisor persona.`,
-      research_areas: [advisor.role, advisor.summary].filter(Boolean).slice(0, 3),
-      questioning_style: [advisor.summary || advisor.role || "committee-style questions"],
-      question_angles: personaQuestionAngles(advisor),
-      sources: [{ title: `${advisor.name} selected advisor persona`, url: `persona://${advisor.id}`, kind: "advisor_persona" }]
-    });
     const buildCommitteePayload = () => panel.map(a => {
-      if (!a.real) {
-        return {
-          id: a.id,
-          name: a.name,
-          title: a.role || "",
-          institution: "",
-          area: a.role || a.summary || "",
-          profile: personaProfileFor(a)
-        };
-      }
       const stored = realMembers.find(m => m.id === a.id) || {};
       return {
         id: a.id,
@@ -1305,34 +1497,44 @@
       };
     });
     // A 16MB dissertation extracts to megabytes of text. The backend only reads
-    // the first MAX_MATERIAL_CHARS (3200) of each material anyway, so shipping
-    // the whole thing is pure waste — trim generously and keep the request small.
+    // a bounded combined material context, so shipping the whole thing is pure
+    // waste — trim generously and keep the request small.
     const MATERIAL_PAYLOAD_CHARS = 20000;
     const buildMaterialPayload = () => materials
       .filter(m => (m.text || "").trim())
       .map(m => ({
-        name: m.name || "Uploaded material",
+        name: m.supporting ? `Supporting material — ${m.name || "Uploaded material"}` : (m.name || "Uploaded material"),
         text: (m.text || "").slice(0, MATERIAL_PAYLOAD_CHARS)
       }));
-    const generateQuestionsForSession = async ({ formatOverride = format, materialPayload = [], researchSummary = "", thesisTitle = "", questionCountOverride = null, toastMessage = "Generated LLM questions from public committee profiles." } = {}) => {
+    const generateQuestionsForSession = async ({ formatOverride = format, materialPayload = [], researchSummary = "", thesisTitle = "", questionCountOverride = null, toastMessage = "Generated LLM questions from public academic profiles." } = {}) => {
       const selectedPanel = buildCommitteePayload();
-      if (!selectedPanel.length) {
-        if (onToast) onToast("Select at least one committee member before starting.");
+      const usesAudience = formatOverride !== "defense" && audienceLevels.length > 0;
+      const usesBalancedDefense = formatOverride === "defense";
+      if (!selectedPanel.length && !usesAudience && !usesBalancedDefense) {
+        if (onToast) onToast("Add at least one public academic profile before starting.");
         return false;
       }
-      if (selectedPanel.some(member => !["web", "persona"].includes(member.profile?.source_status))) {
-        if (onToast) onToast("Remove and re-add members without public profile data before starting.");
+      if (selectedPanel.some(member => member.profile?.source_status !== "web")) {
+        if (onToast) onToast("Remove and re-add any entries without public academic profile data before starting.");
         return false;
       }
       setLoadingQuestions(true);
       setLog([]); setQIdx(0); setAnswer(""); spokeRef.current = false; setSessionQuestions(null); setOffline(false);
-      const count = questionCountOverride || QUESTION_COUNT[formatOverride] || questionCount;
+      const count = questionCountOverride || questionCount;
 
       // If the advisor service can't produce the real, profile-grounded set, we
       // still let the student practice — but we say so rather than passing
       // on-device questions off as the model's.
       const fallBackToOffline = (why) => {
-        const local = buildOfflineQuestions({ format: formatOverride, materialPayload, count, panel });
+        const local = buildOfflineQuestions({
+          format: formatOverride,
+          materialPayload,
+          count,
+          panel: practicePanel,
+          difficulty,
+          focusAreas,
+          defensePriorities
+        });
         if (!local.length) {
           if (onToast) onToast(`Could not generate defense questions: ${why}`);
           return false;
@@ -1355,12 +1557,20 @@
           researchSummary: hasUploadedMaterial ? "" : (researchSummary || buildDefenseSummary()),
           materials: materialPayload,
           committeeMembers: selectedPanel,
-          questionCount: count
+          questionCount: count,
+          difficulty,
+          targetPresentationMinutes,
+          areasOfFocus: focusAreas.trim(),
+          audienceLevels: formatOverride === "defense" ? [] : audienceLevels,
+          audienceInterests: formatOverride === "defense" ? [] : audienceInterests,
+          defensePriorities: formatOverride === "defense" ? defensePriorities : []
         });
         const generated = (result?.questions || []).map(q => ({
-          tag: q.tag || "Committee question",
+          tag: q.tag || (formatOverride === "defense" ? "Simulated committee question" : "Audience question"),
           q: q.q,
           advisorId: q.member_id,
+          memberName: q.member_name || "",
+          memberRole: String(q.member_id || "").startsWith("audience-") ? "Selected audience perspective" : "",
           groundedIn: q.grounded_in || [],
           sourceUrls: q.source_urls || []
         })).filter(q => q.q);
@@ -1370,9 +1580,11 @@
         if (onToast) {
           const rejected = result?.diagnostics?.rejected_count || 0;
           if (result?.generation_method === "profile_grounded_recovery") {
-            onToast(`Started with ${generated.length} committee-profile questions after the AI service failed to respond.`);
+            onToast(panel.length
+              ? `Started with ${generated.length} public-profile-informed questions after the AI service failed to respond.`
+              : `Started with ${generated.length} balanced practice questions after the AI service failed to respond.`);
           } else if (result?.generation_method === "llm_coverage_repaired") {
-            onToast(`Generated ${generated.length} grounded questions including every selected committee member.`);
+            onToast(`Generated ${generated.length} grounded questions including every selected profile lens.`);
           } else if (generated.length < count) {
             onToast(`Generated ${generated.length} grounded questions${rejected ? ` (${rejected} filtered out)` : ""}.`);
           } else {
@@ -1394,12 +1606,24 @@
         formatOverride: format,
         materialPayload,
         researchSummary: materialPayload.length ? "" : buildDefenseSummary(),
-        toastMessage: "Generated LLM questions from public committee profiles."
+        toastMessage: format === "defense"
+          ? (panel.length
+            ? "Generated questions informed by selected public academic profiles."
+            : "Generated balanced committee-style practice questions.")
+          : "Generated questions for your selected audience."
       });
     };
     const record = (skipped) => {
       stopListening();
-      setLog(p => [...p, { q: current.q, tag: current.tag, advisorId: asker.id, answer: skipped ? "" : answer.trim(), spoken: !skipped && spokeRef.current }]);
+      setLog(p => [...p, {
+        q: current.q,
+        tag: current.tag,
+        advisorId: asker.id,
+        memberName: asker.name || current.memberName || "",
+        memberRole: asker.role || current.memberRole || "",
+        answer: skipped ? "" : answer.trim(),
+        spoken: !skipped && spokeRef.current
+      }]);
       setAnswer("");
       spokeRef.current = false;
       if (qIdx + 1 >= questions.length) setStage("feedback");
@@ -1407,7 +1631,15 @@
     };
     const endEarly = () => {
       stopListening();
-      if (answer.trim()) setLog(p => [...p, { q: current.q, tag: current.tag, advisorId: asker.id, answer: answer.trim(), spoken: spokeRef.current }]);
+      if (answer.trim()) setLog(p => [...p, {
+        q: current.q,
+        tag: current.tag,
+        advisorId: asker.id,
+        memberName: asker.name || current.memberName || "",
+        memberRole: asker.role || current.memberRole || "",
+        answer: answer.trim(),
+        spoken: spokeRef.current
+      }]);
       setStage("feedback");
     };
 
@@ -1433,6 +1665,7 @@
       setPresentLog([]);
       setRecordedUrl("");
       setDelivery(null);
+      setPresentationFeedback([]);
       chunksRef.current = [];
       recordedBlobRef.current = null;
       recordingStopResolverRef.current = null;
@@ -1480,7 +1713,7 @@
       stopStream();
       setPresented(true);
       const slideRecords = [...presentLog, finalEntry];
-      // Ground the committee's questions in EVERYTHING: uploaded documents,
+      // Ground follow-up questions in EVERYTHING: uploaded documents,
       // the deck, and (when recorded) what the student actually said.
       const uploadedMaterials = buildMaterialPayload();
       let presentationMaterials = [...uploadedMaterials, ...buildPresentationMaterialPayload(slideRecords)];
@@ -1489,18 +1722,27 @@
           const analysis = await window.CoachAPI.analyzeDefensePresentation({
             mediaBlob: recordingBlob,
             deckFile: deck?.file || null,
-            deckName: deck?.name || "Slide deck"
+            deckName: deck?.name || "Slide deck",
+            slides: slides.map((slide, i) => ({
+              ...slide,
+              seconds: slideRecords.find(record => Number(record.index) === i)?.seconds || 0
+            })),
+            format,
+            targetPresentationMinutes,
+            audienceLevels: format === "defense" ? [] : audienceLevels,
+            audienceInterests: format === "defense" ? [] : audienceInterests
           });
           if (analysis?.delivery) setDelivery(analysis.delivery);
+          setPresentationFeedback(analysis?.presentation_feedback || []);
           if (analysis?.material?.text) {
-            presentationMaterials = [...uploadedMaterials, analysis.material];
+            presentationMaterials = [analysis.material, ...uploadedMaterials];
             setPresentLog(records => records.map(record => ({
               ...record,
               transcript: analysis.transcript || record.transcript || "",
               one_fix: (analysis.delivery_notes || [])[0] || record.one_fix || ""
             })));
             if (onToast && analysis.generation_method === "multimodal_llm") {
-              onToast("Analyzed your recording and slide deck for committee questions.");
+              onToast(`Analyzed your recording and slide deck for ${questionerGroup} questions.`);
             }
           }
         }
@@ -1517,8 +1759,8 @@
           formatOverride: format,
           materialPayload: presentationMaterials,
           researchSummary: presentationMaterials.length ? "" : buildPresentationSummary(slideRecords),
-          questionCountOverride: QUESTION_COUNT[format] || QUESTION_COUNT.talk,
-          toastMessage: "Your committee has questions on what you practiced."
+          questionCountOverride: followUpQuestionCount,
+          toastMessage: `Your ${questionerGroup} has questions on what you practiced.`
         });
       } finally {
         setAnalysisPhase(null);
@@ -1530,9 +1772,12 @@
       setStage("setup"); setQIdx(0); setAnswer(""); setSlideIdx(0); setPresented(false); setSessionQuestions(null);
       setOffline(false);
       setLog([]); setPresentLog([]);
+      setPresentationFeedback([]);
+      setDelivery(null);
       setRecordedUrl("");                 // the effect above revokes the old URL
       recordedBlobRef.current = null;
       recordingStopResolverRef.current = null;
+      autoSaveStartedRef.current = false;
       setSavedId("");
     };
 
@@ -1559,14 +1804,33 @@
       }
 
       const answeredNow = log.filter(l => l.answer);
+      const savedAt = new Date().toISOString();
       const report = {
         id,
-        savedAt: new Date().toISOString(),
+        savedAt,
+        provenance: {
+          source_type: "simulation",
+          simulation_type: "defense_practice",
+          generated_by: "AI",
+          real_person_statement: false,
+          session_date: savedAt,
+          referenced_lens_or_profile: practicePanel.map(a => a.name).filter(Boolean),
+          user_verified: false
+        },
         format,
-        formatName: presented ? "Slide presentation" : (FORMATS.find(f => f.id === format)?.name || format),
+        formatName: FORMATS.find(f => f.id === format)?.name || format,
         presented,
         offline,   // so History never implies these were the profile-grounded questions
-        panel: panel.map(a => ({ id: a.id, name: a.name, role: a.role || "" })),
+        practiceRoom: {
+          followUpQuestionCount,
+          difficulty,
+          targetPresentationMinutes,
+          focusAreas: focusAreas.trim(),
+          audienceLevels: format === "defense" ? [] : audienceLevels,
+          audienceInterests: format === "defense" ? [] : audienceInterests,
+          defensePriorities: format === "defense" ? defensePriorities : []
+        },
+        panel: practicePanel.map(a => ({ id: a.id, name: a.name, role: a.role || "", real: !!a.real })),
         stats: {
           questions: log.length,
           answered: answeredNow.length,
@@ -1580,6 +1844,7 @@
         // Committee verdicts + delivery coaching ride along for History.
         answerFeedback: (answerFb && !answerFb.loading && answerFb.items) || [],
         delivery,
+        presentationFeedback,
         media
       };
 
@@ -1595,6 +1860,11 @@
       setSaving(false);
       if (onToast) onToast(`Report saved to Defense Room History.${mediaWarning}`);
     };
+    useEffect(() => {
+      if (stage !== "feedback" || savedId || autoSaveStartedRef.current) return;
+      autoSaveStartedRef.current = true;
+      saveReport();
+    }, [stage]);
 
     const deleteReport = async (rid) => {
       const rep = history.find(r => r.id === rid);
@@ -1616,7 +1886,7 @@
         <div className="page">
           <div className="greeting">
             <h1 className="display" style={{ fontSize: 26 }}>Defense Room History</h1>
-            <div className="sub">Every practice session you saved — the full report, plus the recording you made.</div>
+            <div className="sub">Every completed practice session is saved automatically — including its report and available recording.</div>
           </div>
 
           <div className="def-startrow" style={{ marginTop: 0, marginBottom: 18 }}>
@@ -1627,7 +1897,7 @@
             <div className="card card-pad def-hist-empty">
               <IcoD name="Archive" size={22} />
               <div className="def-hist-empty-t">No saved sessions yet</div>
-              <div className="def-hist-empty-d">Finish a practice session and choose <strong>Save report</strong> — it will show up here with its recording.</div>
+              <div className="def-hist-empty-d">Finish a practice session and it will appear here automatically with its available recording.</div>
               <button className="btn primary" onClick={() => setStage("setup")}><IcoD name="Play" size={14} color="#fff" /> Start a session</button>
             </div>
           ) : (
@@ -1673,9 +1943,7 @@
 
                     {open && (
                       <div className="def-hist-body" id={`def-hist-body-${r.id}`}>
-                        {r.panel.length > 0 && (
-                          <div className="def-hist-panel">Practiced with {r.panel.map(p => p.name).join(", ")}.</div>
-                        )}
+                        <div className="def-hist-panel">{profileInfluenceLine(r.panel || [], r.format)}</div>
                         {r.offline && (
                           <div className="def-gap" style={{ marginTop: 8 }}>
                             <IcoD name="WifiOff" size={14} />
@@ -1706,6 +1974,7 @@
                           </>
                         )}
 
+                        {presentationFeedbackSection(r.presentationFeedback, r.format)}
                         {deliverySection(r.delivery)}
 
                         {r.presentLog.length > 0 && (
@@ -1735,14 +2004,20 @@
                             <div className="def-review">
                               {r.log.map((l, i) => {
                                 const savedAsker = l.advisorId
-                                  ? (r.panel.find(p => p.id === l.advisorId) || roster.find(a => a.id === l.advisorId))
+                                  ? ((r.panel || []).find(p => p.id === l.advisorId)
+                                    || roster.find(a => a.id === l.advisorId)
+                                    || (l.memberName ? { id: l.advisorId, name: l.memberName, role: l.memberRole || "" } : null))
                                   : null;
                                 const fb = (r.answerFeedback || [])[i];
                                 return (
                                   <div key={i} className="def-review-row qa">
                                     <div className="def-review-meta">
                                       <span className="def-tag">{l.tag}</span>
-                                      {savedAsker && <span className="def-review-asker">{savedAsker.name}</span>}
+                                      {savedAsker && <span className="def-review-asker">
+                                        {isPublicProfilePanelist(savedAsker)
+                                          ? <>Based on public profile of <strong>{savedAsker.name}</strong></>
+                                          : savedAsker.name}
+                                      </span>}
                                       {l.spoken && <span className="def-review-voice"><IcoD name="Mic" size={11} /> voice</span>}
                                     </div>
                                     <div className="def-review-q">{l.q}</div>
@@ -1755,7 +2030,7 @@
                                     )}
                                     <div className="def-review-acts">
                                       <button className="btn sm" onClick={() => followUp(l)}>
-                                        <IcoD name="MessageCircle" size={13} /> Ask {savedAsker ? savedAsker.name.split(" ")[0] : "a"} follow-up
+                                        <IcoD name="MessageCircle" size={13} /> Ask about this in chat
                                       </button>
                                     </div>
                                   </div>
@@ -1781,97 +2056,94 @@
     if (stage === "setup") {
       const fmt = FORMATS.find(f => f.id === format);
       const isPresent = mode === "present";
-      const hasRequiredMaterials = !!deck || materials.some(m => m.status === "parsed" || m.status === "parsed-local");
+      const hasRequiredMaterials = !!deck || materials.some(m =>
+        !m.supporting && (m.status === "parsed" || m.status === "parsed-local"));
       return (
         <div className="page">
           <div className="def-head">
             <div className="greeting" style={{ margin: 0 }}>
               <h1 className="display" style={{ fontSize: 26 }}>Defense Room</h1>
-              <div className="sub">A private practice room. Field committee questions, or present your slides out loud and get feedback — before the real thing.</div>
+              <div className="sub">Rehearse a defense, poster, or research talk and receive questions grounded in your materials and, in presentation mode, what you presented.</div>
             </div>
             <button className="btn" onClick={() => setStage("history")}>
               <IcoD name="Archive" size={14} /> History{history.length ? ` · ${history.length}` : ""}
             </button>
           </div>
 
-          {/* 1 · Committee first — who's in the room shapes everything else */}
-          <div className="section-label"><span className="ic"><IcoD name="Users" size={13} /></span> 1 · Your committee (up to 3)</div>
-          <div className="def-panel" data-ptour="def-committee">
-            {roster.map(a => {
-              const on = committee.includes(a.id);
-              const full = !on && committee.length >= 3;
-              return (
-                <button key={a.id} className={`def-chip ${on ? "on" : ""} ${full ? "dim" : ""}`}
-                  style={on ? { borderColor: a.color } : undefined}
-                  aria-disabled={full}
-                  title={full ? "Committee is full — deselect someone to swap them in" : undefined}
-                  onClick={() => togglePanelist(a.id)}>
-                  <span className="def-chip-i" style={{ background: a.color }}><IcoD name={a.icon} size={12} color="#fff" /></span>
-                  <span className="def-chip-txt">
-                    {a.name}
-                    {a.real && a.role !== "Committee member" && <span className="def-chip-sub">{a.role}</span>}
-                  </span>
-                  {a.real && <span className="def-real-badge">{a.profile?.source_status === "web" ? "profile" : "real"}</span>}
-                  {a.real && <span className="def-mat-x" role="button" tabIndex={0} title="Remove member"
-                    onClick={e => { e.stopPropagation(); removeRealMember(a.id); }}
-                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); removeRealMember(a.id); } }}>
-                    <IcoD name="X" size={11} /></span>}
-                  {on && <IcoD name="Check" size={12} />}
-                </button>
-              );
-            })}
+          {/* 1 · Choose whether this run includes a presentation. */}
+          <div className="section-label"><span className="ic"><IcoD name="Route" size={13} /></span> 1 · How do you want to practice?</div>
+          <div className="def-modes" data-ptour="def-mode">
+            <button type="button" className={`def-mode-card ${mode === "present" ? "sel" : ""}`} onClick={() => setMode("present")}>
+              <span className="dmc-ico"><IcoD name="Presentation" size={19} /></span>
+              <span className="dmc-t">Present, then answer questions</span>
+              <span className="dmc-d">Rehearse your presentation first, then answer questions grounded in what you presented and uploaded.</span>
+            </button>
+            <button type="button" className={`def-mode-card ${mode === "qa" ? "sel" : ""}`} onClick={() => setMode("qa")}>
+              <span className="dmc-ico"><IcoD name="MessagesSquare" size={19} /></span>
+              <span className="dmc-t">Practice questions only</span>
+              <span className="dmc-d">Skip the presentation and answer questions grounded in your uploaded materials.</span>
+            </button>
           </div>
 
-          <div className="def-add-real">
-            <div className="def-add-real-h"><IcoD name="UserPlus" size={13} /> Add your real committee members</div>
-            <div className="def-add-row">
-              <input className="def-add-input" value={newName} onChange={e => setNewName(e.target.value)}
-                aria-label="Committee member name"
-                placeholder="Name, e.g. Dr. Maria Chen" onKeyDown={e => e.key === "Enter" && !resolvingMember && searchRealMember()} />
-              <input className="def-add-input" value={newInstitution} onChange={e => setNewInstitution(e.target.value)}
-                aria-label="Affiliated institution"
-                placeholder="Affiliated institution, e.g. University of Colorado Boulder" onKeyDown={e => e.key === "Enter" && !resolvingMember && searchRealMember()} />
-              <button className="btn sm" onClick={searchRealMember} disabled={!newName.trim() || resolvingMember}>
-                <IcoD name={resolvingMember ? "Loader2" : "Search"} size={13} /> {resolvingMember ? "Searching…" : "Search"}
+          {/* 2 · Choose the practice format so the room has context. */}
+          <div className="section-label"><span className="ic"><IcoD name="ListChecks" size={13} /></span> 2 · What are you practicing?</div>
+          <div className="def-formats">
+            {FORMATS.map(f => (
+              <button key={f.id} className={`onb-choice-card ${format === f.id ? "sel" : ""}`} onClick={() => chooseFormat(f.id)}>
+                <span className="occ-ico"><IcoD name={f.icon} size={18} /></span>
+                <span className="occ-t">{f.name}</span>
+                <span className="occ-d">{f.desc}</span>
               </button>
-            </div>
-            <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Globe" size={12} /> Searching looks up public academic pages by name and institution. You'll see who we found — and pick between them if several people share the name — before anyone is added.</div>
+            ))}
           </div>
 
-          {picker && (
-            <CommitteePicker
-              query={pickerQuery}
-              state={picker}
-              onRetry={searchRealMember}
-              onCancel={() => setPicker(null)}
-              onConfirm={confirmRealMember}
-            />
-          )}
-
-          {/* 2 · Materials — REQUIRED. Slides become the deck; documents ground questions. */}
-          <div className="section-label"><span className="ic"><IcoD name="Upload" size={13} /></span> 2 · Your materials <span className="def-required">required</span></div>
+          {/* 3 · Primary materials are required; supporting context is optional. */}
+          <div className="section-label"><span className="ic"><IcoD name="Upload" size={13} /></span> 3 · Upload your materials</div>
           <input ref={fileRef} type="file" multiple style={{ display: "none" }} accept=".pdf,.ppt,.pptx,.key,.doc,.docx,.txt,.md"
             onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={supportingFileRef} type="file" multiple style={{ display: "none" }} accept=".pdf,.ppt,.pptx,.key,.doc,.docx,.txt,.md"
+            onChange={e => { addFiles(e.target.files, { supporting: true }); e.target.value = ""; }} />
           <input ref={deckRef} type="file" style={{ display: "none" }} accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             onChange={e => { addDeck(e.target.files); e.target.value = ""; }} />
-          <div className="def-materials" data-ptour="def-materials">
-            <button className="btn" onClick={() => fileRef.current?.click()}><IcoD name="Upload" size={14} /> Upload slides, draft, or papers</button>
+
+          <div className="def-upload-grid" data-ptour="def-materials">
+            <div className="def-upload-box">
+              <span className="def-upload-icon"><IcoD name="Presentation" size={20} /></span>
+              <div className="def-upload-copy">
+                <strong>Primary material <span className="def-required">required</span></strong>
+                <span>Your slide deck, dissertation draft, paper, or poster.</span>
+              </div>
+              <button className="btn" onClick={() => fileRef.current?.click()}><IcoD name="Upload" size={14} /> Upload primary material</button>
+            </div>
+            <div className="def-upload-box supporting">
+              <span className="def-upload-icon"><IcoD name="Files" size={20} /></span>
+              <div className="def-upload-copy">
+                <strong>Supporting materials <span className="def-optional">optional</span></strong>
+                <span>Add notes, references, appendices, or related papers for richer questions.</span>
+              </div>
+              <button className="btn" onClick={() => supportingFileRef.current?.click()}><IcoD name="Paperclip" size={14} /> Upload supporting materials</button>
+            </div>
+          </div>
+
+          <div className="def-materials">
             {deck && (
               <span className="def-mat">
-                <IcoD name={deck.status === "failed" ? "AlertTriangle" : deck.status === "parsing" ? "Loader2" : deck.kind === "pdf" ? "FileText" : "Presentation"} size={12} /> {deck.name}
+                <IcoD name={deck.status === "failed" ? "AlertTriangle" : deck.status === "parsing" ? "Loader2" : deck.kind === "pdf" ? "FileText" : "Presentation"} size={12} />
+                <span className="def-mat-role role-main">Main</span> {deck.name}
                 {deck.status === "parsing" && " - parsing"}
                 {deck.status === "parsed" && deck.parsedSlides?.length ? ` - ${deck.parsedSlides.length} slides` : ""}
                 {deck.status === "failed" && " - unreadable"}
                 <button className="def-mat-x" onClick={() => setDeck(null)} title="Remove"><IcoD name="X" size={11} /></button>
               </span>
             )}
-            {materials.map((m, i) => (
-              <span key={i} className={`def-mat ${m.status === "failed" ? "bad" : ""}`}>
-                <IcoD name={m.status === "failed" ? "AlertTriangle" : m.status === "parsing" ? "Loader2" : "FileText"} size={12} /> {m.name}
+            {materials.map(m => (
+              <span key={m.id} className={`def-mat ${m.supporting ? "supporting" : ""} ${m.status === "failed" ? "bad" : ""}`}>
+                <IcoD name={m.status === "failed" ? "AlertTriangle" : m.status === "parsing" ? "Loader2" : m.supporting ? "Paperclip" : "FileText"} size={12} />
+                <span className={`def-mat-role ${m.supporting ? "role-supporting" : "role-main"}`}>{m.supporting ? "Supporting" : "Main"}</span> {m.name}
                 {m.status === "parsing" && " · reading…"}
                 {(m.status === "parsed" || m.status === "parsed-local") && ` · ${m.wordCount || 0} words`}
                 {m.status === "failed" && " · couldn't read"}
-                <button className="def-mat-x" onClick={() => setMaterials(p => p.filter((_, j) => j !== i))} title="Remove" aria-label={`Remove ${m.name}`}><IcoD name="X" size={11} /></button>
+                <button className="def-mat-x" onClick={() => setMaterials(p => p.filter(item => item.id !== m.id))} title="Remove" aria-label={`Remove ${m.name}`}><IcoD name="X" size={11} /></button>
               </span>
             ))}
           </div>
@@ -1890,48 +2162,191 @@
               <span className="def-note" style={{ margin: 0 }}><IcoD name="Info" size={12} /> PowerPoint decks use the parsed slide count; PDFs use this page count.</span>
             </div>
           )}
-          <div className="def-note"><IcoD name="Info" size={12} /> Slides (.pptx) become your presenting deck; papers and drafts ground the committee's questions in your actual work.</div>
+          <div className="def-note"><IcoD name="Info" size={12} /> {isPresent
+            ? "Your primary material is displayed during practice. Supporting materials provide additional context for questions."
+            : "Your primary material anchors the questions. Supporting materials provide additional context."}</div>
 
-          {/* 3 · Format */}
-          <div className="section-label"><span className="ic"><IcoD name="ListChecks" size={13} /></span> 3 · What are you practicing?</div>
-          <div className="def-formats">
-            {FORMATS.map(f => (
-              <button key={f.id} className={`onb-choice-card ${format === f.id ? "sel" : ""}`} onClick={() => setFormat(f.id)}>
-                <span className="occ-ico"><IcoD name={f.icon} size={18} /></span>
-                <span className="occ-t">{f.name}</span>
-                <span className="occ-d">{f.desc}</span>
-              </button>
-            ))}
+          {/* 4 · Configure the room: questioning, timing, focus, and recording. */}
+          <div className="section-label"><span className="ic"><IcoD name="SlidersHorizontal" size={13} /></span> 4 · Practice settings</div>
+          <div className="def-room-settings">
+            <div className="def-room-field">
+              <label htmlFor="def-question-count">{isPresent ? "Follow-up questions" : "Practice questions"}</label>
+              <input id="def-question-count" type="number" min="1" max="12" value={followUpQuestionCount}
+                title={isPresent ? "Number of follow-up questions after your presentation" : "Number of practice questions"}
+                onChange={e => {
+                  questionCountEditedRef.current = true;
+                  setFollowUpQuestionCount(Math.max(1, Math.min(12, parseInt(e.target.value || "1", 10))));
+                }} />
+            </div>
+
+            <div className="def-room-field">
+              <label htmlFor="def-difficulty">Difficulty</label>
+              <select id="def-difficulty" value={difficulty} onChange={e => setDifficulty(e.target.value)}>
+                <option value="supportive">Supportive</option>
+                <option value="standard">Standard</option>
+                <option value="rigorous">Rigorous</option>
+              </select>
+            </div>
+
+            {isPresent && (
+              <div className="def-room-field">
+                <label htmlFor="def-target-time">Target time</label>
+                <div className="def-time-control">
+                  <input id="def-target-time" type="number" min="1" max="180" value={targetPresentationMinutes}
+                    onChange={e => {
+                      targetTimeEditedRef.current = true;
+                      setTargetPresentationMinutes(Math.max(1, Math.min(180, parseInt(e.target.value || "1", 10))));
+                    }} />
+                  <span>min</span>
+                </div>
+              </div>
+            )}
+
+            {isPresent && (
+              <div className="def-room-field">
+                <label htmlFor="def-recording">Recording</label>
+                <select id="def-recording" value={captureMode} onChange={e => setCaptureMode(e.target.value)}>
+                  <option value="none">No recording</option>
+                  <option value="audio">Audio only</option>
+                  <option value="both">Camera + mic</option>
+                </select>
+              </div>
+            )}
+
+            <div className="def-room-field focus">
+              <label htmlFor="def-focus-areas">Areas of focus <span className="def-optional">optional</span></label>
+              <textarea id="def-focus-areas" value={focusAreas} maxLength={1200} rows={3}
+                onChange={e => setFocusAreas(e.target.value)}
+                placeholder="Methods, clarity, weak points, questions you are unsure about, or material you may need to cut…" />
+            </div>
           </div>
 
-          {/* 4 · Review mode — how (or whether) we record the practice run */}
-          <div className="section-label"><span className="ic"><IcoD name="Video" size={13} /></span> 4 · Review mode</div>
-          <div className="def-capture">
-            {[
-              { id: "none", icon: "EyeOff", label: "No recording", sub: "Just rehearse" },
-              { id: "audio", icon: "Mic", label: "Audio only", sub: "Hear yourself back" },
-              { id: "both", icon: "Video", label: "Camera + mic", sub: "See and hear yourself" }
-            ].map(o => (
-              <button key={o.id} className={`def-cap-opt ${captureMode === o.id ? "on" : ""}`} onClick={() => setCaptureMode(o.id)}>
-                <IcoD name={o.icon} size={16} />
-                <span className="def-cap-l">{o.label}</span>
-                <span className="def-cap-s">{o.sub}</span>
-              </button>
-            ))}
+          {format === "defense" && (
+            <>
+              <div className="section-label"><span className="ic"><IcoD name="Target" size={13} /></span> 5 · What should the committee focus on?</div>
+              <div className="def-add-real">
+                <div className="def-panel def-audience-interests">
+                  {DEFENSE_PRIORITIES.map(priority => (
+                    <button key={priority} type="button"
+                      className={`def-chip ${defensePriorities.includes(priority) ? "on" : ""}`}
+                      onClick={() => toggleDefensePriority(priority)}>
+                      {priority}
+                    </button>
+                  ))}
+                </div>
+                <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Info" size={12} /> A balanced set is selected by default. Adjust it to target the areas you most need to rehearse.</div>
+              </div>
+            </>
+          )}
+
+          {format !== "defense" && (
+            <>
+              <div className="section-label"><span className="ic"><IcoD name="Users" size={13} /></span> 5 · Choose your {format === "poster" ? "poster" : "talk"} audience</div>
+              <div className="def-formats">
+                {AUDIENCE_LEVELS.map(level => (
+                  <button key={level.id} type="button"
+                    className={`onb-choice-card ${audienceLevels.includes(level.id) ? "sel" : ""}`}
+                    onClick={() => toggleAudienceLevel(level.id)}>
+                    <span className="occ-ico"><IcoD name="UserRound" size={18} /></span>
+                    <span className="occ-t">{level.name}</span>
+                    <span className="occ-d">{level.desc}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="def-add-real">
+                <div className="def-add-real-h"><IcoD name="Target" size={13} /> What should this audience care about?</div>
+                <div className="def-panel def-audience-interests">
+                  {(AUDIENCE_INTERESTS[format] || []).map(interest => (
+                    <button key={interest} type="button"
+                      className={`def-chip ${audienceInterests.includes(interest) ? "on" : ""}`}
+                      onClick={() => toggleAudienceInterest(interest)}>
+                      {interest}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Public profiles are optional topic influences, never simulated people. */}
+          <div className="section-label"><span className="ic"><IcoD name="Users" size={13} /></span>
+            6 · Choose public profiles to inform questions <span className="def-optional">optional, up to {MAX_COMMITTEE_SIZE}</span>
           </div>
-          <div className="def-note"><IcoD name="ShieldCheck" size={12} /> Recordings stay in your browser; the AI listens once to build your committee's questions from what you actually said.</div>
+          <div className="def-note" style={{ marginBottom: 10 }}><IcoD name="Globe" size={12} /> Public profiles emphasize topics connected to an academic’s documented work. They do not predict or imitate the person’s actual questions or behavior.</div>
+          {roster.length > 0 && (
+            <div className="def-panel" data-ptour="def-committee">
+              {roster.map(a => {
+                const selected = selectedProfileIds.includes(a.id);
+                const selectionFull = !selected && selectedProfileIds.length >= MAX_COMMITTEE_SIZE;
+                return (
+                <div key={a.id} className={`def-chip def-profile-chip ${selected ? "on" : ""} ${selectionFull ? "selection-full" : ""}`}
+                  style={selected ? { borderColor: a.color } : undefined}>
+                  <input type="checkbox" className="def-profile-check" checked={selected}
+                    onChange={() => toggleProfileSelection(a.id)}
+                    aria-label={`${selected ? "Deselect" : "Select"} ${a.name} for the Defense Room`} />
+                  <button type="button" className="def-profile-link"
+                    title={`Open ${a.name}'s public academic profile`}
+                    onClick={() => openSavedProfile(realMembers.find(m => m.id === a.id))}>
+                    <span className="def-chip-txt">
+                      <span className="def-profile-name">{a.name}</span>
+                      {a.role !== "Committee member" && <span className="def-chip-sub">{a.role}</span>}
+                    </span>
+                  </button>
+                  <button type="button" className="def-mat-x" title="Remove academic profile" aria-label={`Remove ${a.name}`}
+                    onClick={() => removeRealMember(a.id)}>
+                    <IcoD name="X" size={11} />
+                  </button>
+                </div>
+              );})}
+            </div>
+          )}
+          <div className="def-profile-count">
+            <IcoD name="CheckSquare2" size={12} /> {selectedProfileIds.length} of {MAX_COMMITTEE_SIZE} selected for this practice · {realMembers.length} saved profile{realMembers.length === 1 ? "" : "s"}
+          </div>
+
+          <div className="def-add-real">
+            <div className="def-add-real-h"><IcoD name="UserPlus" size={13} /> Add an optional public academic profile</div>
+            <div className="def-add-row">
+              <input className="def-add-input" value={newName} onChange={e => setNewName(e.target.value)}
+                aria-label="Academic name"
+                placeholder="Name, e.g. Dr. Maria Chen" onKeyDown={e => e.key === "Enter" && !resolvingMember && searchRealMember()} />
+              <input className="def-add-input" value={newInstitution} onChange={e => setNewInstitution(e.target.value)}
+                aria-label="Affiliated institution"
+                placeholder="Affiliated institution, e.g. University of Colorado Boulder" onKeyDown={e => e.key === "Enter" && !resolvingMember && searchRealMember()} />
+              <button className="btn sm" onClick={searchRealMember} disabled={!newName.trim() || resolvingMember}>
+                <IcoD name={resolvingMember ? "Loader2" : "Search"} size={13} /> {resolvingMember ? "Searching…" : "Search"}
+              </button>
+            </div>
+            <div className="def-note" style={{ marginTop: 8 }}><IcoD name="Globe" size={12} /> Build a profile based on public academic pages</div>
+          </div>
+
+          {picker && (
+            <CommitteePicker
+              query={pickerQuery}
+              state={picker}
+              onRetry={searchRealMember}
+              onCancel={() => setPicker(null)}
+              onConfirm={confirmRealMember}
+              viewOnly={!!picker.viewOnly}
+            />
+          )}
 
           <div className="def-startrow" data-ptour="def-start">
             <button className={`composer-btn ${voice ? "on" : ""}`} onClick={() => setVoice(v => !v)} title="Questions are read aloud">
-              <IcoD name={voice ? "Volume2" : "VolumeX"} size={14} /> Voice {voice ? "on" : "off"}
+              <IcoD name={voice ? "Volume2" : "VolumeX"} size={14} /> Read questions aloud: {voice ? "On" : "Off"}
             </button>
-            <button className="btn primary lg" onClick={startPresent}
-              disabled={!hasSelectedCommittee || !hasRequiredMaterials || deckParsing || parsingMaterials || deck?.status === "failed" || loadingQuestions}>
+            <button className="btn primary lg" onClick={isPresent ? startPresent : start}
+              disabled={!hasRequiredQuestioners || !hasRequiredMaterials || deckParsing || parsingMaterials || deck?.status === "failed" || loadingQuestions}>
               <IcoD name={(deckParsing || parsingMaterials) ? "Loader2" : "Play"} size={15} color="#fff" />
-              {(deckParsing || parsingMaterials) ? "Reading materials..." : `Practice ${fmt.name.toLowerCase()}${deck ? ` - ${slideCount} slide${slideCount === 1 ? "" : "s"}` : ""}`}
+              {(deckParsing || parsingMaterials)
+                ? "Reading materials..."
+                : isPresent
+                  ? `Practice ${fmt.name.toLowerCase()}${deck ? ` - ${slideCount} slide${slideCount === 1 ? "" : "s"}` : ""}`
+                  : `Start ${followUpQuestionCount} practice question${followUpQuestionCount === 1 ? "" : "s"}`}
             </button>
           </div>
-          {!hasRequiredMaterials && <div className="def-note" style={{ marginTop: 8 }}><IcoD name="AlertTriangle" size={12} /> Upload at least one material — the committee's questions come from your work, not a generic script.</div>}
+          {!hasRequiredMaterials && <div className="def-note" style={{ marginTop: 8 }}><IcoD name="AlertTriangle" size={12} /> Upload at least one primary material — the practice questions come from your work, not a generic script.</div>}
+          {!hasRequiredQuestioners && <div className="def-note" style={{ marginTop: 8 }}><IcoD name="AlertTriangle" size={12} /> Select at least one audience level or add an academic profile to generate questions.</div>}
         </div>
       );
     }
@@ -1964,7 +2379,7 @@
           <div className="def-live-head">
             <div>
               <div className="section-label" style={{ margin: 0 }}><span className="ic"><IcoD name="MonitorPlay" size={13} /></span> Practicing · {deck?.name || (FORMATS.find(f => f.id === format)?.name || "your talk")}</div>
-              <div className="def-live-count">{slides.length ? `Slide ${slideIdx + 1} of ${slides.length}` : "Free rehearsal — no slides"}</div>
+              <div className="def-live-count">{slides.length ? `Slide ${slideIdx + 1} of ${slides.length}` : "Free rehearsal — no slides"} · target {targetPresentationMinutes} min</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span className={`def-rec-dot ${recording ? "on" : ""}`}><span /> {recording ? "Recording" : camReady ? "Ready" : "Recording off"}</span>
@@ -2038,8 +2453,8 @@
           )}
 
           <div className="def-present-tip"><IcoD name="Lightbulb" size={13} /> {slides.length
-            ? "Speak as if the committee is in the room. Advance when you'd move to the next slide — we log how long each one takes."
-            : "Speak as if the committee is in the room. When you've said your piece, hit Finish and take their questions."}</div>
+            ? `Speak as if the ${questionerGroup} is in the room. Advance when you'd move to the next slide — we log how long each one takes.`
+            : `Speak as if the ${questionerGroup} is in the room. When you've said your piece, hit Finish and take their questions.`}</div>
 
           <div className="def-live-actions">
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2084,7 +2499,7 @@
                       ? "Reading your materials and slide timing"
                       : "Gemini reviews your recording and writes the transcript",
                       analysisPhase === "media" ? "active" : "done")}
-                    {stepRow("Your committee drafts questions on what you said",
+                    {stepRow(`Your ${questionerGroup} drafts questions on what you said`,
                       analysisPhase === "questions" ? "active" : "pending")}
                   </div>
                   <div className="def-note" style={{ justifyContent: "center" }}><IcoD name="Clock" size={12} /> Usually under a minute — keep this tab open.</div>
@@ -2129,8 +2544,10 @@
               <IcoD name="WifiOff" size={14} />
               <span>
                 <strong>Offline practice questions.</strong> The advisor service isn't reachable, so these were built on this
-                device from your committee personas{materials.some(m => m.text) ? " and your uploaded materials" : ""} — they are
-                not the profile-grounded questions the committee model writes. Start the backend to get those.
+                device from your selected {format === "defense"
+                  ? (panel.length ? "public academic profiles" : "defense priorities")
+                  : "audience perspectives"}
+                {materials.some(m => m.text) ? " and your uploaded materials" : ""}. Start the backend for fully grounded questions.
               </span>
             </div>
           )}
@@ -2138,9 +2555,12 @@
           <div className="msg-adv def-q" style={{ borderTopColor: asker.color }}>
             <div className="ma-h">
               <div className="ma-i" style={{ background: asker.color }}><IcoD name={asker.icon} size={14} color="#fff" /></div>
-              <div><div className="ma-n">{asker.name}</div><div className="ma-r">{asker.role}</div></div>
+              <div>
+                <div className="ma-n">{asker.real ? <>Based on public profile of {asker.name}</> : asker.name}</div>
+                <div className="ma-r">{asker.real ? "Topic emphasis from documented public work—not a prediction of this person’s questions" : asker.role}</div>
+              </div>
               <button className="def-replay" title="Hear the question again"
-                onClick={() => DefenseAudio.speakQuestion({ text: current.q, personaId: asker.id })}>
+                onClick={() => DefenseAudio.speakQuestion({ text: current.q, personaId: asker.real ? null : asker.id })}>
                 <IcoD name="Volume2" size={14} />
               </button>
               <span className="def-tag">{current.tag}</span>
@@ -2178,11 +2598,13 @@
     const avgWords = answered.length ? Math.round(answered.reduce((a, l) => a + wordCount(l.answer), 0) / answered.length) : 0;
     const skippedTags = [...new Set(log.filter(l => !l.answer).map(l => l.tag))];
     const totalPresentSecs = presentLog.reduce((a, s) => a + (s.seconds || 0), 0);
+    const targetPresentSecs = targetPresentationMinutes * 60;
+    const timeDeltaSecs = totalPresentSecs - targetPresentSecs;
     return (
       <div className="page">
         <div className="greeting">
           <h1 className="display" style={{ fontSize: 26 }}>Session feedback</h1>
-          <div className="sub">{presented ? "Slide presentation" : FORMATS.find(f => f.id === format)?.name} · practiced with {panel.map(a => a.name).join(", ") || "your committee"}.</div>
+          <div className="sub">{FORMATS.find(f => f.id === format)?.name} · {profileInfluenceLine(practicePanel, format)}</div>
         </div>
 
         {/* Presentation recap — only when a deck was presented */}
@@ -2191,7 +2613,14 @@
             <div className="def-stats">
               <div className="card card-pad def-stat"><div className="def-stat-n">{presentLog.length}</div><div className="def-stat-l">slides presented</div></div>
               <div className="card card-pad def-stat"><div className="def-stat-n">{fmtDur(totalPresentSecs)}</div><div className="def-stat-l">total talk time</div></div>
+              <div className="card card-pad def-stat"><div className="def-stat-n">{targetPresentationMinutes} min</div><div className="def-stat-l">target talk time</div></div>
               <div className="card card-pad def-stat"><div className="def-stat-n">{fmtDur(presentLog.length ? totalPresentSecs / presentLog.length : 0)}</div><div className="def-stat-l">avg per slide</div></div>
+            </div>
+            <div className={`def-gap ${Math.abs(timeDeltaSecs) <= 60 ? "success" : ""}`}>
+              <IcoD name={Math.abs(timeDeltaSecs) <= 60 ? "CheckCircle2" : "Clock"} size={14} />
+              {Math.abs(timeDeltaSecs) <= 60
+                ? `You finished within one minute of your ${targetPresentationMinutes}-minute target.`
+                : `Your talk ran ${fmtDur(Math.abs(timeDeltaSecs))} ${timeDeltaSecs > 0 ? "over" : "under"} your ${targetPresentationMinutes}-minute target.`}
             </div>
 
             {recordedUrl && (
@@ -2217,6 +2646,7 @@
                 </div>
               ))}
             </div>
+            {presentationFeedbackSection(presentationFeedback, format)}
             {deliverySection(delivery)}
           </>
         )}
@@ -2231,21 +2661,25 @@
             </div>
 
             {skippedTags.length > 0 && (
-              <div className="def-gap"><IcoD name="AlertTriangle" size={14} /> You skipped {skippedTags.join(", ").toLowerCase()} questions. Real committees rarely let those slide; practice that area next round.</div>
+              <div className="def-gap"><IcoD name="AlertTriangle" size={14} /> You skipped {skippedTags.join(", ").toLowerCase()} questions. Practice that area before the real {format === "defense" ? "defense" : "Q&A"}.</div>
             )}
 
             <div className="section-label"><span className="ic"><IcoD name="ListChecks" size={13} /></span> Your answers
-              {answerFb?.loading && <span className="def-fb-loading"><IcoD name="Loader2" size={12} className="spin" /> your committee is reviewing them…</span>}
+              {answerFb?.loading && <span className="def-fb-loading"><IcoD name="Loader2" size={12} className="spin" /> your {questionerGroup} is reviewing them…</span>}
             </div>
             <div className="def-review">
               {log.map((l, i) => {
-                const asker = l.advisorId ? roster.find(a => a.id === l.advisorId) : null;
+                const asker = l.advisorId ? practicePanel.find(a => a.id === l.advisorId) : null;
                 const fb = answerFb && !answerFb.loading ? answerFb.items[i] : null;
                 return (
                   <div key={i} className="def-review-row qa">
                     <div className="def-review-meta">
                       <span className="def-tag">{l.tag}</span>
-                      {asker && <span className="def-review-asker">{asker.name}</span>}
+                      {(asker || l.memberName) && <span className="def-review-asker">
+                        {isPublicProfilePanelist(asker || { id: l.advisorId })
+                          ? <>Based on public profile of <strong>{asker?.name || l.memberName}</strong></>
+                          : asker?.name || l.memberName}
+                      </span>}
                       {l.spoken && <span className="def-review-voice"><IcoD name="Mic" size={11} /> voice</span>}
                     </div>
                     <div className="def-review-q">{l.q}</div>
@@ -2258,7 +2692,7 @@
                     )}
                     <div className="def-review-acts">
                       <button className="btn sm" onClick={() => followUp(l)}>
-                        <IcoD name="MessageCircle" size={13} /> Ask {asker ? asker.name.split(" ")[0] : "a"} follow-up
+                        <IcoD name="MessageCircle" size={13} /> Ask about this in chat
                       </button>
                     </div>
                   </div>
@@ -2267,25 +2701,6 @@
             </div>
           </>
         )}
-
-        {/* Save this session: the report, plus the recording if one was made. */}
-        <div className="card card-pad def-save">
-          <div className="def-save-txt">
-            <div className="def-save-t"><IcoD name="Save" size={15} /> Keep this session</div>
-            <div className="def-save-d">
-              {savedId
-                ? "Saved. You can reopen this report — and its recording — any time from Defense Room History."
-                : recordedBlobRef.current
-                  ? `Save the full report together with your ${captureMode === "audio" ? "audio" : "video"} recording (${fmtBytes(recordedBlobRef.current.size)}) so you can compare runs later.`
-                  : "Save the full report so you can compare this run against later ones."}
-            </div>
-          </div>
-          {savedId
-            ? <button className="btn primary" onClick={() => setStage("history")}><IcoD name="Archive" size={14} color="#fff" /> View in History</button>
-            : <button className="btn primary" onClick={saveReport} disabled={saving}>
-                <IcoD name={saving ? "Loader" : "Save"} size={14} color="#fff" /> {saving ? "Saving…" : "Save report"}
-              </button>}
-        </div>
 
         <div className="def-startrow">
           <button className="btn" onClick={reset}><IcoD name="RotateCcw" size={14} /> Practice again</button>

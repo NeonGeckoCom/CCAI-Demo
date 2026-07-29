@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_active_user
 from app.core.database import get_database
-from app.core.library import get_knowledge, list_documents
+from app.core.library import filter_knowledge_for_context, get_knowledge, list_documents
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -730,7 +730,9 @@ async def _gather(user_id: str, raw_user_id: Any, context: Dict[str, Any]) -> Di
     plan = context.get("plan") or {}
 
     try:
-        knowledge = (await get_knowledge(user_id)).get("markdown") or ""
+        knowledge = filter_knowledge_for_context(
+            (await get_knowledge(user_id)).get("markdown") or ""
+        )
     except Exception:
         knowledge = ""
     try:

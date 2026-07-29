@@ -3,6 +3,7 @@ import os
 import unittest
 import zipfile
 from io import BytesIO
+from unittest.mock import patch
 
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
 
@@ -16,9 +17,13 @@ from app.api.routes.defense import (
     DefenseMaterial,
     DefenseQuestionsRequest,
     PublicProfileResource,
+    _audience_profiles,
     _candidate_question_count,
     MAX_DEFENSE_MATERIAL_BYTES,
+    MAX_MATERIAL_CHARS,
+    _material_context,
     _normalize_llm_questions,
+    _presentation_analysis_material,
     _best_openalex_author,
     _question_evidence_text,
     analyze_defense_presentation,
@@ -117,8 +122,30 @@ class FakePresentationMultimodalLLM:
                 "summary": "The talk connected slide claims to navigation and embodied AI memory.",
                 "question_seed": "Ask about how the memory mechanism is evaluated and where the slides were underexplained.",
                 "delivery_notes": ["Slide 2 moved quickly."],
+                "presentation_feedback": ["State the main result earlier for a general audience."],
             }
         )
+
+
+class FakeAudienceQuestionLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        payload = json.loads(kwargs["context"][0]["content"])
+        questions = []
+        for profile in payload["profiles"]:
+            questions.append(
+                {
+                    "tag": "Clarity",
+                    "q": f"How would you explain the robotic manipulation result to {profile['name']}?",
+                    "member_id": profile["id"],
+                    "member_name": profile["name"],
+                    "grounded_in": ["robotic manipulation result"],
+                }
+            )
+        return json.dumps({"questions": questions})
 
 
 class FakeRetryQuestionLLM:
@@ -549,12 +576,18 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         original_llm = defense_route.chat_orchestrator.llm_client
         defense_route.chat_orchestrator.llm_client = fake_llm
         try:
-            result = await analyze_defense_presentation(
-                deck=FakeUpload("Defense Talk.pptx", b"fake-pptx", pptx_mime),
-                media=FakeUpload("talk.webm", b"fake-webm", "video/webm"),
-                deck_name="Defense Talk.pptx",
-                current_user=user,
-            )
+            with patch("app.core.library.schedule_event_memory") as schedule_memory:
+                result = await analyze_defense_presentation(
+                    deck=FakeUpload("Defense Talk.pptx", b"fake-pptx", pptx_mime),
+                    media=FakeUpload("talk.webm", b"fake-webm", "video/webm"),
+                    deck_name="Defense Talk.pptx",
+                    format="poster",
+                    target_presentation_minutes=2,
+                    audience_levels_json='["novice","general"]',
+                    audience_interests_json='["Why it matters","Results"]',
+                    slides_json='[{"index":0,"title":"Main result","text":"Reliable grasping improved.","seconds":42}]',
+                    current_user=user,
+                )
         finally:
             defense_route.chat_orchestrator.llm_client = original_llm
 
@@ -562,7 +595,20 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("long and short memory", result.transcript)
         self.assertIn("Slide deck file", result.material.text)
         self.assertIn("Recording transcript", result.material.text)
+        self.assertEqual(result.presentation_feedback, ["State the main result earlier for a general audience."])
+        self.assertEqual(result.provenance.source_type, "simulation")
+        self.assertFalse(result.provenance.real_person_statement)
+        self.assertEqual(
+            result.provenance.referenced_lens_or_profile,
+            ["Why it matters", "Results"],
+        )
+        schedule_memory.assert_not_called()
         self.assertNotIn("slides_json", fake_llm.calls[0])
+        analysis_prompt = json.loads(fake_llm.calls[0]["text_prompt"])
+        self.assertEqual(analysis_prompt["format"], "poster")
+        self.assertEqual(analysis_prompt["target_presentation_minutes"], 2)
+        self.assertIn("30-second and 90-second", analysis_prompt["format_specific_analysis"])
+        self.assertIn("42", analysis_prompt["slide_text_and_timing"])
         media_parts = fake_llm.calls[0]["media_parts"]
         self.assertEqual(media_parts[0]["bytes"], b"fake-pptx")
         self.assertEqual(media_parts[0]["mime_type"], pptx_mime)
@@ -623,24 +669,32 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         original_llm = defense_route.chat_orchestrator.llm_client
         defense_route.chat_orchestrator.llm_client = fake_llm
         try:
-            result = await defense_route.defense_questions(
-                DefenseQuestionsRequest(
-                    format="poster",
-                    thesis_title="Learning robust manipulation policies",
-                    committee_members=[
-                        CommitteeMemberRequest(name="Poster Expert", profile=profile)
-                    ],
-                    question_count=1,
-                    use_llm=True,
-                ),
-                current_user=user,
-            )
+            with patch("app.core.library.schedule_event_memory") as schedule_memory:
+                result = await defense_route.defense_questions(
+                    DefenseQuestionsRequest(
+                        format="poster",
+                        thesis_title="Learning robust manipulation policies",
+                        committee_members=[
+                            CommitteeMemberRequest(name="Poster Expert", profile=profile)
+                        ],
+                        question_count=1,
+                        use_llm=True,
+                    ),
+                    current_user=user,
+                )
         finally:
             defense_route.chat_orchestrator.llm_client = original_llm
 
         self.assertEqual(result.generation_method, "llm")
         self.assertEqual(result.diagnostics.accepted_count, 1)
         self.assertEqual(result.questions[0].q, "What is the main robotic manipulation claim?")
+        self.assertEqual(result.provenance.source_type, "simulation")
+        self.assertEqual(
+            result.provenance.referenced_lens_or_profile,
+            ["Poster Expert"],
+        )
+        self.assertFalse(result.provenance.real_person_statement)
+        schedule_memory.assert_not_called()
 
     async def test_defense_questions_begin_with_partial_usable_llm_set(self):
         profile = AcademicProfile(
@@ -1263,6 +1317,134 @@ class DefenseProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.questions), 1)
         rejection = result.diagnostics.rejections[0]
         self.assertIn("unable to generate", rejection.q)
+
+    async def test_poster_can_generate_questions_from_selected_audiences_without_profiles(self):
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        fake_llm = FakeAudienceQuestionLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="poster",
+                    materials=[
+                        DefenseMaterial(
+                            name="Poster transcript",
+                            text="The robotic manipulation result improves reliable grasping.",
+                        )
+                    ],
+                    audience_levels=["novice", "general", "field_familiar"],
+                    audience_interests=["robotic manipulation result", "Why it matters"],
+                    question_count=3,
+                ),
+                current_user=user,
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+
+        self.assertEqual(len(result.questions), 3)
+        self.assertEqual(
+            {question.member_id for question in result.questions},
+            {"audience-novice", "audience-general", "audience-field_familiar"},
+        )
+        payload = json.loads(fake_llm.calls[0]["context"][0]["content"])
+        self.assertEqual(payload["practice_room"]["audience_levels"], ["novice", "general", "field_familiar"])
+
+    async def test_defense_generates_balanced_questions_without_a_public_profile(self):
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        fake_llm = FakeAudienceQuestionLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="defense",
+                    materials=[DefenseMaterial(name="Draft", text="The robotic manipulation result improves reliable grasping.")],
+                    defense_priorities=["Methods", "Robustness and alternative explanations"],
+                    question_count=1,
+                ),
+                current_user=user,
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+        self.assertEqual(result.questions[0].member_id, "balanced-defense")
+        payload = json.loads(fake_llm.calls[0]["context"][0]["content"])
+        self.assertEqual(
+            payload["practice_room"]["defense_priorities"],
+            ["Methods", "Robustness and alternative explanations"],
+        )
+
+    async def test_research_talk_can_generate_questions_from_audience_without_profiles(self):
+        user = User(
+            firstName="Ada",
+            lastName="Lovelace",
+            email="ada@example.com",
+            hashed_password="hashed",
+        )
+        fake_llm = FakeAudienceQuestionLLM()
+        original_llm = defense_route.chat_orchestrator.llm_client
+        defense_route.chat_orchestrator.llm_client = fake_llm
+        try:
+            result = await defense_route.defense_questions(
+                DefenseQuestionsRequest(
+                    format="talk",
+                    materials=[DefenseMaterial(name="Talk", text="The robotic manipulation result improves reliable grasping.")],
+                    audience_levels=["general"],
+                    audience_interests=["robotic manipulation result"],
+                    question_count=1,
+                ),
+                current_user=user,
+            )
+        finally:
+            defense_route.chat_orchestrator.llm_client = original_llm
+        self.assertEqual(result.questions[0].member_id, "audience-general")
+        self.assertIn("research talk", fake_llm.calls[0]["system_prompt"])
+
+    def test_audience_profiles_use_selected_interests_as_question_angles(self):
+        profiles = _audience_profiles(
+            DefenseQuestionsRequest(
+                format="talk",
+                audience_levels=["novice", "general"],
+                audience_interests=["Novelty and prior work", "Evidence and results"],
+            )
+        )
+        self.assertEqual([profile.source_status for profile in profiles], ["persona", "persona"])
+        self.assertEqual(profiles[0].question_angles, ["Novelty and prior work", "Evidence and results"])
+
+    def test_material_context_keeps_later_priority_material_with_larger_budget(self):
+        context = _material_context(
+            [
+                DefenseMaterial(name="Recorded presentation", text="question seed " + ("a" * 7000)),
+                DefenseMaterial(name="Supporting paper", text="supporting evidence " + ("b" * 7000)),
+            ]
+        )
+        self.assertLessEqual(len(context), MAX_MATERIAL_CHARS)
+        self.assertIn("Recorded presentation", context)
+        self.assertIn("Supporting paper", context)
+
+    def test_presentation_material_prioritizes_question_seed_before_transcript(self):
+        material = _presentation_analysis_material(
+            "Poster.pdf",
+            [],
+            {
+                "transcript": "TRANSCRIPT " + ("spoken " * 1000),
+                "summary": "SUMMARY",
+                "question_seed": "QUESTION SEED",
+                "presentation_feedback": ["Explain the result earlier."],
+            },
+        )
+        self.assertLess(material.text.index("QUESTION SEED"), material.text.index("TRANSCRIPT"))
+        self.assertIn("Explain the result earlier.", material.text)
 
 
 if __name__ == "__main__":
